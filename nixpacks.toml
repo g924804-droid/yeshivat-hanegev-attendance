@@ -1,0 +1,11 @@
+[phases.setup]
+aptPkgs = ["chromium"]
+
+[phases.install]
+cmds = ["npm install --workspaces --include-workspace-root"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start"

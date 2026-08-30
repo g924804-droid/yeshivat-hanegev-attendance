@@ -1,0 +1,174 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, History } from 'lucide-react';
+import { Layout } from '../components/Layout';
+import { api } from '../lib/api';
+
+type Lesson = {
+  id: string;
+  className: string;
+  dayOfWeek: string;
+  time: string;
+  track: string[];
+  teacher: string[];
+  room: string;
+};
+type Ref = { id: string; name: string };
+type HistoryRow = { id: string; description: string; changedAt: string; changedBy: string | null };
+
+const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי'];
+
+export function SchedulePage() {
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [teachers, setTeachers] = useState<Ref[]>([]);
+  const [tracks, setTracks] = useState<Ref[]>([]);
+  const [trackFilter, setTrackFilter] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<HistoryRow[]>([]);
+
+  async function load() {
+    const data = await api.get<{ lessons: Lesson[]; teachers: Ref[]; tracks: Ref[] }>('/schedule/getSchedule');
+    setLessons(data.lessons);
+    setTeachers(data.teachers);
+    setTracks(data.tracks);
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  const filtered = useMemo(
+    () => (trackFilter ? lessons.filter((l) => l.track?.includes(trackFilter)) : lessons),
+    [lessons, trackFilter]
+  );
+
+  function teacherName(ids: string[]) {
+    return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '—';
+  }
+
+  async function openHistory() {
+    const data = await api.get<{ history: HistoryRow[] }>('/schedule/getScheduleHistory');
+    setHistory(data.history);
+    setShowHistory(true);
+  }
+
+  return (
+    <Layout title="מערכת שעות">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <select className="input w-auto" value={trackFilter} onChange={(e) => setTrackFilter(e.target.value)}>
+          <option value="">כל המסלולים</option>
+          {tracks.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+        <div className="flex gap-2">
+          <button className="btn-outline" onClick={openHistory}>
+            <History size={16} /> היסטוריה
+          </button>
+          <button className="btn-primary" onClick={() => setShowModal(true)}>
+            <Plus size={16} /> שיעור חדש
+          </button>
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {DAYS.map((day) => (
+          <div key={day} className="card">
+            <h3 className="font-bold text-navy mb-3">{day}</h3>
+            <div className="space-y-2">
+              {filtered
+                .filter((l) => l.dayOfWeek === day)
+                .sort((a, b) => a.time?.localeCompare(b.time))
+                .map((l) => (
+                  <div key={l.id} className="bg-slate-50 rounded-lg p-2.5 text-sm">
+                    <div className="font-medium text-navy">{l.className}</div>
+                    <div className="text-slate-500 text-xs">{l.time} · {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}</div>
+                  </div>
+                ))}
+              {filtered.filter((l) => l.dayOfWeek === day).length === 0 && (
+                <p className="text-slate-300 text-xs">אין שיעורים</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {showModal && (
+        <LessonModal
+          teachers={teachers}
+          tracks={tracks}
+          onClose={() => setShowModal(false)}
+          onSaved={() => {
+            setShowModal(false);
+            load();
+          }}
+        />
+      )}
+
+      {showHistory && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto space-y-2">
+            <h3 className="font-bold text-navy text-lg mb-2">היסטוריית שינויים</h3>
+            {history.map((h) => (
+              <div key={h.id} className="text-sm border-b pb-2">
+                <p>{h.description}</p>
+                <p className="text-slate-400 text-xs">{h.changedBy} · {new Date(h.changedAt).toLocaleString('he-IL')}</p>
+              </div>
+            ))}
+            <button className="btn-outline mt-3" onClick={() => setShowHistory(false)}>סגירה</button>
+          </div>
+        </div>
+      )}
+    </Layout>
+  );
+}
+
+function LessonModal({
+  teachers,
+  tracks,
+  onClose,
+  onSaved,
+}: {
+  teachers: Ref[];
+  tracks: Ref[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({ className: '', dayOfWeek: 'ראשון', time: '', trackId: '', teacherId: '', room: '' });
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      await api.post('/schedule/updateScheduleLesson', form);
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3">
+        <h3 className="font-bold text-navy text-lg">שיעור חדש</h3>
+        <input className="input" placeholder="שם הכיתה" value={form.className} onChange={(e) => setForm({ ...form, className: e.target.value })} />
+        <select className="input" value={form.dayOfWeek} onChange={(e) => setForm({ ...form, dayOfWeek: e.target.value })}>
+          {DAYS.map((d) => <option key={d}>{d}</option>)}
+        </select>
+        <input className="input" placeholder="שעה (HH:MM)" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+        <select className="input" value={form.trackId} onChange={(e) => setForm({ ...form, trackId: e.target.value })}>
+          <option value="">מסלול</option>
+          {tracks.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <select className="input" value={form.teacherId} onChange={(e) => setForm({ ...form, teacherId: e.target.value })}>
+          <option value="">מורה</option>
+          {teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <input className="input" placeholder="חדר" value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })} />
+        <div className="flex gap-2 justify-end pt-2">
+          <button className="btn-outline" onClick={onClose}>ביטול</button>
+          <button className="btn-primary" onClick={submit} disabled={busy || !form.className}>שמירה</button>
+        </div>
+      </div>
+    </div>
+  );
+}

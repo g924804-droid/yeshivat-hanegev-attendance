@@ -1,0 +1,132 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Role: מורה | עובד | מנהל — Department: ישיבה קטנה | ישיבה גדולה | תיכון | סמינר | ניהול
+// (plain strings — SQLite provider does not support Prisma enums)
+
+model User {
+  id                  String   @id @default(cuid())
+  name                String
+  email               String?
+  firstName           String?
+  lastName            String?
+  role                String // מורה | עובד | מנהל
+  department          String?
+  isActive            Boolean  @default(true)
+  idNumber            String?
+  travelExpenses      Float?
+  employmentType      String? // שעתי | חודשי | נגד קבלה
+  dailyRequiredHours  Float    @default(8)
+  trackLessons        Boolean  @default(false)
+  dailyTravelCost     Float?
+  monthlyBusPass      Float?
+  employeeStatus      String   @default("פעיל")
+  sundayHours         Float?
+  mondayHours         Float?
+  tuesdayHours        Float?
+  wednesdayHours      Float?
+  thursdayHours       Float?
+  fridayHours         Float?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  attendanceRecords AttendanceRecord[]
+  monthlyReports    MonthlyReport[]
+  receipts          Receipt[]
+  contracts         Contract[]
+}
+
+model AttendanceRecord {
+  id             String   @id @default(cuid())
+  employeeId     String
+  employee       User     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date           String // YYYY-MM-DD
+  clockIn        String?
+  clockOut       String?
+  clockIn2       String?
+  clockOut2      String?
+  totalHours     Float    @default(0)
+  overtimeHours  Float    @default(0)
+  lessonsCount   Int      @default(0)
+  type           String   @default("רגיל") // רגיל | מחלה | חופשה שנתית | חופשה אישית | חג | חצי יום
+  notes          String?
+  sickNoteUrl    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([employeeId, date])
+}
+
+model MonthlyReport {
+  id                String   @id @default(cuid())
+  employeeId        String
+  employee          User     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  month             String // YYYY-MM
+  totalWorkDays     Int      @default(0)
+  totalHours        Float    @default(0)
+  totalOvertime     Float    @default(0)
+  sickDays          Int      @default(0)
+  vacationDays      Int      @default(0)
+  totalLessons      Int      @default(0)
+  status            String   @default("טיוטה") // טיוטה | הוגש | אושר
+  reminderSent      Boolean  @default(false)
+  employeeSignature String?
+  pdfUrl            String?
+  holidayDays       Int      @default(0)
+  absenceHours      Float    @default(0)
+  absenceDays       Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([employeeId, month])
+}
+
+model Receipt {
+  id           String   @id @default(cuid())
+  description  String
+  employeeId   String
+  employee     User     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  month        String
+  receiptDate  String
+  amount       Float
+  receiptFile  String?
+  status       String   @default("ממתין") // ממתין | אושר | נדחה
+  adminNotes   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Contract {
+  id                String    @id @default(cuid())
+  title             String
+  employeeId        String
+  employee          User      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  status            String    @default("ממתין לחתימה") // ממתין לחתימה | נחתם | בוטל
+  contractFileUrl   String?
+  employeeSignature String?
+  signedAt          DateTime?
+  uploadedAt        DateTime  @default(now())
+  notes             String?
+}
+
+model ScheduleHistory {
+  id           String   @id @default(cuid())
+  description  String
+  changedAt    DateTime @default(now())
+  changedBy    String?
+  changeType   String?
+  lessonId     String?
+  trackName    String?
+  className    String?
+  dayOfWeek    String?
+  time         String?
+  room         String?
+  teacherName  String?
+  previousData String? // JSON
+}
