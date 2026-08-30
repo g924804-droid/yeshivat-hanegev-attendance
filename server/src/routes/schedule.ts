@@ -19,7 +19,17 @@ router.get('/getSchedule', async (req, res) => {
 
 router.post('/updateScheduleLesson', async (req, res) => {
   try {
-    const { id, className, dayOfWeek, time, trackId, teacherId, room, year, notes } = req.body;
+    const { id, className, dayOfWeek, time, trackId, teacherIds, room, year, notes } = req.body as {
+      id?: string;
+      className: string;
+      dayOfWeek: string;
+      time: string;
+      trackId?: string;
+      teacherIds?: string[];
+      room?: string;
+      year?: string;
+      notes?: string;
+    };
 
     const fields: Record<string, any> = {
       [FIELDS.lessons.className]: className,
@@ -30,7 +40,7 @@ router.post('/updateScheduleLesson', async (req, res) => {
       [FIELDS.lessons.notes]: notes,
     };
     if (trackId) fields[FIELDS.lessons.track] = [trackId];
-    if (teacherId) fields[FIELDS.lessons.teacher] = [teacherId];
+    if (teacherIds?.length) fields[FIELDS.lessons.teacher] = teacherIds;
 
     let previousData: any = null;
     let record;

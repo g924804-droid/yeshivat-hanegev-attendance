@@ -14,7 +14,7 @@ type Lesson = {
 type Ref = { id: string; name: string };
 type Announcement = { id: string; text: string | null; fileName: string | null; fileMime: string | null };
 
-const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי'];
+const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי']; // אין לימודים בימי שישי כרגע
 const SCHEDULE_POLL_MS = 60_000;
 const ANNOUNCEMENT_POLL_MS = 60_000;
 const ANNOUNCEMENT_ROTATE_MS = 2 * 60_000; // כל כמה דקות מתחלפת הודעת הטקסט שמוצגת למטה
@@ -156,7 +156,7 @@ export function DisplayBoard() {
             <h2 className="text-3xl font-bold mb-6 flex items-center gap-3 text-gold-dark">
               <CalendarDays size={32} /> השבוע
             </h2>
-            <div className="grid grid-cols-6 gap-4 h-[calc(100%-4rem)]">
+            <div className="grid grid-cols-5 gap-4 h-[calc(100%-4rem)]">
               {DAYS.map((day) => {
                 const dayLessons = lessons
                   .filter((l) => l.dayOfWeek === day)
