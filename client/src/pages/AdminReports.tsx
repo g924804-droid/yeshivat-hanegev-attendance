@@ -186,6 +186,8 @@ function ReportsTab() {
 function EmployeesTab() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
 
   async function load() {
     const data = await api.get<{ employees: Employee[] }>('/employees/getEmployees');
@@ -201,13 +203,37 @@ function EmployeesTab() {
     await load();
   }
 
+  async function importFromAirtable() {
+    setImportBusy(true);
+    setImportResult(null);
+    try {
+      const r = await api.post<{ created: number; createdNames: string[]; totalFoundInAirtable: number }>(
+        '/employees/importFromAirtable'
+      );
+      setImportResult(
+        r.created > 0
+          ? `נוספו ${r.created} עובדים חדשים: ${r.createdNames.join(', ')}`
+          : `לא נמצאו עובדים חדשים להוספה (מתוך ${r.totalFoundInAirtable} שנמצאו ב-Airtable, כולם כבר קיימים)`
+      );
+      await load();
+    } catch (err: any) {
+      setImportResult(err.message || 'שגיאה בייבוא');
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   return (
     <div>
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end gap-2 mb-2">
+        <button className="btn-outline" onClick={importFromAirtable} disabled={importBusy}>
+          <RefreshCw size={16} className={importBusy ? 'animate-spin' : ''} /> ייבוא עובדים מ-Airtable
+        </button>
         <button className="btn-primary" onClick={() => setShowAdd(true)}>
           <Plus size={16} /> הוספת עובד
         </button>
       </div>
+      {importResult && <p className="text-sm text-slate-600 mb-4 text-left">{importResult}</p>}
       <div className="card overflow-x-auto">
         <table className="w-full text-sm text-center">
           <thead>
