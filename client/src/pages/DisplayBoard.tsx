@@ -87,47 +87,51 @@ export function DisplayBoard() {
   const timeStr = now.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div className="min-h-screen bg-navy text-white flex flex-col overflow-hidden" dir="rtl">
-      <header className="flex items-center justify-between px-10 py-6 border-b border-white/10">
+    <div
+      className="min-h-screen text-navy flex flex-col overflow-hidden"
+      style={{ background: 'linear-gradient(160deg, #fdf8f1 0%, #f7ece8 55%, #f3e6e9 100%)' }}
+      dir="rtl"
+    >
+      <header className="flex items-center justify-between px-10 py-6 bg-white/70 backdrop-blur-sm shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="h-14 w-14 rounded-2xl bg-gold text-navy flex items-center justify-center text-3xl font-black">
+          <div className="h-14 w-14 rounded-2xl bg-gold text-navy flex items-center justify-center text-3xl font-black shadow">
             נ
           </div>
           <div>
-            <h1 className="text-3xl font-bold">ישיבת הנגב</h1>
-            <p className="text-slate-300">{slide === 'today' ? `מערכת שעות — ${DOW_HE[now.getDay()]}` : 'מערכת שעות — השבוע'}</p>
+            <h1 className="text-3xl font-bold text-navy">ישיבת הנגב</h1>
+            <p className="text-navy-light/70">{slide === 'today' ? `מערכת שעות — ${DOW_HE[now.getDay()]}` : 'מערכת שעות — השבוע'}</p>
           </div>
         </div>
         <div className="text-left">
-          <div className="text-4xl font-black tabular-nums">{timeStr}</div>
-          <div className="text-slate-300">{dateStr}</div>
+          <div className="text-4xl font-black tabular-nums text-navy">{timeStr}</div>
+          <div className="text-navy-light/70">{dateStr}</div>
         </div>
       </header>
 
       <main className="flex-1 p-8 overflow-hidden">
         {slide === 'today' ? (
-          <section className="h-full bg-white/5 rounded-3xl p-10 overflow-y-auto">
-            <h2 className="text-3xl font-bold mb-8 flex items-center gap-3 text-gold">
+          <section className="h-full bg-white/80 rounded-3xl p-10 overflow-y-auto shadow-md border border-amber-100">
+            <h2 className="text-3xl font-bold mb-8 flex items-center gap-3 text-gold-dark">
               <CalendarClock size={32} /> היום — {todayDow}
             </h2>
             <div className="grid grid-cols-2 gap-4">
               {todayLessons.map((l) => (
-                <div key={l.id} className="flex items-center gap-6 bg-white/5 rounded-2xl px-6 py-5">
-                  <div className="text-3xl font-black text-gold w-32 shrink-0 tabular-nums">{l.time}</div>
+                <div key={l.id} className="flex items-center gap-6 bg-amber-50/70 rounded-2xl px-6 py-5 border border-amber-100">
+                  <div className="text-3xl font-black text-gold-dark w-32 shrink-0 tabular-nums">{l.time}</div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-2xl font-bold truncate">{l.className}</div>
-                    <div className="text-slate-300 text-lg truncate">
+                    <div className="text-2xl font-bold truncate text-navy">{l.className}</div>
+                    <div className="text-navy-light/70 text-lg truncate">
                       {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-            {todayLessons.length === 0 && <p className="text-slate-400 text-2xl py-20 text-center">אין שיעורים היום</p>}
+            {todayLessons.length === 0 && <p className="text-navy-light/50 text-2xl py-20 text-center">אין שיעורים היום</p>}
           </section>
         ) : (
-          <section className="h-full bg-white/5 rounded-3xl p-8 overflow-hidden">
-            <h2 className="text-3xl font-bold mb-6 flex items-center gap-3 text-gold">
+          <section className="h-full bg-white/80 rounded-3xl p-8 overflow-hidden shadow-md border border-amber-100">
+            <h2 className="text-3xl font-bold mb-6 flex items-center gap-3 text-gold-dark">
               <CalendarDays size={32} /> השבוע
             </h2>
             <div className="grid grid-cols-6 gap-4 h-[calc(100%-4rem)]">
@@ -139,19 +143,21 @@ export function DisplayBoard() {
                 return (
                   <div
                     key={day}
-                    className={`rounded-2xl p-4 overflow-y-auto ${isToday ? 'bg-gold/15 ring-2 ring-gold' : 'bg-white/5'}`}
+                    className={`rounded-2xl p-4 overflow-y-auto border ${
+                      isToday ? 'bg-gold/10 border-gold' : 'bg-amber-50/50 border-amber-100'
+                    }`}
                   >
-                    <div className={`text-lg font-bold mb-3 ${isToday ? 'text-gold' : 'text-slate-200'}`}>
+                    <div className={`text-lg font-bold mb-3 ${isToday ? 'text-gold-dark' : 'text-navy'}`}>
                       {day} {isToday ? '(היום)' : ''}
                     </div>
                     <div className="space-y-2">
                       {dayLessons.map((l) => (
-                        <div key={l.id} className="text-sm bg-white/5 rounded-lg px-2 py-1.5">
-                          <div className="font-semibold text-slate-100 truncate">{l.className}</div>
-                          <div className="text-slate-400 text-xs">{l.time}</div>
+                        <div key={l.id} className="text-sm bg-white rounded-lg px-2 py-1.5 border border-amber-100/80">
+                          <div className="font-semibold text-navy truncate">{l.className}</div>
+                          <div className="text-navy-light/60 text-xs">{l.time}</div>
                         </div>
                       ))}
-                      {dayLessons.length === 0 && <p className="text-slate-500 text-xs">אין שיעורים</p>}
+                      {dayLessons.length === 0 && <p className="text-navy-light/40 text-xs">אין שיעורים</p>}
                     </div>
                   </div>
                 );
@@ -162,7 +168,7 @@ export function DisplayBoard() {
       </main>
 
       {announcements.length > 0 && (
-        <footer className="bg-gold text-navy px-10 py-6 flex items-center gap-4">
+        <footer className="bg-gold text-navy px-10 py-6 flex items-center gap-4 shadow-inner">
           <Megaphone size={32} className="shrink-0" />
           <p className="text-2xl font-bold leading-snug">{announcements[announcementIdx % announcements.length]?.text}</p>
         </footer>
