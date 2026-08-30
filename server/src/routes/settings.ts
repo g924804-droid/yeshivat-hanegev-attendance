@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/', upload.single('logo'), async (req, res) => {
+router.post('/', upload.single('logo'), async (req, res) => {
   try {
     const { siteName } = req.body as { siteName?: string };
     const data: Record<string, any> = {};

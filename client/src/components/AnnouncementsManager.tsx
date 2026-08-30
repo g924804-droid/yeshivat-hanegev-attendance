@@ -155,6 +155,7 @@ function SiteSettingsCard() {
   const [logoInputKey, setLogoInputKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function load() {
     const data = await api.get<{ siteName: string | null; hasLogo: boolean }>('/settings');
@@ -167,6 +168,7 @@ function SiteSettingsCard() {
 
   async function save() {
     setBusy(true);
+    setError(null);
     try {
       const fd = new FormData();
       fd.append('siteName', siteName);
@@ -177,6 +179,8 @@ function SiteSettingsCard() {
       await load();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (err: any) {
+      setError(err.message || 'שגיאה בשמירה');
     } finally {
       setBusy(false);
     }
@@ -207,6 +211,7 @@ function SiteSettingsCard() {
         </div>
       )}
       {saved && <p className="text-green-600 text-sm mt-2">נשמר בהצלחה</p>}
+      {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
     </div>
   );
 }

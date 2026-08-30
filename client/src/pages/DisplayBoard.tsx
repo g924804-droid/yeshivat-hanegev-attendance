@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CalendarDays, Megaphone } from 'lucide-react';
-import { DOW_HE } from '../lib/utils';
+import { DOW_HE, toHebrewDateString } from '../lib/utils';
 
 type Lesson = {
   id: string;
@@ -111,7 +111,7 @@ export function DisplayBoard() {
   const timeStr = now.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
   const hebrewDateStr = useMemo(() => {
     try {
-      return new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { day: 'numeric', month: 'long', year: 'numeric' }).format(now);
+      return toHebrewDateString(now);
     } catch {
       return '';
     }
