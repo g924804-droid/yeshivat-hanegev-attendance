@@ -9,7 +9,7 @@
     "dev": "concurrently -k -n SERVER,CLIENT -c blue,yellow \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w server && npm run build -w client",
     "start": "npm run start -w server",
-    "prisma:migrate": "npm run prisma:migrate -w server",
+    "prisma:push": "npm run prisma:push -w server",
     "prisma:studio": "npm run prisma:studio -w server"
   },
   "devDependencies": {

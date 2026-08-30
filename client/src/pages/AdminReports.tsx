@@ -32,7 +32,7 @@ type ReceiptRow = {
   amount: number;
   status: string;
   month: string;
-  receiptFile: string | null;
+  fileName: string | null;
   employee: { name: string };
 };
 
@@ -327,7 +327,17 @@ function ReceiptsTab() {
         <tbody>
           {receipts.map((r) => (
             <tr key={r.id} className="border-b last:border-0 hover:bg-slate-50">
-              <td className="py-2">{r.description}</td>
+              <td className="py-2">
+                {r.description}
+                {r.fileName && (
+                  <>
+                    {' '}
+                    <a href={`/api/receipts/${r.id}/file`} target="_blank" rel="noreferrer" className="text-navy underline text-xs">
+                      (קובץ)
+                    </a>
+                  </>
+                )}
+              </td>
               <td>{r.employee.name}</td>
               <td>{r.month}</td>
               <td>{r.amount} ₪</td>

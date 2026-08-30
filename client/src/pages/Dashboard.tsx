@@ -436,7 +436,7 @@ type ReceiptRow = {
   month: string;
   receiptDate: string;
   status: 'ממתין' | 'אושר' | 'נדחה';
-  receiptFile: string | null;
+  fileName: string | null;
 };
 
 const RECEIPT_STATUS_STYLE: Record<ReceiptRow['status'], string> = {
@@ -472,7 +472,17 @@ function ReceiptsCard() {
           <div key={r.id} className="flex items-center justify-between text-sm border-b last:border-0 pb-2">
             <div>
               <p className="font-medium">{r.description}</p>
-              <p className="text-slate-400 text-xs">{r.month} · {r.amount} ₪</p>
+              <p className="text-slate-400 text-xs">
+                {r.month} · {r.amount} ₪
+                {r.fileName && (
+                  <>
+                    {' · '}
+                    <a href={`/api/receipts/${r.id}/file`} target="_blank" rel="noreferrer" className="underline text-navy">
+                      קובץ מצורף
+                    </a>
+                  </>
+                )}
+              </p>
             </div>
             <span className={`badge ${RECEIPT_STATUS_STYLE[r.status]}`}>{r.status}</span>
           </div>

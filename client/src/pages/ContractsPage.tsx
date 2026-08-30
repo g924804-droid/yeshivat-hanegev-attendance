@@ -9,7 +9,7 @@ type Contract = {
   id: string;
   title: string;
   status: 'ממתין לחתימה' | 'נחתם' | 'בוטל';
-  contractFileUrl: string | null;
+  fileName: string | null;
   employee: { id: string; name: string };
   uploadedAt: string;
   signedAt: string | null;
@@ -65,8 +65,8 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
               <span className={`badge ${STATUS_STYLE[c.status]}`}>{c.status}</span>
             </div>
             {isAdmin && <p className="text-slate-500 text-sm mb-2">עובד: {c.employee.name}</p>}
-            {c.contractFileUrl && (
-              <a href={c.contractFileUrl} target="_blank" rel="noreferrer" className="text-sm text-navy underline">
+            {c.fileName && (
+              <a href={`/api/contracts/${c.id}/file`} target="_blank" rel="noreferrer" className="text-sm text-navy underline">
                 צפייה בקובץ החוזה
               </a>
             )}

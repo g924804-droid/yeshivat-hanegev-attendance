@@ -95,7 +95,9 @@ model Receipt {
   month        String
   receiptDate  String
   amount       Float
-  receiptFile  String?
+  fileData     Bytes?
+  fileMime     String?
+  fileName     String?
   status       String   @default("ממתין") // ממתין | אושר | נדחה
   adminNotes   String?
   createdAt    DateTime @default(now())
@@ -108,7 +110,9 @@ model Contract {
   employeeId        String
   employee          User      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   status            String    @default("ממתין לחתימה") // ממתין לחתימה | נחתם | בוטל
-  contractFileUrl   String?
+  fileData          Bytes?
+  fileMime          String?
+  fileName          String?
   employeeSignature String?
   signedAt          DateTime?
   uploadedAt        DateTime  @default(now())
