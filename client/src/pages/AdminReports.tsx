@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus, Pencil } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { currentMonth, safeFixed } from '../lib/utils';
@@ -24,6 +24,19 @@ type Employee = {
   department: string | null;
   isActive: boolean;
   email: string | null;
+  idNumber: string | null;
+  employmentType: string | null;
+  dailyRequiredHours: number;
+  trackLessons: boolean;
+  dailyTravelCost: number | null;
+  monthlyBusPass: number | null;
+  employeeStatus: string;
+  sundayHours: number | null;
+  mondayHours: number | null;
+  tuesdayHours: number | null;
+  wednesdayHours: number | null;
+  thursdayHours: number | null;
+  fridayHours: number | null;
 };
 
 type ReceiptRow = {
@@ -186,6 +199,7 @@ function ReportsTab() {
 function EmployeesTab() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<Employee | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
 
@@ -253,9 +267,14 @@ function EmployeesTab() {
                 <td>{e.department || '—'}</td>
                 <td>{e.isActive ? 'כן' : 'לא'}</td>
                 <td>
-                  <button onClick={() => remove(e.id)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600">
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex gap-1 justify-center">
+                    <button onClick={() => setEditing(e)} className="p-1.5 rounded-lg hover:bg-slate-200">
+                      <Pencil size={14} />
+                    </button>
+                    <button onClick={() => remove(e.id)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -267,6 +286,16 @@ function EmployeesTab() {
           onClose={() => setShowAdd(false)}
           onSaved={() => {
             setShowAdd(false);
+            load();
+          }}
+        />
+      )}
+      {editing && (
+        <EditEmployeeModal
+          employee={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
             load();
           }}
         />
@@ -317,6 +346,198 @@ function AddEmployeeModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
             onChange={(e) => setForm({ ...form, dailyRequiredHours: Number(e.target.value) })}
           />
         </div>
+        <div className="flex gap-2 justify-end pt-2">
+          <button className="btn-outline" onClick={onClose}>ביטול</button>
+          <button className="btn-primary" onClick={submit} disabled={busy || !form.name}>שמירה</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const DAY_HOUR_FIELDS = [
+  ['sundayHours', 'ראשון'],
+  ['mondayHours', 'שני'],
+  ['tuesdayHours', 'שלישי'],
+  ['wednesdayHours', 'רביעי'],
+  ['thursdayHours', 'חמישי'],
+  ['fridayHours', 'שישי'],
+] as const;
+
+function EditEmployeeModal({
+  employee,
+  onClose,
+  onSaved,
+}: {
+  employee: Employee;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: employee.name,
+    email: employee.email || '',
+    role: employee.role,
+    department: employee.department || '',
+    isActive: employee.isActive,
+    idNumber: employee.idNumber || '',
+    employmentType: employee.employmentType || '',
+    dailyRequiredHours: employee.dailyRequiredHours,
+    trackLessons: employee.trackLessons,
+    dailyTravelCost: employee.dailyTravelCost ?? '',
+    monthlyBusPass: employee.monthlyBusPass ?? '',
+    employeeStatus: employee.employeeStatus,
+    sundayHours: employee.sundayHours ?? '',
+    mondayHours: employee.mondayHours ?? '',
+    tuesdayHours: employee.tuesdayHours ?? '',
+    wednesdayHours: employee.wednesdayHours ?? '',
+    thursdayHours: employee.thursdayHours ?? '',
+    fridayHours: employee.fridayHours ?? '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.put('/employees/updateEmployee', {
+        id: employee.id,
+        ...form,
+        department: form.department || null,
+        idNumber: form.idNumber || null,
+        employmentType: form.employmentType || null,
+        dailyTravelCost: form.dailyTravelCost === '' ? null : Number(form.dailyTravelCost),
+        monthlyBusPass: form.monthlyBusPass === '' ? null : Number(form.monthlyBusPass),
+        sundayHours: form.sundayHours === '' ? null : Number(form.sundayHours),
+        mondayHours: form.mondayHours === '' ? null : Number(form.mondayHours),
+        tuesdayHours: form.tuesdayHours === '' ? null : Number(form.tuesdayHours),
+        wednesdayHours: form.wednesdayHours === '' ? null : Number(form.wednesdayHours),
+        thursdayHours: form.thursdayHours === '' ? null : Number(form.thursdayHours),
+        fridayHours: form.fridayHours === '' ? null : Number(form.fridayHours),
+      });
+      onSaved();
+    } catch (err: any) {
+      setError(err.message || 'שגיאה בשמירה');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-4 max-h-[85vh] overflow-y-auto">
+        <h3 className="font-bold text-navy text-lg">עריכת עובד — {employee.name}</h3>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="label">שם מלא</label>
+            <input className="input" value={form.name} onChange={(e) => setField('name', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">אימייל</label>
+            <input className="input" value={form.email} onChange={(e) => setField('email', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">תפקיד</label>
+            <select className="input" value={form.role} onChange={(e) => setField('role', e.target.value)}>
+              <option value="עובד">עובד</option>
+              <option value="מורה">מורה</option>
+              <option value="מנהל">מנהל</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">מחלקה</label>
+            <select className="input" value={form.department} onChange={(e) => setField('department', e.target.value)}>
+              <option value="">—</option>
+              <option>ישיבה קטנה</option>
+              <option>ישיבה גדולה</option>
+              <option>תיכון</option>
+              <option>סמינר</option>
+              <option>ניהול</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">תעודת זהות</label>
+            <input className="input" value={form.idNumber} onChange={(e) => setField('idNumber', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">סוג העסקה</label>
+            <select className="input" value={form.employmentType} onChange={(e) => setField('employmentType', e.target.value)}>
+              <option value="">—</option>
+              <option value="שעתי">שעתי</option>
+              <option value="חודשי">חודשי</option>
+              <option value="נגד קבלה">נגד קבלה</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">סטטוס עובד</label>
+            <select className="input" value={form.employeeStatus} onChange={(e) => setField('employeeStatus', e.target.value)}>
+              <option value="פעיל">פעיל</option>
+              <option value="חופשת לידה">חופשת לידה</option>
+              <option value="מחלה">מחלה</option>
+              <option value="סיום העסקה">סיום העסקה</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">שעות יומיות נדרשות (ברירת מחדל)</label>
+            <input
+              type="number"
+              className="input"
+              value={form.dailyRequiredHours}
+              onChange={(e) => setField('dailyRequiredHours', Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <label className="label">עלות נסיעה יומית (₪)</label>
+            <input
+              type="number"
+              className="input"
+              value={form.dailyTravelCost}
+              onChange={(e) => setField('dailyTravelCost', e.target.value === '' ? '' : Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <label className="label">חופשי חודשי (₪)</label>
+            <input
+              type="number"
+              className="input"
+              value={form.monthlyBusPass}
+              onChange={(e) => setField('monthlyBusPass', e.target.value === '' ? '' : Number(e.target.value))}
+            />
+          </div>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={form.isActive} onChange={(e) => setField('isActive', e.target.checked)} />
+          פעיל/ה במערכת
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={form.trackLessons} onChange={(e) => setField('trackLessons', e.target.checked)} />
+          מורה שמדווחת מספר שיעורים (trackLessons)
+        </label>
+
+        <div>
+          <label className="label">שעות שבועיות מותאמות אישית (ריק = ברירת המחדל למעלה)</label>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {DAY_HOUR_FIELDS.map(([key, label]) => (
+              <div key={key}>
+                <label className="text-xs text-slate-500 block mb-1">{label}</label>
+                <input
+                  type="number"
+                  className="input py-1.5 text-sm"
+                  value={form[key]}
+                  onChange={(e) => setField(key, e.target.value === '' ? '' : Number(e.target.value))}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-2 justify-end pt-2">
           <button className="btn-outline" onClick={onClose}>ביטול</button>
           <button className="btn-primary" onClick={submit} disabled={busy || !form.name}>שמירה</button>
