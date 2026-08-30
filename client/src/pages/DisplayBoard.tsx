@@ -17,8 +17,8 @@ type Announcement = { id: string; text: string };
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי'];
 const SCHEDULE_POLL_MS = 60_000;
 const ANNOUNCEMENT_POLL_MS = 60_000;
-const ANNOUNCEMENT_ROTATE_MS = 8_000;
-const SLIDE_ROTATE_MS = 15_000;
+const ANNOUNCEMENT_ROTATE_MS = 2 * 60_000; // כל כמה דקות מתחלפת ההודעה שמוצגת
+const SLIDE_ROTATE_MS = 3 * 60_000; // כל כמה דקות מתחלף בין תצוגת "היום" לתצוגת "השבוע"
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
