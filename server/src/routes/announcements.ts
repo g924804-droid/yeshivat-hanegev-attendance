@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { prisma } from '../lib/prisma';
-import { requireAuth, requireAdmin } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+// גישה כמו למערכת שעות ("system") — לא רק מנהל, כדי שמורות עם הרשאה יוכלו גם לנהל את מסך התצוגה.
+router.use(requireAuth, requirePermission('system'));
 
 // קבצים (פוסטרים/PDF) נשמרים ב-DB, לא בדיסק — עקבי עם קבלות/חוזים, שורד פריסות מחדש.
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });

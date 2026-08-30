@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, History, Monitor, Clock } from 'lucide-react';
 import { Layout } from '../components/Layout';
+import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { api } from '../lib/api';
 import { DOW_HE } from '../lib/utils';
 
@@ -150,6 +151,10 @@ export function SchedulePage() {
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-6">
+        <AnnouncementsManager />
       </div>
 
       {showModal && (
