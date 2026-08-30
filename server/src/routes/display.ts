@@ -19,10 +19,22 @@ router.get('/announcements', async (req, res) => {
     const announcements = await prisma.announcement.findMany({
       where: { isActive: true },
       orderBy: { order: 'asc' },
+      select: { id: true, text: true, fileName: true, fileMime: true },
     });
     res.json({ announcements });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת הודעות' });
+  }
+});
+
+router.get('/announcements/:id/file', async (req, res) => {
+  try {
+    const announcement = await prisma.announcement.findUnique({ where: { id: req.params.id } });
+    if (!announcement?.fileData || !announcement.isActive) return res.status(404).json({ error: 'קובץ לא נמצא' });
+    res.set('Content-Type', announcement.fileMime || 'application/octet-stream');
+    res.send(announcement.fileData);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת קובץ' });
   }
 });
 

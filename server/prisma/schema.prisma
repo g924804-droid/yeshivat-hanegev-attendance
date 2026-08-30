@@ -137,7 +137,10 @@ model ScheduleHistory {
 
 model Announcement {
   id        String   @id @default(cuid())
-  text      String
+  text      String? // אפשר גם הודעה עם קובץ בלבד (פוסטר/PDF) בלי טקסט
+  fileData  Bytes?
+  fileMime  String?
+  fileName  String?
   isActive  Boolean  @default(true)
   order     Int      @default(0)
   createdAt DateTime @default(now())

@@ -12,13 +12,15 @@ type Lesson = {
   room: string;
 };
 type Ref = { id: string; name: string };
-type Announcement = { id: string; text: string };
+type Announcement = { id: string; text: string | null; fileName: string | null; fileMime: string | null };
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי'];
 const SCHEDULE_POLL_MS = 60_000;
 const ANNOUNCEMENT_POLL_MS = 60_000;
-const ANNOUNCEMENT_ROTATE_MS = 2 * 60_000; // כל כמה דקות מתחלפת ההודעה שמוצגת
-const SLIDE_ROTATE_MS = 3 * 60_000; // כל כמה דקות מתחלף בין תצוגת "היום" לתצוגת "השבוע"
+const ANNOUNCEMENT_ROTATE_MS = 2 * 60_000; // כל כמה דקות מתחלפת הודעת הטקסט שמוצגת למטה
+const SLIDE_ROTATE_MS = 2 * 60_000; // כל כמה דקות מתחלף בין היום / השבוע / קבצים שהועלו
+
+type Slide = { kind: 'today' } | { kind: 'week' } | { kind: 'file'; announcement: Announcement };
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -30,8 +32,8 @@ export function DisplayBoard() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [teachers, setTeachers] = useState<Ref[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [announcementIdx, setAnnouncementIdx] = useState(0);
-  const [slide, setSlide] = useState<'today' | 'week'>('today');
+  const [textAnnouncementIdx, setTextAnnouncementIdx] = useState(0);
+  const [slideIdx, setSlideIdx] = useState(0);
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -62,16 +64,27 @@ export function DisplayBoard() {
     return () => clearInterval(clockTimer);
   }, []);
 
-  useEffect(() => {
-    if (announcements.length < 2) return;
-    const t = setInterval(() => setAnnouncementIdx((i) => (i + 1) % announcements.length), ANNOUNCEMENT_ROTATE_MS);
-    return () => clearInterval(t);
-  }, [announcements.length]);
+  const textAnnouncements = useMemo(() => announcements.filter((a) => a.text && !a.fileName), [announcements]);
+  const fileAnnouncements = useMemo(() => announcements.filter((a) => a.fileName), [announcements]);
+
+  const slides: Slide[] = useMemo(
+    () => [{ kind: 'today' }, { kind: 'week' }, ...fileAnnouncements.map((a) => ({ kind: 'file' as const, announcement: a }))],
+    [fileAnnouncements]
+  );
 
   useEffect(() => {
-    const t = setInterval(() => setSlide((s) => (s === 'today' ? 'week' : 'today')), SLIDE_ROTATE_MS);
+    if (textAnnouncements.length < 2) return;
+    const t = setInterval(() => setTextAnnouncementIdx((i) => (i + 1) % textAnnouncements.length), ANNOUNCEMENT_ROTATE_MS);
     return () => clearInterval(t);
-  }, []);
+  }, [textAnnouncements.length]);
+
+  useEffect(() => {
+    if (slides.length < 2) return;
+    const t = setInterval(() => setSlideIdx((i) => (i + 1) % slides.length), SLIDE_ROTATE_MS);
+    return () => clearInterval(t);
+  }, [slides.length]);
+
+  const slide = slides[slideIdx % slides.length] || { kind: 'today' };
 
   const todayDow = DAYS[now.getDay()] ?? null;
   const todayLessons = useMemo(
@@ -86,6 +99,13 @@ export function DisplayBoard() {
   const dateStr = now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
   const timeStr = now.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
 
+  const headerSubtitle =
+    slide.kind === 'today'
+      ? `מערכת שעות — ${DOW_HE[now.getDay()]}`
+      : slide.kind === 'week'
+      ? 'מערכת שעות — השבוע'
+      : slide.announcement.text || 'הודעה';
+
   return (
     <div
       className="min-h-screen text-navy flex flex-col overflow-hidden"
@@ -99,7 +119,7 @@ export function DisplayBoard() {
           </div>
           <div>
             <h1 className="text-3xl font-bold text-navy">ישיבת הנגב</h1>
-            <p className="text-navy-light/70">{slide === 'today' ? `מערכת שעות — ${DOW_HE[now.getDay()]}` : 'מערכת שעות — השבוע'}</p>
+            <p className="text-navy-light/70 truncate max-w-md">{headerSubtitle}</p>
           </div>
         </div>
         <div className="text-left">
@@ -109,7 +129,7 @@ export function DisplayBoard() {
       </header>
 
       <main className="flex-1 p-8 overflow-hidden">
-        {slide === 'today' ? (
+        {slide.kind === 'today' && (
           <section className="h-full bg-white/80 rounded-3xl p-10 overflow-y-auto shadow-md border border-amber-100">
             <h2 className="text-3xl font-bold mb-8 flex items-center gap-3 text-gold-dark">
               <CalendarClock size={32} /> היום — {todayDow}
@@ -129,7 +149,9 @@ export function DisplayBoard() {
             </div>
             {todayLessons.length === 0 && <p className="text-navy-light/50 text-2xl py-20 text-center">אין שיעורים היום</p>}
           </section>
-        ) : (
+        )}
+
+        {slide.kind === 'week' && (
           <section className="h-full bg-white/80 rounded-3xl p-8 overflow-hidden shadow-md border border-amber-100">
             <h2 className="text-3xl font-bold mb-6 flex items-center gap-3 text-gold-dark">
               <CalendarDays size={32} /> השבוע
@@ -165,12 +187,37 @@ export function DisplayBoard() {
             </div>
           </section>
         )}
+
+        {slide.kind === 'file' && (
+          <section className="h-full bg-white/80 rounded-3xl p-4 overflow-hidden shadow-md border border-amber-100 flex flex-col">
+            {slide.announcement.text && (
+              <p className="text-2xl font-bold text-gold-dark px-4 pt-2 pb-3 shrink-0">{slide.announcement.text}</p>
+            )}
+            <div className="flex-1 min-h-0">
+              {slide.announcement.fileMime?.startsWith('image/') ? (
+                <img
+                  src={`/api/display/announcements/${slide.announcement.id}/file`}
+                  alt={slide.announcement.text || 'הודעה'}
+                  className="h-full w-full object-contain rounded-2xl"
+                />
+              ) : (
+                <iframe
+                  src={`/api/display/announcements/${slide.announcement.id}/file`}
+                  title={slide.announcement.text || 'הודעה'}
+                  className="h-full w-full rounded-2xl border-0"
+                />
+              )}
+            </div>
+          </section>
+        )}
       </main>
 
-      {announcements.length > 0 && (
+      {textAnnouncements.length > 0 && (
         <footer className="bg-gold text-navy px-10 py-6 flex items-center gap-4 shadow-inner">
           <Megaphone size={32} className="shrink-0" />
-          <p className="text-2xl font-bold leading-snug">{announcements[announcementIdx % announcements.length]?.text}</p>
+          <p className="text-2xl font-bold leading-snug">
+            {textAnnouncements[textAnnouncementIdx % textAnnouncements.length]?.text}
+          </p>
         </footer>
       )}
     </div>

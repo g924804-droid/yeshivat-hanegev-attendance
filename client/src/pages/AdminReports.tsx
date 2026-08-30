@@ -366,11 +366,20 @@ function ReceiptsTab() {
   );
 }
 
-type AnnouncementRow = { id: string; text: string; isActive: boolean; order: number };
+type AnnouncementRow = {
+  id: string;
+  text: string | null;
+  fileName: string | null;
+  fileMime: string | null;
+  isActive: boolean;
+  order: number;
+};
 
 function AnnouncementsTab() {
   const [announcements, setAnnouncements] = useState<AnnouncementRow[]>([]);
   const [text, setText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -382,11 +391,16 @@ function AnnouncementsTab() {
   }, []);
 
   async function add() {
-    if (!text.trim()) return;
+    if (!text.trim() && !file) return;
     setBusy(true);
     try {
-      await api.post('/announcements', { text: text.trim() });
+      const fd = new FormData();
+      if (text.trim()) fd.append('text', text.trim());
+      if (file) fd.append('file', file);
+      await api.postForm('/announcements', fd);
       setText('');
+      setFile(null);
+      setFileInputKey((k) => k + 1);
       await load();
     } finally {
       setBusy(false);
@@ -432,15 +446,22 @@ function AnnouncementsTab() {
         <h3 className="font-bold text-navy mb-3 flex items-center gap-2">
           <Megaphone size={18} className="text-gold-dark" /> הודעות
         </h3>
-        <div className="flex gap-2 mb-4">
+        <p className="text-xs text-slate-400 mb-2">אפשר טקסט, קובץ (תמונה/PDF/כל קובץ אחר), או שניהם יחד</p>
+        <div className="flex flex-col sm:flex-row gap-2 mb-4">
           <input
             className="input"
-            placeholder="טקסט ההודעה שתופיע במסך..."
+            placeholder="טקסט ההודעה שתופיע במסך (אופציונלי אם מצרפים קובץ)..."
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && add()}
           />
-          <button className="btn-primary shrink-0" onClick={add} disabled={busy || !text.trim()}>
+          <input
+            key={fileInputKey}
+            type="file"
+            className="input sm:w-56"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+          />
+          <button className="btn-primary shrink-0" onClick={add} disabled={busy || (!text.trim() && !file)}>
             <Plus size={16} /> הוספה
           </button>
         </div>
@@ -464,7 +485,22 @@ function AnnouncementsTab() {
                   <ArrowDown size={14} />
                 </button>
               </div>
-              <p className={`flex-1 text-sm ${a.isActive ? '' : 'text-slate-400 line-through'}`}>{a.text}</p>
+              <div className={`flex-1 text-sm ${a.isActive ? '' : 'text-slate-400 line-through'}`}>
+                {a.text}
+                {a.fileName && (
+                  <>
+                    {a.text ? ' · ' : ''}
+                    <a
+                      href={`/announcements/${a.id}/file`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-navy underline"
+                    >
+                      📎 {a.fileName}
+                    </a>
+                  </>
+                )}
+              </div>
               <button
                 onClick={() => toggleActive(a)}
                 className={`badge ${a.isActive ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-500'}`}
