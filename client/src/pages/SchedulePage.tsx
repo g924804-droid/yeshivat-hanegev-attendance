@@ -156,6 +156,7 @@ export function SchedulePage() {
         <LessonModal
           teachers={teachers}
           tracks={tracks}
+          onTeacherAdded={(teacher) => setTeachers((prev) => [...prev, teacher])}
           onClose={() => setShowModal(false)}
           onSaved={() => {
             setShowModal(false);
@@ -185,11 +186,13 @@ export function SchedulePage() {
 function LessonModal({
   teachers,
   tracks,
+  onTeacherAdded,
   onClose,
   onSaved,
 }: {
   teachers: Ref[];
   tracks: Ref[];
+  onTeacherAdded: (teacher: Ref) => void;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -198,9 +201,26 @@ function LessonModal({
   const [customTime, setCustomTime] = useState('');
   const [teacherIds, setTeacherIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [newTeacherName, setNewTeacherName] = useState('');
+  const [addingTeacher, setAddingTeacher] = useState(false);
 
   function toggleTeacher(id: string) {
     setTeacherIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
+  }
+
+  async function addNewTeacher() {
+    const name = newTeacherName.trim();
+    if (!name) return;
+    setAddingTeacher(true);
+    try {
+      const r = await api.post<{ recordId: string }>('/students/addTeacher', { name });
+      const teacher = { id: r.recordId, name };
+      onTeacherAdded(teacher);
+      setTeacherIds((prev) => [...prev, teacher.id]);
+      setNewTeacherName('');
+    } finally {
+      setAddingTeacher(false);
+    }
   }
 
   async function submit() {
@@ -261,6 +281,23 @@ function LessonModal({
               </label>
             ))}
             {teachers.length === 0 && <p className="text-slate-400 text-xs">אין מורות זמינות</p>}
+          </div>
+          <div className="flex gap-2 mt-2">
+            <input
+              className="input py-1.5 text-sm"
+              placeholder="שם מורה חדשה..."
+              value={newTeacherName}
+              onChange={(e) => setNewTeacherName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addNewTeacher())}
+            />
+            <button
+              type="button"
+              className="btn-outline text-sm py-1.5 px-3 shrink-0"
+              onClick={addNewTeacher}
+              disabled={addingTeacher || !newTeacherName.trim()}
+            >
+              <Plus size={14} /> הוספת מורה
+            </button>
           </div>
         </div>
 
