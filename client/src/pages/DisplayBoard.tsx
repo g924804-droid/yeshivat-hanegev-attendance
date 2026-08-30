@@ -126,11 +126,20 @@ export function DisplayBoard() {
 
   return (
     <div
-      className="min-h-screen text-navy flex flex-col overflow-hidden"
+      className="relative min-h-screen text-navy flex flex-col overflow-hidden"
       style={{ background: 'linear-gradient(160deg, #fdf8f1 0%, #f7ece8 55%, #f3e6e9 100%)' }}
       dir="rtl"
     >
-      <header className="flex items-center justify-between px-10 py-6 bg-white/70 backdrop-blur-sm shadow-sm">
+      {hasLogo && (
+        <img
+          src="/api/display/logo"
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none select-none absolute inset-0 m-auto max-h-[70vh] max-w-[70vw] object-contain opacity-[0.07]"
+        />
+      )}
+
+      <header className="relative z-10 flex items-center justify-between px-10 py-6 bg-white/70 backdrop-blur-sm shadow-sm">
         <div className="flex items-center gap-4">
           {hasLogo ? (
             <img src="/api/display/logo" alt={siteName} className="h-14 w-14 rounded-2xl object-contain bg-white shadow border border-amber-100" />
@@ -151,7 +160,7 @@ export function DisplayBoard() {
         </div>
       </header>
 
-      <main className="flex-1 p-8 overflow-hidden">
+      <main className="relative z-10 flex-1 p-8 overflow-hidden">
         {slide.kind === 'today' && (
           <section className="h-full bg-white/80 rounded-3xl p-10 overflow-y-auto shadow-md border border-amber-100">
             <h2 className="text-3xl font-bold mb-8 flex items-center gap-3 text-gold-dark">
@@ -236,7 +245,7 @@ export function DisplayBoard() {
       </main>
 
       {textAnnouncements.length > 0 && (
-        <footer className="bg-gold text-navy px-10 py-6 flex items-center gap-4 shadow-inner">
+        <footer className="relative z-10 bg-gold text-navy px-10 py-6 flex items-center gap-4 shadow-inner">
           <Megaphone size={32} className="shrink-0" />
           <p className="text-2xl font-bold leading-snug">
             {textAnnouncements[textAnnouncementIdx % textAnnouncements.length]?.text}
