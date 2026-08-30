@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Megaphone } from 'lucide-react';
+import { CalendarClock, CalendarDays, Megaphone } from 'lucide-react';
 import { DOW_HE } from '../lib/utils';
 
 type Lesson = {
@@ -18,6 +18,7 @@ const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 
 const SCHEDULE_POLL_MS = 60_000;
 const ANNOUNCEMENT_POLL_MS = 60_000;
 const ANNOUNCEMENT_ROTATE_MS = 8_000;
+const SLIDE_ROTATE_MS = 15_000;
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -30,6 +31,7 @@ export function DisplayBoard() {
   const [teachers, setTeachers] = useState<Ref[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementIdx, setAnnouncementIdx] = useState(0);
+  const [slide, setSlide] = useState<'today' | 'week'>('today');
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -66,6 +68,11 @@ export function DisplayBoard() {
     return () => clearInterval(t);
   }, [announcements.length]);
 
+  useEffect(() => {
+    const t = setInterval(() => setSlide((s) => (s === 'today' ? 'week' : 'today')), SLIDE_ROTATE_MS);
+    return () => clearInterval(t);
+  }, []);
+
   const todayDow = DAYS[now.getDay()] ?? null;
   const todayLessons = useMemo(
     () => lessons.filter((l) => l.dayOfWeek === todayDow).sort((a, b) => (a.time || '').localeCompare(b.time || '')),
@@ -88,7 +95,7 @@ export function DisplayBoard() {
           </div>
           <div>
             <h1 className="text-3xl font-bold">ישיבת הנגב</h1>
-            <p className="text-slate-300">מערכת שעות — {DOW_HE[now.getDay()]}</p>
+            <p className="text-slate-300">{slide === 'today' ? `מערכת שעות — ${DOW_HE[now.getDay()]}` : 'מערכת שעות — השבוע'}</p>
           </div>
         </div>
         <div className="text-left">
@@ -97,48 +104,61 @@ export function DisplayBoard() {
         </div>
       </header>
 
-      <main className="flex-1 grid grid-cols-3 gap-6 p-8 overflow-hidden">
-        <section className="col-span-2 bg-white/5 rounded-3xl p-8 overflow-y-auto">
-          <h2 className="text-2xl font-bold mb-6 flex items-center gap-3 text-gold">
-            <CalendarClock size={28} /> היום
-          </h2>
-          <div className="space-y-3">
-            {todayLessons.map((l) => (
-              <div key={l.id} className="flex items-center gap-6 bg-white/5 rounded-2xl px-6 py-4">
-                <div className="text-2xl font-black text-gold w-28 shrink-0 tabular-nums">{l.time}</div>
-                <div className="flex-1">
-                  <div className="text-xl font-bold">{l.className}</div>
-                  <div className="text-slate-300">{teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}</div>
+      <main className="flex-1 p-8 overflow-hidden">
+        {slide === 'today' ? (
+          <section className="h-full bg-white/5 rounded-3xl p-10 overflow-y-auto">
+            <h2 className="text-3xl font-bold mb-8 flex items-center gap-3 text-gold">
+              <CalendarClock size={32} /> היום — {todayDow}
+            </h2>
+            <div className="grid grid-cols-2 gap-4">
+              {todayLessons.map((l) => (
+                <div key={l.id} className="flex items-center gap-6 bg-white/5 rounded-2xl px-6 py-5">
+                  <div className="text-3xl font-black text-gold w-32 shrink-0 tabular-nums">{l.time}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-2xl font-bold truncate">{l.className}</div>
+                    <div className="text-slate-300 text-lg truncate">
+                      {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
-            {todayLessons.length === 0 && <p className="text-slate-400 text-xl py-10 text-center">אין שיעורים היום</p>}
-          </div>
-        </section>
-
-        <section className="bg-white/5 rounded-3xl p-6 overflow-y-auto">
-          <h2 className="text-xl font-bold mb-4 text-gold">השבוע הקרוב</h2>
-          <div className="space-y-4">
-            {DAYS.map((day) => (
-              <div key={day}>
-                <div className={`text-sm font-bold mb-1 ${day === todayDow ? 'text-gold' : 'text-slate-400'}`}>
-                  {day} {day === todayDow ? '(היום)' : ''}
-                </div>
-                <div className="space-y-1">
-                  {lessons
-                    .filter((l) => l.dayOfWeek === day)
-                    .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
-                    .map((l) => (
-                      <div key={l.id} className="text-sm text-slate-200 flex justify-between gap-2">
-                        <span className="truncate">{l.className}</span>
-                        <span className="text-slate-400 shrink-0">{l.time}</span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+              ))}
+            </div>
+            {todayLessons.length === 0 && <p className="text-slate-400 text-2xl py-20 text-center">אין שיעורים היום</p>}
+          </section>
+        ) : (
+          <section className="h-full bg-white/5 rounded-3xl p-8 overflow-hidden">
+            <h2 className="text-3xl font-bold mb-6 flex items-center gap-3 text-gold">
+              <CalendarDays size={32} /> השבוע
+            </h2>
+            <div className="grid grid-cols-6 gap-4 h-[calc(100%-4rem)]">
+              {DAYS.map((day) => {
+                const dayLessons = lessons
+                  .filter((l) => l.dayOfWeek === day)
+                  .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+                const isToday = day === todayDow;
+                return (
+                  <div
+                    key={day}
+                    className={`rounded-2xl p-4 overflow-y-auto ${isToday ? 'bg-gold/15 ring-2 ring-gold' : 'bg-white/5'}`}
+                  >
+                    <div className={`text-lg font-bold mb-3 ${isToday ? 'text-gold' : 'text-slate-200'}`}>
+                      {day} {isToday ? '(היום)' : ''}
+                    </div>
+                    <div className="space-y-2">
+                      {dayLessons.map((l) => (
+                        <div key={l.id} className="text-sm bg-white/5 rounded-lg px-2 py-1.5">
+                          <div className="font-semibold text-slate-100 truncate">{l.className}</div>
+                          <div className="text-slate-400 text-xs">{l.time}</div>
+                        </div>
+                      ))}
+                      {dayLessons.length === 0 && <p className="text-slate-500 text-xs">אין שיעורים</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </main>
 
       {announcements.length > 0 && (

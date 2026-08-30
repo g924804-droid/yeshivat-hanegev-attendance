@@ -50,9 +50,19 @@ app.get('/api/health', (req, res) => res.json({ ok: true }));
 // בפיתוח מקומי התיקייה הזו לא קיימת (הקליינט רץ דרך Vite על פורט נפרד), אז פשוט מדלגים.
 const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
 if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
+  // קבצי ה-assets עם hash בשם (js/css) יכולים להישמר במטמון לצמיתות; index.html חייב תמיד
+  // להיבדק מול השרת מחדש, אחרת דפדפנים ימשיכו להציג גרסה ישנה של האתר אחרי כל עדכון.
+  app.use(
+    express.static(clientDist, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+      },
+    })
+  );
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+    res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
