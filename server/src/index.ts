@@ -19,6 +19,7 @@ import contractsRoutes from './routes/contracts';
 import syncRoutes from './routes/sync';
 import displayRoutes from './routes/display';
 import announcementsRoutes from './routes/announcements';
+import settingsRoutes from './routes/settings';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -43,6 +44,7 @@ app.use('/api/contracts', contractsRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/display', displayRoutes);
 app.use('/api/announcements', announcementsRoutes);
+app.use('/api/settings', settingsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

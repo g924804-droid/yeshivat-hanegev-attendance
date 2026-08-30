@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Megaphone, Monitor, Plus, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
+import { Megaphone, Monitor, Plus, ArrowUp, ArrowDown, Trash2, Image as ImageIcon, Save } from 'lucide-react';
 import { api } from '../lib/api';
 
 type AnnouncementRow = {
@@ -62,6 +62,8 @@ export function AnnouncementsManager() {
 
   return (
     <div className="space-y-6">
+      <SiteSettingsCard />
+
       <div className="card">
         <h3 className="font-bold text-navy mb-3 flex items-center gap-2">
           <Monitor size={18} className="text-gold-dark" /> מסך התצוגה
@@ -142,6 +144,69 @@ export function AnnouncementsManager() {
           {announcements.length === 0 && <p className="text-slate-400 text-sm text-center py-4">אין הודעות עדיין</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SiteSettingsCard() {
+  const [siteName, setSiteName] = useState('');
+  const [hasLogo, setHasLogo] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoInputKey, setLogoInputKey] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function load() {
+    const data = await api.get<{ siteName: string | null; hasLogo: boolean }>('/settings');
+    setSiteName(data.siteName || '');
+    setHasLogo(data.hasLogo);
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save() {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('siteName', siteName);
+      if (logoFile) fd.append('logo', logoFile);
+      await api.postForm('/settings', fd);
+      setLogoFile(null);
+      setLogoInputKey((k) => k + 1);
+      await load();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3 className="font-bold text-navy mb-3 flex items-center gap-2">
+        <ImageIcon size={18} className="text-gold-dark" /> שם המוסד והלוגו (מוצג במסך התצוגה)
+      </h3>
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+        <div className="flex-1 w-full">
+          <label className="label">שם המוסד</label>
+          <input className="input" placeholder="לדוגמה: סמינר הרב מאיר" value={siteName} onChange={(e) => setSiteName(e.target.value)} />
+        </div>
+        <div className="w-full sm:w-auto">
+          <label className="label">לוגו {hasLogo && <span className="text-green-600">(קיים לוגו)</span>}</label>
+          <input key={logoInputKey} type="file" accept="image/*" className="input" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
+        </div>
+        <button className="btn-primary shrink-0" onClick={save} disabled={busy}>
+          <Save size={16} /> שמירה
+        </button>
+      </div>
+      {hasLogo && (
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-xs text-slate-400">תצוגה מקדימה:</span>
+          <img src={`/api/display/logo?t=${logoInputKey}`} className="h-12 w-12 object-contain rounded-lg border" alt="לוגו" />
+        </div>
+      )}
+      {saved && <p className="text-green-600 text-sm mt-2">נשמר בהצלחה</p>}
     </div>
   );
 }

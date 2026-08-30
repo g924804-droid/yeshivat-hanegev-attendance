@@ -145,3 +145,11 @@ model Announcement {
   order     Int      @default(0)
   createdAt DateTime @default(now())
 }
+
+// שורה יחידה (id קבוע "singleton") — שם המוסד + לוגו למסך התצוגה וכל שאר האתר.
+model SiteSettings {
+  id       String  @id @default("singleton")
+  siteName String?
+  logoData Bytes?
+  logoMime String?
+}

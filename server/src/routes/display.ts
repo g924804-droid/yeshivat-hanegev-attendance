@@ -38,4 +38,24 @@ router.get('/announcements/:id/file', async (req, res) => {
   }
 });
 
+router.get('/settings', async (req, res) => {
+  try {
+    const settings = await prisma.siteSettings.findUnique({ where: { id: 'singleton' } });
+    res.json({ siteName: settings?.siteName || null, hasLogo: !!settings?.logoData });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת הגדרות' });
+  }
+});
+
+router.get('/logo', async (req, res) => {
+  try {
+    const settings = await prisma.siteSettings.findUnique({ where: { id: 'singleton' } });
+    if (!settings?.logoData) return res.status(404).json({ error: 'לוגו לא נמצא' });
+    res.set('Content-Type', settings.logoMime || 'image/png');
+    res.send(settings.logoData);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת לוגו' });
+  }
+});
+
 export default router;

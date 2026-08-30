@@ -35,6 +35,17 @@ export function DisplayBoard() {
   const [textAnnouncementIdx, setTextAnnouncementIdx] = useState(0);
   const [slideIdx, setSlideIdx] = useState(0);
   const [now, setNow] = useState(new Date());
+  const [siteName, setSiteName] = useState('ישיבת הנגב');
+  const [hasLogo, setHasLogo] = useState(false);
+
+  useEffect(() => {
+    fetchJson<{ siteName: string | null; hasLogo: boolean }>('/api/display/settings')
+      .then((d) => {
+        if (d.siteName) setSiteName(d.siteName);
+        setHasLogo(d.hasLogo);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const load = () =>
@@ -98,6 +109,13 @@ export function DisplayBoard() {
 
   const dateStr = now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
   const timeStr = now.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+  const hebrewDateStr = useMemo(() => {
+    try {
+      return new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { day: 'numeric', month: 'long', year: 'numeric' }).format(now);
+    } catch {
+      return '';
+    }
+  }, [now]);
 
   const headerSubtitle =
     slide.kind === 'today'
@@ -114,17 +132,22 @@ export function DisplayBoard() {
     >
       <header className="flex items-center justify-between px-10 py-6 bg-white/70 backdrop-blur-sm shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="h-14 w-14 rounded-2xl bg-gold text-navy flex items-center justify-center text-3xl font-black shadow">
-            נ
-          </div>
+          {hasLogo ? (
+            <img src="/api/display/logo" alt={siteName} className="h-14 w-14 rounded-2xl object-contain bg-white shadow border border-amber-100" />
+          ) : (
+            <div className="h-14 w-14 rounded-2xl bg-gold text-navy flex items-center justify-center text-3xl font-black shadow">
+              {siteName.trim().charAt(0) || 'נ'}
+            </div>
+          )}
           <div>
-            <h1 className="text-3xl font-bold text-navy">ישיבת הנגב</h1>
+            <h1 className="text-3xl font-bold text-navy">{siteName}</h1>
             <p className="text-navy-light/70 truncate max-w-md">{headerSubtitle}</p>
           </div>
         </div>
         <div className="text-left">
           <div className="text-4xl font-black tabular-nums text-navy">{timeStr}</div>
           <div className="text-navy-light/70">{dateStr}</div>
+          {hebrewDateStr && <div className="text-navy-light/60 text-sm">{hebrewDateStr}</div>}
         </div>
       </header>
 
