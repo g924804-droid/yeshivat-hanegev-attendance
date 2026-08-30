@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History } from 'lucide-react';
+import { Plus, History, Monitor, Clock } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
+import { DOW_HE } from '../lib/utils';
 
 type Lesson = {
   id: string;
@@ -16,6 +17,23 @@ type Ref = { id: string; name: string };
 type HistoryRow = { id: string; description: string; changedAt: string; changedBy: string | null };
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי'];
+
+const TRACK_COLORS = [
+  'bg-blue-50 border-blue-200 text-blue-800',
+  'bg-purple-50 border-purple-200 text-purple-800',
+  'bg-emerald-50 border-emerald-200 text-emerald-800',
+  'bg-amber-50 border-amber-200 text-amber-800',
+  'bg-rose-50 border-rose-200 text-rose-800',
+  'bg-teal-50 border-teal-200 text-teal-800',
+  'bg-indigo-50 border-indigo-200 text-indigo-800',
+  'bg-orange-50 border-orange-200 text-orange-800',
+];
+
+function trackColor(trackId: string | undefined, trackIds: string[]) {
+  if (!trackId) return 'bg-slate-50 border-slate-200 text-slate-700';
+  const idx = trackIds.indexOf(trackId);
+  return TRACK_COLORS[idx % TRACK_COLORS.length] || TRACK_COLORS[0];
+}
 
 export function SchedulePage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -36,13 +54,16 @@ export function SchedulePage() {
     load();
   }, []);
 
+  const trackIds = useMemo(() => tracks.map((t) => t.id), [tracks]);
+  const todayDow = DOW_HE[new Date().getDay()];
+
   const filtered = useMemo(
     () => (trackFilter ? lessons.filter((l) => l.track?.includes(trackFilter)) : lessons),
     [lessons, trackFilter]
   );
 
   function teacherName(ids: string[]) {
-    return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '—';
+    return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
   }
 
   async function openHistory() {
@@ -54,13 +75,25 @@ export function SchedulePage() {
   return (
     <Layout title="מערכת שעות">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <select className="input w-auto" value={trackFilter} onChange={(e) => setTrackFilter(e.target.value)}>
-          <option value="">כל המסלולים</option>
-          {tracks.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select className="input w-auto" value={trackFilter} onChange={(e) => setTrackFilter(e.target.value)}>
+            <option value="">כל המסלולים</option>
+            {tracks.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+          {!trackFilter && (
+            <div className="hidden lg:flex items-center gap-1.5 flex-wrap">
+              {tracks.map((t) => (
+                <span key={t.id} className={`badge border ${trackColor(t.id, trackIds)}`}>{t.name}</span>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="flex gap-2">
+          <a href="/display" target="_blank" rel="noreferrer" className="btn-outline">
+            <Monitor size={16} /> מסך תצוגה
+          </a>
           <button className="btn-outline" onClick={openHistory}>
             <History size={16} /> היסטוריה
           </button>
@@ -71,25 +104,36 @@ export function SchedulePage() {
       </div>
 
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {DAYS.map((day) => (
-          <div key={day} className="card">
-            <h3 className="font-bold text-navy mb-3">{day}</h3>
-            <div className="space-y-2">
-              {filtered
-                .filter((l) => l.dayOfWeek === day)
-                .sort((a, b) => a.time?.localeCompare(b.time))
-                .map((l) => (
-                  <div key={l.id} className="bg-slate-50 rounded-lg p-2.5 text-sm">
-                    <div className="font-medium text-navy">{l.className}</div>
-                    <div className="text-slate-500 text-xs">{l.time} · {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}</div>
+        {DAYS.map((day) => {
+          const isToday = day === todayDow;
+          const dayLessons = filtered
+            .filter((l) => l.dayOfWeek === day)
+            .sort((a, b) => a.time?.localeCompare(b.time));
+          return (
+            <div key={day} className={`card ${isToday ? 'ring-2 ring-gold' : ''}`}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-navy">{day}</h3>
+                {isToday && <span className="badge bg-gold/20 text-gold-dark">היום</span>}
+              </div>
+              <div className="space-y-2">
+                {dayLessons.map((l) => (
+                  <div key={l.id} className={`rounded-xl border p-3 ${trackColor(l.track?.[0], trackIds)}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold">{l.className}</span>
+                      <span className="flex items-center gap-1 text-xs font-medium shrink-0">
+                        <Clock size={12} /> {l.time}
+                      </span>
+                    </div>
+                    <div className="text-xs opacity-80 mt-0.5">
+                      {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
+                    </div>
                   </div>
                 ))}
-              {filtered.filter((l) => l.dayOfWeek === day).length === 0 && (
-                <p className="text-slate-300 text-xs">אין שיעורים</p>
-              )}
+                {dayLessons.length === 0 && <p className="text-slate-300 text-xs py-2">אין שיעורים</p>}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {showModal && (

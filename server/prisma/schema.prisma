@@ -134,3 +134,11 @@ model ScheduleHistory {
   teacherName  String?
   previousData String? // JSON
 }
+
+model Announcement {
+  id        String   @id @default(cuid())
+  text      String
+  isActive  Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+}

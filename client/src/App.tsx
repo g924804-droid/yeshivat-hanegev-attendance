@@ -17,6 +17,7 @@ import { GradesPage } from './pages/GradesPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { SchedulePage } from './pages/SchedulePage';
 import { ContractsPage } from './pages/ContractsPage';
+import { DisplayBoard } from './pages/DisplayBoard';
 
 function RequireNoPendingContracts({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -43,6 +44,10 @@ function AdminOnly({ children }: { children: ReactNode }) {
 
 function AppRoutes() {
   const { user, loading } = useAuth();
+  const location = useLocation();
+
+  // מסך התצוגה הציבורי (מערכת שעות + הודעות למסך גדול) פתוח בלי התחברות בכוונה.
+  if (location.pathname === '/display') return <DisplayBoard />;
 
   if (loading) return <LoadingProgress />;
   if (!user) return <PasswordLogin />;

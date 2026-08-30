@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { airtableFetch, airtableCreate, airtableUpdate, TABLES } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
+import { getFullSchedule } from '../lib/scheduleData';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requirePermission } from '../middleware/auth';
 
@@ -10,27 +11,7 @@ router.use(requirePermission('system'));
 
 router.get('/getSchedule', async (req, res) => {
   try {
-    const [lessons, teachers, tracks] = await Promise.all([
-      airtableFetch(TABLES.lessons),
-      airtableFetch(TABLES.teachers),
-      airtableFetch(TABLES.tracks),
-    ]);
-
-    res.json({
-      lessons: lessons.map((l) => ({
-        id: l.id,
-        className: l.fields[FIELDS.lessons.className],
-        dayOfWeek: l.fields[FIELDS.lessons.dayOfWeek],
-        time: l.fields[FIELDS.lessons.time],
-        track: l.fields[FIELDS.lessons.track],
-        teacher: l.fields[FIELDS.lessons.teacher],
-        room: l.fields[FIELDS.lessons.room],
-        year: l.fields[FIELDS.lessons.year],
-        notes: l.fields[FIELDS.lessons.notes],
-      })),
-      teachers: teachers.map((t) => ({ id: t.id, name: t.fields[FIELDS.teachers.name] })),
-      tracks: tracks.map((t) => ({ id: t.id, name: t.fields[FIELDS.tracks.name] })),
-    });
+    res.json(await getFullSchedule());
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת מערכת השעות' });
   }

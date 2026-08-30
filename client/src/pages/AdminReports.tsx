@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus, Megaphone, ArrowUp, ArrowDown, Monitor } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { currentMonth, safeFixed } from '../lib/utils';
@@ -36,9 +36,15 @@ type ReceiptRow = {
   employee: { name: string };
 };
 
-const TABS = ['reports', 'employees', 'receipts', 'sync'] as const;
+const TABS = ['reports', 'employees', 'receipts', 'announcements', 'sync'] as const;
 type Tab = (typeof TABS)[number];
-const TAB_LABEL: Record<Tab, string> = { reports: 'דוחות', employees: 'עובדים', receipts: 'קבלות', sync: 'סנכרון' };
+const TAB_LABEL: Record<Tab, string> = {
+  reports: 'דוחות',
+  employees: 'עובדים',
+  receipts: 'קבלות',
+  announcements: 'הודעות למסך',
+  sync: 'סנכרון',
+};
 
 export function AdminReports() {
   const [tab, setTab] = useState<Tab>('reports');
@@ -62,6 +68,7 @@ export function AdminReports() {
       {tab === 'reports' && <ReportsTab />}
       {tab === 'employees' && <EmployeesTab />}
       {tab === 'receipts' && <ReceiptsTab />}
+      {tab === 'announcements' && <AnnouncementsTab />}
       {tab === 'sync' && <SyncTab />}
     </Layout>
   );
@@ -355,6 +362,123 @@ function ReceiptsTab() {
         </tbody>
       </table>
       {receipts.length === 0 && <p className="text-center text-slate-400 py-6">אין קבלות</p>}
+    </div>
+  );
+}
+
+type AnnouncementRow = { id: string; text: string; isActive: boolean; order: number };
+
+function AnnouncementsTab() {
+  const [announcements, setAnnouncements] = useState<AnnouncementRow[]>([]);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    const data = await api.get<{ announcements: AnnouncementRow[] }>('/announcements');
+    setAnnouncements(data.announcements);
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function add() {
+    if (!text.trim()) return;
+    setBusy(true);
+    try {
+      await api.post('/announcements', { text: text.trim() });
+      setText('');
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleActive(a: AnnouncementRow) {
+    await api.put(`/announcements/${a.id}`, { isActive: !a.isActive });
+    await load();
+  }
+
+  async function move(a: AnnouncementRow, direction: 'up' | 'down') {
+    await api.post(`/announcements/${a.id}/move`, { direction });
+    await load();
+  }
+
+  async function remove(id: string) {
+    if (!confirm('למחוק הודעה?')) return;
+    await api.delete(`/announcements/${id}`);
+    await load();
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="card">
+        <h3 className="font-bold text-navy mb-3 flex items-center gap-2">
+          <Monitor size={18} className="text-gold-dark" /> מסך התצוגה
+        </h3>
+        <p className="text-sm text-slate-500 mb-3">
+          פתחו את הכתובת הבאה במסך הגדול — היא מציגה מערכת שעות והודעות, ומתעדכנת לבד, בלי צורך בהתחברות:
+        </p>
+        <a
+          href="/display"
+          target="_blank"
+          rel="noreferrer"
+          className="text-navy underline font-mono text-sm break-all"
+        >
+          {window.location.origin}/display
+        </a>
+      </div>
+
+      <div className="card">
+        <h3 className="font-bold text-navy mb-3 flex items-center gap-2">
+          <Megaphone size={18} className="text-gold-dark" /> הודעות
+        </h3>
+        <div className="flex gap-2 mb-4">
+          <input
+            className="input"
+            placeholder="טקסט ההודעה שתופיע במסך..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && add()}
+          />
+          <button className="btn-primary shrink-0" onClick={add} disabled={busy || !text.trim()}>
+            <Plus size={16} /> הוספה
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {announcements.map((a, i) => (
+            <div key={a.id} className="flex items-center gap-2 border rounded-xl px-3 py-2">
+              <div className="flex flex-col">
+                <button
+                  disabled={i === 0}
+                  onClick={() => move(a, 'up')}
+                  className="p-0.5 text-slate-400 hover:text-navy disabled:opacity-30"
+                >
+                  <ArrowUp size={14} />
+                </button>
+                <button
+                  disabled={i === announcements.length - 1}
+                  onClick={() => move(a, 'down')}
+                  className="p-0.5 text-slate-400 hover:text-navy disabled:opacity-30"
+                >
+                  <ArrowDown size={14} />
+                </button>
+              </div>
+              <p className={`flex-1 text-sm ${a.isActive ? '' : 'text-slate-400 line-through'}`}>{a.text}</p>
+              <button
+                onClick={() => toggleActive(a)}
+                className={`badge ${a.isActive ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-500'}`}
+              >
+                {a.isActive ? 'פעיל' : 'מוסתר'}
+              </button>
+              <button onClick={() => remove(a.id)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          {announcements.length === 0 && <p className="text-slate-400 text-sm text-center py-4">אין הודעות עדיין</p>}
+        </div>
+      </div>
     </div>
   );
 }

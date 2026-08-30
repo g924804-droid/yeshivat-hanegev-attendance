@@ -17,6 +17,8 @@ import scheduleRoutes from './routes/schedule';
 import receiptsRoutes from './routes/receipts';
 import contractsRoutes from './routes/contracts';
 import syncRoutes from './routes/sync';
+import displayRoutes from './routes/display';
+import announcementsRoutes from './routes/announcements';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -39,6 +41,8 @@ app.use('/api/schedule', scheduleRoutes);
 app.use('/api/receipts', receiptsRoutes);
 app.use('/api/contracts', contractsRoutes);
 app.use('/api/sync', syncRoutes);
+app.use('/api/display', displayRoutes);
+app.use('/api/announcements', announcementsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
