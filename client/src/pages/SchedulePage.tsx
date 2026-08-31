@@ -20,7 +20,7 @@ type HistoryRow = { id: string; description: string; changedAt: string; changedB
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי']; // אין לימודים בימי שישי כרגע
 
 const TIME_SLOTS = [
-  { time: '8:30-9:00', label: '' },
+  { time: '8:30-9:00', label: 'תפילה' },
   { time: '9:00-9:45', label: 'שיעור ראשון' },
   { time: '9:45-10:30', label: 'שיעור שני' },
   { time: '10:30-11:00', label: 'הפסקה' },
@@ -52,6 +52,11 @@ function trackColor(trackId: string | undefined, trackIds: string[]) {
   return TRACK_COLORS[idx % TRACK_COLORS.length] || TRACK_COLORS[0];
 }
 
+function startMinutes(time: string): number {
+  const [h, m] = (time || '').split('-')[0].split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
 export function SchedulePage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [teachers, setTeachers] = useState<Ref[]>([]);
@@ -78,6 +83,13 @@ export function SchedulePage() {
     () => (trackFilter ? lessons.filter((l) => l.track?.includes(trackFilter)) : lessons),
     [lessons, trackFilter]
   );
+
+  const rows = useMemo(() => {
+    const known = new Set(TIME_SLOTS.map((s) => s.time));
+    const extraTimes = new Set(filtered.map((l) => l.time).filter((t) => t && !known.has(t)));
+    const all = [...TIME_SLOTS, ...Array.from(extraTimes).map((time) => ({ time, label: '' }))];
+    return all.sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
+  }, [filtered]);
 
   function teacherName(ids: string[]) {
     return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
@@ -120,37 +132,76 @@ export function SchedulePage() {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {DAYS.map((day) => {
-          const isToday = day === todayDow;
-          const dayLessons = filtered
-            .filter((l) => l.dayOfWeek === day)
-            .sort((a, b) => a.time?.localeCompare(b.time));
-          return (
-            <div key={day} className={`card ${isToday ? 'ring-2 ring-gold' : ''}`}>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-navy">{day}</h3>
-                {isToday && <span className="badge bg-gold/20 text-gold-dark">היום</span>}
-              </div>
-              <div className="space-y-2">
-                {dayLessons.map((l) => (
-                  <div key={l.id} className={`rounded-xl border p-3 ${trackColor(l.track?.[0], trackIds)}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold">{l.className}</span>
-                      <span className="flex items-center gap-1 text-xs font-medium shrink-0">
-                        <Clock size={12} /> {l.time}
-                      </span>
-                    </div>
-                    <div className="text-xs opacity-80 mt-0.5">
-                      {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
-                    </div>
-                  </div>
-                ))}
-                {dayLessons.length === 0 && <p className="text-slate-300 text-xs py-2">אין שיעורים</p>}
-              </div>
-            </div>
-          );
-        })}
+      <div className="card overflow-x-auto p-0">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr>
+              <th className="p-2 border border-slate-200 bg-slate-50 text-slate-500 w-28 shrink-0">
+                <Clock size={13} className="inline ml-1" /> שעה
+              </th>
+              {DAYS.map((day) => (
+                <th
+                  key={day}
+                  className={`p-2 border border-slate-200 text-navy min-w-[160px] ${
+                    day === todayDow ? 'bg-gold/15' : 'bg-slate-50'
+                  }`}
+                >
+                  {day}
+                  {day === todayDow && <span className="block text-xs font-normal text-gold-dark">היום</span>}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const isBreak = row.label === 'הפסקה';
+              if (isBreak) {
+                return (
+                  <tr key={row.time} className="bg-slate-100">
+                    <td className="p-2 border border-slate-200 text-slate-500 text-xs align-middle">
+                      <div className="font-medium">{row.time}</div>
+                      <div>הפסקה</div>
+                    </td>
+                    <td colSpan={DAYS.length} className="p-2 border border-slate-200 text-center text-slate-400 text-xs">
+                      הפסקה
+                    </td>
+                  </tr>
+                );
+              }
+              return (
+                <tr key={row.time}>
+                  <td className="p-2 border border-slate-200 text-slate-500 text-xs align-top">
+                    <div className="font-medium text-navy">{row.time}</div>
+                    {row.label && <div>{row.label}</div>}
+                  </td>
+                  {DAYS.map((day) => {
+                    const cellLessons = filtered.filter((l) => l.dayOfWeek === day && l.time === row.time);
+                    return (
+                      <td key={day} className="p-1.5 border border-slate-200 align-top">
+                        <div className="flex flex-wrap gap-1">
+                          {cellLessons.map((l) => (
+                            <div
+                              key={l.id}
+                              className={`rounded-lg border px-2 py-1.5 text-xs flex-1 min-w-[110px] ${trackColor(
+                                l.track?.[0],
+                                trackIds
+                              )}`}
+                            >
+                              <div className="font-semibold">{l.className}</div>
+                              <div className="opacity-80">
+                                {teacherName(l.teacher)} {l.room ? `· ${l.room}` : ''}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       <div className="mt-6">
