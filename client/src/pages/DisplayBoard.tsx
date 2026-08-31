@@ -16,7 +16,7 @@ type Ref = { id: string; name: string };
 type Announcement = { id: string; text: string | null; fileName: string | null; fileMime: string | null };
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי']; // אין לימודים בימי שישי כרגע
-const SCHEDULE_POLL_MS = 60_000;
+const SCHEDULE_POLL_MS = 15 * 60_000; // מערכת השעות מגיעה מ-Airtable — רבע שעה מספיק ומקל על מכסת הבקשות המשותפת
 const ANNOUNCEMENT_POLL_MS = 60_000;
 const ANNOUNCEMENT_ROTATE_MS = 60_000; // כל דקה מתחלפת הודעת הטקסט שמוצגת למטה
 const SLIDE_ROTATE_MS = 60_000; // כל דקה מתחלף בין היום / השבוע / קבצים שהועלו
