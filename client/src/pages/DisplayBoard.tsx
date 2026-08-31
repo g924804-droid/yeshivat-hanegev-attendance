@@ -117,6 +117,14 @@ export function DisplayBoard() {
   // כדי שהכל ייכנס במבט אחד בלי גלילה (המסך בבניין לא ניתן לגלילה) — ככל שיש יותר שורות, מקטינים את הטקסט.
   const todayScale = todayRows.length <= 9 ? 1 : todayRows.length <= 12 ? 0.85 : todayRows.length <= 15 ? 0.72 : 0.6;
 
+  // אותו עיקרון עבור מסך השבוע: לפי היום העמוס ביותר (כדי שכל העמודות יישארו באותו גודל אחיד), כדי שלא יהיה צורך לגלול.
+  const maxDayLessons = useMemo(
+    () => Math.max(1, ...DAYS.map((day) => lessons.filter((l) => l.dayOfWeek === day).length)),
+    [lessons]
+  );
+  const weekScale =
+    maxDayLessons <= 6 ? 1 : maxDayLessons <= 10 ? 0.82 : maxDayLessons <= 14 ? 0.68 : maxDayLessons <= 20 ? 0.56 : 0.46;
+
   function teacherName(ids?: string[]) {
     return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
   }
@@ -261,18 +269,23 @@ export function DisplayBoard() {
                 return (
                   <div
                     key={day}
-                    className={`rounded-xl p-2 overflow-y-auto border ${
+                    className={`rounded-xl overflow-hidden border flex flex-col ${
                       isToday ? 'bg-gold/10 border-gold' : 'bg-amber-50/50 border-amber-100'
                     }`}
+                    style={{ padding: `${0.5 * weekScale}rem` }}
                   >
-                    <div className={`text-sm font-bold mb-1.5 ${isToday ? 'text-gold-dark' : 'text-navy'}`}>
+                    <div
+                      className={`font-bold shrink-0 ${isToday ? 'text-gold-dark' : 'text-navy'}`}
+                      style={{ fontSize: `${0.875 * weekScale}rem`, marginBottom: `${0.375 * weekScale}rem` }}
+                    >
                       {day} {isToday ? '(היום)' : ''}
                     </div>
-                    <div className="space-y-1">
+                    <div className="flex-1 min-h-0 flex flex-col" style={{ gap: `${0.25 * weekScale}rem` }}>
                       {dayLessons.map((l) => (
                         <div
                           key={l.id}
-                          className={`text-[11px] leading-tight rounded-md px-1.5 py-1 border overflow-hidden ${trackColor(l.track?.[0], trackIds)}`}
+                          className={`leading-tight rounded-md border overflow-hidden ${trackColor(l.track?.[0], trackIds)}`}
+                          style={{ fontSize: `${0.7 * weekScale}rem`, padding: `${0.25 * weekScale}rem ${0.375 * weekScale}rem` }}
                         >
                           <div className="flex items-center justify-between gap-1">
                             <span className="font-semibold truncate">{l.subject || l.className}</span>
