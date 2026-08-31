@@ -105,6 +105,12 @@ export function DisplayBoard() {
     () => lessons.filter((l) => l.dayOfWeek === todayDow).sort((a, b) => startMinutes(a.time) - startMinutes(b.time)),
     [lessons, todayDow]
   );
+  // כדי שהכל ייכנס במבט אחד בלי גלילה (המסך בבניין לא ניתן לגלילה) — ככל שיש יותר שיעורים,
+  // פורסים על יותר עמודות ומקטינים את הכרטיסים, במקום לתת לרשימה להיגלש מתחת לגובה המסך.
+  const todayTargetRows = 5;
+  const todayColumns = Math.max(2, Math.min(5, Math.ceil(todayLessons.length / todayTargetRows) || 2));
+  const todayScale =
+    todayLessons.length <= 8 ? 1 : todayLessons.length <= 14 ? 0.85 : todayLessons.length <= 22 ? 0.7 : 0.58;
 
   function teacherName(ids?: string[]) {
     return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
@@ -169,17 +175,34 @@ export function DisplayBoard() {
 
       <main className="relative z-10 flex-1 p-5 overflow-hidden min-h-0">
         {slide.kind === 'today' && (
-          <section className="h-full bg-white/80 rounded-2xl p-5 overflow-y-auto shadow-md border border-amber-100">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gold-dark">
+          <section className="h-full bg-white/80 rounded-2xl p-5 overflow-hidden shadow-md border border-amber-100 flex flex-col">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gold-dark shrink-0">
               <CalendarClock size={22} /> היום — {todayDow}
             </h2>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div
+              className="flex-1 min-h-0 grid gap-2"
+              style={{
+                gridTemplateColumns: `repeat(${todayColumns}, minmax(0, 1fr))`,
+                gridAutoRows: 'minmax(0, 1fr)',
+              }}
+            >
               {todayLessons.map((l) => (
-                <div key={l.id} className="flex items-center gap-3 bg-amber-50/70 rounded-xl px-3 py-2 border border-amber-100">
-                  <div className="text-lg font-black text-gold-dark w-20 shrink-0 tabular-nums">{l.time}</div>
+                <div
+                  key={l.id}
+                  className="flex items-center gap-2 bg-amber-50/70 rounded-xl border border-amber-100 overflow-hidden"
+                  style={{ padding: `${0.55 * todayScale}rem ${0.75 * todayScale}rem` }}
+                >
+                  <div
+                    className="font-black text-gold-dark shrink-0 tabular-nums"
+                    style={{ fontSize: `${1.15 * todayScale}rem`, width: `${5 * todayScale}rem` }}
+                  >
+                    {l.time}
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-base font-bold truncate text-navy">{l.subject || l.className}</div>
-                    <div className="text-navy-light/70 text-xs truncate">
+                    <div className="font-bold truncate text-navy" style={{ fontSize: `${1.05 * todayScale}rem` }}>
+                      {l.subject || l.className}
+                    </div>
+                    <div className="text-navy-light/70 truncate" style={{ fontSize: `${0.8 * todayScale}rem` }}>
                       {l.subject && `כיתה ${l.className} · `}
                       {trackName(l.track) && `${trackName(l.track)} · `}
                       {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
