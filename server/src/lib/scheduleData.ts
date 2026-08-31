@@ -16,6 +16,7 @@ export async function getFullSchedule() {
     lessons: lessons.map((l) => ({
       id: l.id,
       className: l.fields[FIELDS.lessons.className],
+      subject: l.fields[FIELDS.lessons.subject],
       dayOfWeek: l.fields[FIELDS.lessons.dayOfWeek],
       time: l.fields[FIELDS.lessons.time],
       track: l.fields[FIELDS.lessons.track] as string[] | undefined,

@@ -18,6 +18,7 @@ export const FIELDS = {
   },
   lessons: {
     className: 'שם הכיתה',
+    subject: 'נושא',
     dayOfWeek: 'יום בשבוע',
     time: 'זמן',
     track: 'מסלול',

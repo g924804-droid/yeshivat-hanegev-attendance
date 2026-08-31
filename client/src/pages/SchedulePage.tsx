@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History, Monitor, Clock } from 'lucide-react';
+import { Plus, History, Monitor, Clock, Pencil } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { api } from '../lib/api';
@@ -8,6 +8,7 @@ import { DOW_HE } from '../lib/utils';
 type Lesson = {
   id: string;
   className: string;
+  subject: string | null;
   dayOfWeek: string;
   time: string;
   track: string[];
@@ -63,6 +64,7 @@ export function SchedulePage() {
   const [tracks, setTracks] = useState<Ref[]>([]);
   const [trackFilter, setTrackFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryRow[]>([]);
 
@@ -182,13 +184,22 @@ export function SchedulePage() {
                           {cellLessons.map((l) => (
                             <div
                               key={l.id}
-                              className={`rounded-lg border px-2 py-1.5 text-xs flex-1 min-w-[110px] ${trackColor(
+                              onDoubleClick={() => setEditingLesson(l)}
+                              className={`group relative rounded-lg border px-2 py-1.5 text-xs flex-1 min-w-[120px] cursor-pointer ${trackColor(
                                 l.track?.[0],
                                 trackIds
                               )}`}
                             >
-                              <div className="font-semibold">{l.className}</div>
-                              <div className="opacity-80">
+                              <button
+                                onClick={() => setEditingLesson(l)}
+                                title="עריכה"
+                                className="absolute top-1 left-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/10 transition-opacity"
+                              >
+                                <Pencil size={11} />
+                              </button>
+                              <div className="font-semibold truncate pl-4">{l.subject || l.className}</div>
+                              {l.subject && <div className="opacity-70">כיתה {l.className}</div>}
+                              <div className="opacity-80 truncate">
                                 {teacherName(l.teacher)} {l.room ? `· ${l.room}` : ''}
                               </div>
                             </div>
@@ -221,6 +232,20 @@ export function SchedulePage() {
         />
       )}
 
+      {editingLesson && (
+        <LessonModal
+          lesson={editingLesson}
+          teachers={teachers}
+          tracks={tracks}
+          onTeacherAdded={(teacher) => setTeachers((prev) => [...prev, teacher])}
+          onClose={() => setEditingLesson(null)}
+          onSaved={() => {
+            setEditingLesson(null);
+            load();
+          }}
+        />
+      )}
+
       {showHistory && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto space-y-2">
@@ -240,22 +265,31 @@ export function SchedulePage() {
 }
 
 function LessonModal({
+  lesson,
   teachers,
   tracks,
   onTeacherAdded,
   onClose,
   onSaved,
 }: {
+  lesson?: Lesson;
   teachers: Ref[];
   tracks: Ref[];
   onTeacherAdded: (teacher: Ref) => void;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState({ className: '', dayOfWeek: 'ראשון', trackId: '', room: '' });
-  const [timeChoice, setTimeChoice] = useState(TIME_SLOTS[0].time);
-  const [customTime, setCustomTime] = useState('');
-  const [teacherIds, setTeacherIds] = useState<string[]>([]);
+  const [form, setForm] = useState({
+    className: lesson?.className || '',
+    subject: lesson?.subject || '',
+    dayOfWeek: lesson?.dayOfWeek || 'ראשון',
+    trackId: lesson?.track?.[0] || '',
+    room: lesson?.room || '',
+  });
+  const knownTime = lesson && TIME_SLOTS.some((s) => s.time === lesson.time);
+  const [timeChoice, setTimeChoice] = useState(lesson ? (knownTime ? lesson.time : CUSTOM_TIME) : TIME_SLOTS[0].time);
+  const [customTime, setCustomTime] = useState(lesson && !knownTime ? lesson.time : '');
+  const [teacherIds, setTeacherIds] = useState<string[]>(lesson?.teacher || []);
   const [busy, setBusy] = useState(false);
   const [newTeacherName, setNewTeacherName] = useState('');
   const [addingTeacher, setAddingTeacher] = useState(false);
@@ -284,7 +318,7 @@ function LessonModal({
     if (!time) return;
     setBusy(true);
     try {
-      await api.post('/schedule/updateScheduleLesson', { ...form, time, teacherIds });
+      await api.post('/schedule/updateScheduleLesson', { id: lesson?.id, ...form, time, teacherIds });
       onSaved();
     } finally {
       setBusy(false);
@@ -296,7 +330,8 @@ function LessonModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3 max-h-[85vh] overflow-y-auto">
-        <h3 className="font-bold text-navy text-lg">שיעור חדש</h3>
+        <h3 className="font-bold text-navy text-lg">{lesson ? 'עריכת שיעור' : 'שיעור חדש'}</h3>
+        <input className="input" placeholder="נושא (למשל: חשבון)" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
         <input className="input" placeholder="שם הכיתה" value={form.className} onChange={(e) => setForm({ ...form, className: e.target.value })} />
         <select className="input" value={form.dayOfWeek} onChange={(e) => setForm({ ...form, dayOfWeek: e.target.value })}>
           {DAYS.map((d) => <option key={d}>{d}</option>)}

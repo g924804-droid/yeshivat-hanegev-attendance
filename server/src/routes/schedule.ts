@@ -19,9 +19,10 @@ router.get('/getSchedule', async (req, res) => {
 
 router.post('/updateScheduleLesson', async (req, res) => {
   try {
-    const { id, className, dayOfWeek, time, trackId, teacherIds, room, year, notes } = req.body as {
+    const { id, className, subject, dayOfWeek, time, trackId, teacherIds, room, year, notes } = req.body as {
       id?: string;
       className: string;
+      subject?: string;
       dayOfWeek: string;
       time: string;
       trackId?: string;
@@ -33,6 +34,7 @@ router.post('/updateScheduleLesson', async (req, res) => {
 
     const fields: Record<string, any> = {
       [FIELDS.lessons.className]: className,
+      [FIELDS.lessons.subject]: subject,
       [FIELDS.lessons.dayOfWeek]: dayOfWeek,
       [FIELDS.lessons.time]: time,
       [FIELDS.lessons.room]: room,
