@@ -195,24 +195,24 @@ export function DisplayBoard() {
         />
       )}
 
-      <header className="relative z-10 flex items-center justify-between px-8 py-4 bg-white/70 backdrop-blur-sm shadow-sm">
-        <div className="flex items-center gap-3">
+      <header className="relative z-10 flex items-center justify-between px-6 py-1.5 bg-white/70 backdrop-blur-sm shadow-sm">
+        <div className="flex items-center gap-2">
           {hasLogo ? (
-            <img src="/api/display/logo" alt={siteName} className="h-11 w-11 rounded-xl object-contain bg-white shadow border border-amber-100" />
+            <img src="/api/display/logo" alt={siteName} className="h-7 w-7 rounded-lg object-contain bg-white shadow border border-amber-100" />
           ) : (
-            <div className="h-11 w-11 rounded-xl bg-gold text-navy flex items-center justify-center text-2xl font-black shadow">
+            <div className="h-7 w-7 rounded-lg bg-gold text-navy flex items-center justify-center text-sm font-black shadow">
               {siteName.trim().charAt(0) || 'נ'}
             </div>
           )}
           <div>
-            <h1 className="text-base font-bold text-navy leading-tight">{siteName}</h1>
-            <p className="text-navy-light/70 truncate max-w-md text-xs leading-tight">{headerSubtitle}</p>
+            <h1 className="text-xs font-bold text-navy leading-tight">{siteName}</h1>
+            <p className="text-navy-light/70 truncate max-w-md text-[10px] leading-tight">{headerSubtitle}</p>
           </div>
         </div>
-        <div className="text-left rounded-xl border border-amber-200 bg-white/60 px-5 py-2">
-          <div className="text-4xl font-black tabular-nums text-navy leading-tight">{timeStr}</div>
-          <div className="text-navy-light/70 text-lg leading-tight">{dateStr}</div>
-          {hebrewDateStr && <div className="text-navy-light/60 text-sm leading-tight">{hebrewDateStr}</div>}
+        <div className="text-left">
+          <div className="text-lg font-black tabular-nums text-navy leading-tight">{timeStr}</div>
+          <div className="text-navy-light/70 text-[10px] leading-tight">{dateStr}</div>
+          {hebrewDateStr && <div className="text-navy-light/60 text-[10px] leading-tight">{hebrewDateStr}</div>}
         </div>
       </header>
 
