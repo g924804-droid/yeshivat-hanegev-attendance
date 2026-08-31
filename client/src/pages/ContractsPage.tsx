@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileSignature, Upload, CheckCircle2, Clock } from 'lucide-react';
+import { FileSignature, Upload, CheckCircle2, Clock, LogOut } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { SignaturePad, SignaturePadHandle } from '../components/SignaturePad';
 import { api } from '../lib/api';
@@ -23,7 +23,7 @@ const STATUS_STYLE: Record<Contract['status'], string> = {
 };
 
 export function ContractsPage({ forced = false }: { forced?: boolean }) {
-  const { user, refresh } = useAuth();
+  const { user, refresh, logout } = useAuth();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [showUpload, setShowUpload] = useState(false);
   const [signingId, setSigningId] = useState<string | null>(null);
@@ -110,7 +110,20 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
   );
 
   if (forced) {
-    return <div className="min-h-screen bg-slate-50 p-4 max-w-3xl mx-auto py-10">{body}</div>;
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <div className="flex items-center justify-between px-4 py-3 bg-navy text-white">
+          <span className="font-medium">{user?.name}</span>
+          <button
+            onClick={() => logout()}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg hover:bg-white/10"
+          >
+            <LogOut size={16} /> החלפת משתמש / התנתקות
+          </button>
+        </div>
+        <div className="p-4 max-w-3xl mx-auto py-10">{body}</div>
+      </div>
+    );
   }
   return <Layout title="חוזים">{body}</Layout>;
 }

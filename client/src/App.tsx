@@ -20,15 +20,21 @@ import { ContractsPage } from './pages/ContractsPage';
 import { DisplayBoard } from './pages/DisplayBoard';
 
 function RequireNoPendingContracts({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const location = useLocation();
   const [pending, setPending] = useState<boolean | null>(null);
 
   useEffect(() => {
+    // מנהל רואה שיש חוזה ממתין (בעמוד הבית/בניהול) אבל אף פעם לא נחסם משימוש במערכת.
+    if (user?.role === 'מנהל') {
+      setPending(false);
+      return;
+    }
     api
       .get<{ contracts: { status: string }[] }>('/contracts/getContracts')
       .then((r) => setPending(r.contracts.some((c) => c.status === 'ממתין לחתימה')))
       .catch(() => setPending(false));
-  }, [location.pathname]);
+  }, [location.pathname, user?.role]);
 
   if (pending === null) return <LoadingProgress />;
   if (pending) return <ContractsPage forced />;
