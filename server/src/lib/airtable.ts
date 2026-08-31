@@ -49,13 +49,18 @@ function throttle<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function requestWithRetry<T>(fn: () => Promise<T>, retriesLeft = 4): Promise<T> {
+/**
+ * שומרים את סך זמן ה-retry קצר (לא רודפים אחרי המכסה בכל מחיר): אם הבסיס עמוס
+ * באופן מתמשך ממקור חיצוני, בקשה שממתינה יותר מדי גורמת ל-timeout מול Render
+ * (502) במקום שגיאה ברורה. עדיף להיכשל מהר עם הודעה ברורה.
+ */
+async function requestWithRetry<T>(fn: () => Promise<T>, retriesLeft = 2): Promise<T> {
   try {
     return await throttle(fn);
   } catch (err: any) {
     if (err.response?.status === 429 && retriesLeft > 0) {
       const retryAfterSec = Number(err.response.headers?.['retry-after']);
-      const delayMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? retryAfterSec * 1000 : 500 * (5 - retriesLeft);
+      const delayMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? Math.min(retryAfterSec * 1000, 1500) : 700;
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       return requestWithRetry(fn, retriesLeft - 1);
     }
