@@ -205,14 +205,14 @@ export function DisplayBoard() {
             </div>
           )}
           <div>
-            <h1 className="text-xl font-bold text-navy leading-tight">{siteName}</h1>
-            <p className="text-navy-light/70 truncate max-w-md text-sm leading-tight">{headerSubtitle}</p>
+            <h1 className="text-base font-bold text-navy leading-tight">{siteName}</h1>
+            <p className="text-navy-light/70 truncate max-w-md text-xs leading-tight">{headerSubtitle}</p>
           </div>
         </div>
-        <div className="text-left">
-          <div className="text-2xl font-black tabular-nums text-navy leading-tight">{timeStr}</div>
-          <div className="text-navy-light/70 text-sm leading-tight">{dateStr}</div>
-          {hebrewDateStr && <div className="text-navy-light/60 text-xs leading-tight">{hebrewDateStr}</div>}
+        <div className="text-left rounded-xl border border-amber-200 bg-white/60 px-5 py-2">
+          <div className="text-4xl font-black tabular-nums text-navy leading-tight">{timeStr}</div>
+          <div className="text-navy-light/70 text-lg leading-tight">{dateStr}</div>
+          {hebrewDateStr && <div className="text-navy-light/60 text-sm leading-tight">{hebrewDateStr}</div>}
         </div>
       </header>
 
@@ -223,32 +223,32 @@ export function DisplayBoard() {
               <CalendarClock size={22} /> היום — {todayDow}
             </h2>
             <FitScale className="flex-1 min-h-0">
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {todayRows.map((row) => {
                   const isBreak = row.label === 'הפסקה';
                   const cellLessons = todayLessons.filter((l) => l.time === row.time);
                   if (isBreak) {
                     return (
-                      <div key={row.time} className="flex items-center gap-3 rounded-lg bg-slate-100 border border-slate-200 px-3 py-2">
-                        <span className="font-bold text-slate-500 shrink-0 tabular-nums w-24 text-lg">{row.time}</span>
-                        <span className="text-slate-400 text-base">הפסקה</span>
+                      <div key={row.time} className="flex items-center gap-4 rounded-lg bg-slate-100 border border-slate-200 px-4 py-3">
+                        <span className="font-bold text-slate-500 shrink-0 tabular-nums w-32 text-2xl">{row.time}</span>
+                        <span className="text-slate-400 text-xl">הפסקה</span>
                       </div>
                     );
                   }
                   return (
-                    <div key={row.time} className="flex items-stretch gap-3">
-                      <div className="shrink-0 w-24 flex flex-col justify-center border-l-2 border-amber-100 pl-3">
-                        <span className="font-black text-gold-dark tabular-nums text-xl">{row.time}</span>
-                        {row.label && <span className="text-navy-light/50 truncate text-xs">{row.label}</span>}
+                    <div key={row.time} className="flex items-stretch gap-4">
+                      <div className="shrink-0 w-32 flex flex-col justify-center border-l-2 border-amber-100 pl-4">
+                        <span className="font-black text-gold-dark tabular-nums text-3xl">{row.time}</span>
+                        {row.label && <span className="text-navy-light/50 truncate text-sm">{row.label}</span>}
                       </div>
-                      <div className="flex-1 min-w-0 flex flex-wrap items-stretch gap-2">
+                      <div className="flex-1 min-w-0 flex flex-wrap items-stretch gap-3">
                         {cellLessons.map((l) => (
                           <div
                             key={l.id}
-                            className={`rounded-lg border overflow-hidden flex-1 min-w-[10rem] px-3 py-2 ${trackColor(l.track?.[0], trackIds)}`}
+                            className={`rounded-lg border overflow-hidden flex-1 min-w-[12rem] px-4 py-3 ${trackColor(l.track?.[0], trackIds)}`}
                           >
-                            <div className="font-bold truncate text-lg">{l.subject || l.className}</div>
-                            <div className="opacity-80 truncate text-sm">
+                            <div className="font-bold truncate text-2xl">{l.subject || l.className}</div>
+                            <div className="opacity-80 truncate text-lg">
                               {l.subject && `כיתה ${l.className} · `}
                               {trackName(l.track) && `${trackName(l.track)} · `}
                               {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
