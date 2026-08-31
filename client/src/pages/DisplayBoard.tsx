@@ -270,12 +270,18 @@ export function DisplayBoard() {
                     </div>
                     <div className="space-y-1">
                       {dayLessons.map((l) => (
-                        <div key={l.id} className="text-[11px] leading-tight bg-white rounded-md px-1.5 py-1 border border-amber-100/80">
+                        <div
+                          key={l.id}
+                          className={`text-[11px] leading-tight rounded-md px-1.5 py-1 border overflow-hidden ${trackColor(l.track?.[0], trackIds)}`}
+                        >
                           <div className="flex items-center justify-between gap-1">
-                            <span className="font-semibold text-navy truncate">{l.subject || l.className}</span>
-                            <span className="text-navy-light/60 shrink-0">{l.time}</span>
+                            <span className="font-semibold truncate">{l.subject || l.className}</span>
+                            <span className="opacity-70 shrink-0">{l.time}</span>
                           </div>
-                          {l.subject && <div className="text-navy-light/60 truncate">כיתה {l.className}</div>}
+                          <div className="opacity-80 truncate">
+                            {l.subject && `כיתה ${l.className} · `}
+                            {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
+                          </div>
                         </div>
                       ))}
                       {dayLessons.length === 0 && <p className="text-navy-light/40 text-xs">אין שיעורים</p>}
