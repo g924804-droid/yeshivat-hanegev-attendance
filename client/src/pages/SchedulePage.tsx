@@ -3,7 +3,7 @@ import { Plus, History, Monitor, Clock, Pencil } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { api } from '../lib/api';
-import { DOW_HE, startMinutes } from '../lib/utils';
+import { DOW_HE, startMinutes, TIME_SLOTS, trackColor } from '../lib/utils';
 
 type Lesson = {
   id: string;
@@ -20,38 +20,7 @@ type HistoryRow = { id: string; description: string; changedAt: string; changedB
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי']; // אין לימודים בימי שישי כרגע
 
-const TIME_SLOTS = [
-  { time: '8:30-9:00', label: 'תפילה' },
-  { time: '9:00-9:45', label: 'שיעור ראשון' },
-  { time: '9:45-10:30', label: 'שיעור שני' },
-  { time: '10:30-11:00', label: 'הפסקה' },
-  { time: '11:00-11:45', label: 'שיעור שלישי' },
-  { time: '11:45-12:30', label: 'שיעור רביעי' },
-  { time: '12:30-12:45', label: 'הפסקה' },
-  { time: '12:45-13:30', label: 'שיעור חמישי' },
-  { time: '13:30-14:15', label: 'שיעור שישי' },
-  { time: '14:15-14:30', label: 'הפסקה' },
-  { time: '14:30-15:15', label: 'שיעור שביעי' },
-  { time: '15:15-16:00', label: 'שיעור שמיני' },
-];
 const CUSTOM_TIME = '__custom__';
-
-const TRACK_COLORS = [
-  'bg-blue-50 border-blue-200 text-blue-800',
-  'bg-purple-50 border-purple-200 text-purple-800',
-  'bg-emerald-50 border-emerald-200 text-emerald-800',
-  'bg-amber-50 border-amber-200 text-amber-800',
-  'bg-rose-50 border-rose-200 text-rose-800',
-  'bg-teal-50 border-teal-200 text-teal-800',
-  'bg-indigo-50 border-indigo-200 text-indigo-800',
-  'bg-orange-50 border-orange-200 text-orange-800',
-];
-
-function trackColor(trackId: string | undefined, trackIds: string[]) {
-  if (!trackId) return 'bg-slate-50 border-slate-200 text-slate-700';
-  const idx = trackIds.indexOf(trackId);
-  return TRACK_COLORS[idx % TRACK_COLORS.length] || TRACK_COLORS[0];
-}
 
 
 export function SchedulePage() {

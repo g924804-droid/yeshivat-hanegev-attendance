@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CalendarDays, Megaphone } from 'lucide-react';
-import { DOW_HE, startMinutes, toHebrewDateString } from '../lib/utils';
+import { DOW_HE, startMinutes, toHebrewDateString, TIME_SLOTS, trackColor } from '../lib/utils';
 
 type Lesson = {
   id: string;
@@ -105,12 +105,17 @@ export function DisplayBoard() {
     () => lessons.filter((l) => l.dayOfWeek === todayDow).sort((a, b) => startMinutes(a.time) - startMinutes(b.time)),
     [lessons, todayDow]
   );
-  // כדי שהכל ייכנס במבט אחד בלי גלילה (המסך בבניין לא ניתן לגלילה) — ככל שיש יותר שיעורים,
-  // פורסים על יותר עמודות ומקטינים את הכרטיסים, במקום לתת לרשימה להיגלש מתחת לגובה המסך.
-  const todayTargetRows = 5;
-  const todayColumns = Math.max(2, Math.min(5, Math.ceil(todayLessons.length / todayTargetRows) || 2));
-  const todayScale =
-    todayLessons.length <= 8 ? 1 : todayLessons.length <= 14 ? 0.85 : todayLessons.length <= 22 ? 0.7 : 0.58;
+  const trackIds = useMemo(() => tracks.map((t) => t.id), [tracks]);
+  // שורה אחת לכל שעה קבועה ביום (כמו במסך הניהול), כדי שהשעות תמיד יסתדרו זו מתחת לזו
+  // בטור אחד ברור, במקום להתפזר בין עמודות. שעות לא סטנדרטיות שיש להן שיעור בפועל נוספות בסוף.
+  const todayRows = useMemo(() => {
+    const known = new Set(TIME_SLOTS.map((s) => s.time));
+    const extraTimes = new Set(todayLessons.map((l) => l.time).filter((t) => t && !known.has(t)));
+    const all = [...TIME_SLOTS, ...Array.from(extraTimes).map((time) => ({ time, label: '' }))];
+    return all.sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
+  }, [todayLessons]);
+  // כדי שהכל ייכנס במבט אחד בלי גלילה (המסך בבניין לא ניתן לגלילה) — ככל שיש יותר שורות, מקטינים את הטקסט.
+  const todayScale = todayRows.length <= 9 ? 1 : todayRows.length <= 12 ? 0.85 : todayRows.length <= 15 ? 0.72 : 0.6;
 
   function teacherName(ids?: string[]) {
     return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
@@ -176,40 +181,67 @@ export function DisplayBoard() {
       <main className="relative z-10 flex-1 p-5 overflow-hidden min-h-0">
         {slide.kind === 'today' && (
           <section className="h-full bg-white/80 rounded-2xl p-5 overflow-hidden shadow-md border border-amber-100 flex flex-col">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gold-dark shrink-0">
+            <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-gold-dark shrink-0">
               <CalendarClock size={22} /> היום — {todayDow}
             </h2>
-            <div
-              className="flex-1 min-h-0 grid gap-2"
-              style={{
-                gridTemplateColumns: `repeat(${todayColumns}, minmax(0, 1fr))`,
-                gridAutoRows: 'minmax(0, 1fr)',
-              }}
-            >
-              {todayLessons.map((l) => (
-                <div
-                  key={l.id}
-                  className="flex items-center gap-2 bg-amber-50/70 rounded-xl border border-amber-100 overflow-hidden"
-                  style={{ padding: `${0.55 * todayScale}rem ${0.75 * todayScale}rem` }}
-                >
-                  <div
-                    className="font-black text-gold-dark shrink-0 tabular-nums"
-                    style={{ fontSize: `${1.15 * todayScale}rem`, width: `${5 * todayScale}rem` }}
-                  >
-                    {l.time}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold truncate text-navy" style={{ fontSize: `${1.05 * todayScale}rem` }}>
-                      {l.subject || l.className}
+            <div className="flex-1 min-h-0 flex flex-col gap-1.5">
+              {todayRows.map((row) => {
+                const isBreak = row.label === 'הפסקה';
+                const cellLessons = todayLessons.filter((l) => l.time === row.time);
+                if (isBreak) {
+                  return (
+                    <div
+                      key={row.time}
+                      className="flex-1 min-h-0 flex items-center gap-3 rounded-lg bg-slate-100 border border-slate-200 px-3"
+                    >
+                      <span
+                        className="font-bold text-slate-500 shrink-0 tabular-nums"
+                        style={{ fontSize: `${0.95 * todayScale}rem`, width: `${5.5 * todayScale}rem` }}
+                      >
+                        {row.time}
+                      </span>
+                      <span className="text-slate-400" style={{ fontSize: `${0.85 * todayScale}rem` }}>
+                        הפסקה
+                      </span>
                     </div>
-                    <div className="text-navy-light/70 truncate" style={{ fontSize: `${0.8 * todayScale}rem` }}>
-                      {l.subject && `כיתה ${l.className} · `}
-                      {trackName(l.track) && `${trackName(l.track)} · `}
-                      {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
+                  );
+                }
+                return (
+                  <div key={row.time} className="flex-1 min-h-0 flex items-stretch gap-3">
+                    <div
+                      className="shrink-0 flex flex-col justify-center border-l-2 border-amber-100 pl-3"
+                      style={{ width: `${5.5 * todayScale}rem` }}
+                    >
+                      <span className="font-black text-gold-dark tabular-nums" style={{ fontSize: `${1.05 * todayScale}rem` }}>
+                        {row.time}
+                      </span>
+                      {row.label && (
+                        <span className="text-navy-light/50 truncate" style={{ fontSize: `${0.65 * todayScale}rem` }}>
+                          {row.label}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 flex flex-wrap items-center gap-1.5 overflow-hidden">
+                      {cellLessons.map((l) => (
+                        <div
+                          key={l.id}
+                          className={`rounded-lg border overflow-hidden flex-1 min-w-[9rem] ${trackColor(l.track?.[0], trackIds)}`}
+                          style={{ padding: `${0.35 * todayScale}rem ${0.6 * todayScale}rem` }}
+                        >
+                          <div className="font-bold truncate" style={{ fontSize: `${0.95 * todayScale}rem` }}>
+                            {l.subject || l.className}
+                          </div>
+                          <div className="opacity-80 truncate" style={{ fontSize: `${0.7 * todayScale}rem` }}>
+                            {l.subject && `כיתה ${l.className} · `}
+                            {trackName(l.track) && `${trackName(l.track)} · `}
+                            {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             {todayLessons.length === 0 && <p className="text-navy-light/50 text-xl py-16 text-center">אין שיעורים היום</p>}
           </section>
