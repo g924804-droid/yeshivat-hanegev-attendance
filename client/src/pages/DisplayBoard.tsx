@@ -182,7 +182,7 @@ export function DisplayBoard() {
 
   return (
     <div
-      className="relative min-h-screen text-navy flex flex-col overflow-hidden"
+      className="relative h-screen text-navy flex flex-col overflow-hidden"
       style={{ background: 'linear-gradient(160deg, #fdf8f1 0%, #f7ece8 55%, #f3e6e9 100%)' }}
       dir="rtl"
     >
