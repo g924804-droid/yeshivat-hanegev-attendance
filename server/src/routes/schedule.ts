@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { airtableFetch, airtableCreate, airtableUpdate, TABLES } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
-import { getFullSchedule } from '../lib/scheduleData';
+import { getFullSchedule, invalidateScheduleCache } from '../lib/scheduleData';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requirePermission } from '../middleware/auth';
 
@@ -71,6 +71,7 @@ router.post('/updateScheduleLesson', async (req, res) => {
       },
     });
 
+    invalidateScheduleCache();
     res.json({ success: true, recordId: record.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בעדכון שיעור' });
