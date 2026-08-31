@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
-import { requireAuth, requireAdmin } from '../middleware/auth';
+import { requireAuth, requireAdmin, requireAdminOrAttendanceManager } from '../middleware/auth';
 import { buildMonthDetail } from '../lib/monthlyReport';
 import { hasPendingContracts } from '../lib/contracts';
-import { airtableFetch, TABLES } from '../lib/airtable';
+import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
 import { renderHtmlToPdf } from '../lib/pdf';
 import { reportPdfHtml, summaryPdfHtml } from '../lib/pdfTemplates';
 
@@ -76,16 +76,17 @@ router.post('/submitMonthlyReport', async (req, res) => {
       return res.status(400).json({ error: `חסר אישור מחלה לתאריך ${sickRecordsMissingNote.date}` });
     }
 
-    let warning: string | undefined;
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: report.employeeId } });
     if (employee.role === 'מורה' && employee.trackLessons) {
       try {
-        const monthAttendance = await airtableFetch(TABLES.attendance, {
-          filterByFormula: `FIND("${report.month}", {תאריך})`,
-        });
-        if (monthAttendance.length === 0) warning = 'לא נמצאה נוכחות תלמידות מתועדת לחודש זה';
+        const missingDates = await getMissingStudentAttendanceDates(employee.name, report.month);
+        if (missingDates.length > 0) {
+          return res.status(400).json({
+            error: `יש להשלים נוכחות תלמידות לפני הגשת הדוח, לתאריכים: ${missingDates.join(', ')}`,
+          });
+        }
       } catch {
-        /* אם Airtable לא מוגדר — לא חוסמים */
+        /* אם Airtable לא מוגדר/נכשל — לא חוסמים, כדי לא לנעול משתמשים כשהאינטגרציה לא זמינה */
       }
     }
 
@@ -94,13 +95,13 @@ router.post('/submitMonthlyReport', async (req, res) => {
       data: { status: 'הוגש', employeeSignature: signatureDataUrl },
     });
 
-    res.json({ success: true, report: updated, warning });
+    res.json({ success: true, report: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בהגשת הדוח' });
   }
 });
 
-router.post('/approveReport', requireAdmin, async (req, res) => {
+router.post('/approveReport', requireAdminOrAttendanceManager, async (req, res) => {
   try {
     const { reportId } = req.body as { reportId: string };
     const updated = await prisma.monthlyReport.update({ where: { id: reportId }, data: { status: 'אושר' } });
@@ -110,7 +111,7 @@ router.post('/approveReport', requireAdmin, async (req, res) => {
   }
 });
 
-router.get('/getAllReports', requireAdmin, async (req, res) => {
+router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) => {
   try {
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
     const employees = await prisma.user.findMany({ where: { isActive: true } });
@@ -159,7 +160,7 @@ router.post('/exportReportPdf', async (req, res) => {
   }
 });
 
-router.get('/exportSummaryPdf', requireAdmin, async (req, res) => {
+router.get('/exportSummaryPdf', requireAdminOrAttendanceManager, async (req, res) => {
   try {
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
     const reports = await prisma.monthlyReport.findMany({ where: { month }, include: { employee: true } });

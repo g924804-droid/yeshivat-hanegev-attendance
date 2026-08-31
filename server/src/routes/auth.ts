@@ -58,8 +58,9 @@ router.post('/logout', (req, res) => {
 
 router.get('/me', enrichCurrentUser, (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'לא מחובר' });
-  const { id, name, role, department, permissions, idNumber, dailyTravelCost, monthlyBusPass } = req.user;
-  res.json({ id, name, role, department, permissions, idNumber, dailyTravelCost, monthlyBusPass });
+  const { id, name, role, department, permissions, idNumber, dailyTravelCost, monthlyBusPass, isAttendanceManager } =
+    req.user;
+  res.json({ id, name, role, department, permissions, idNumber, dailyTravelCost, monthlyBusPass, isAttendanceManager });
 });
 
 export default router;

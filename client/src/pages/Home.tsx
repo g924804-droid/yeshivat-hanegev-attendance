@@ -29,6 +29,7 @@ export function Home() {
 
   if (!user) return null;
   const isAdmin = user.role === 'מנהל';
+  const canSeeAdminButton = isAdmin || user.isAttendanceManager;
 
   const modules = [
     {
@@ -84,7 +85,7 @@ export function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {isAdmin && (
+            {canSeeAdminButton && (
               <button onClick={() => navigate('/admin')} className="btn-gold text-sm py-2">
                 <ShieldCheck size={16} /> ניהול
               </button>

@@ -33,6 +33,7 @@ model User {
   wednesdayHours      Float?
   thursdayHours       Float?
   fridayHours         Float?
+  isAttendanceManager Boolean  @default(false) // הרשאה נוספת (לצד מנהל) לצפות/לאשר את דוחות הנוכחות של כל המורות
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

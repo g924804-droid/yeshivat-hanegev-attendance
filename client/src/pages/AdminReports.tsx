@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus, Pencil } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/permissions';
 import { currentMonth, safeFixed } from '../lib/utils';
 
 type ReportRow = {
@@ -37,6 +38,7 @@ type Employee = {
   wednesdayHours: number | null;
   thursdayHours: number | null;
   fridayHours: number | null;
+  isAttendanceManager: boolean;
 };
 
 type ReceiptRow = {
@@ -59,12 +61,15 @@ const TAB_LABEL: Record<Tab, string> = {
 };
 
 export function AdminReports() {
+  const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('reports');
+  const isFullAdmin = user?.role === 'מנהל';
+  const visibleTabs = isFullAdmin ? TABS : (['reports'] as const);
 
   return (
     <Layout title="ניהול">
       <div className="flex gap-2 mb-6 border-b">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -392,6 +397,7 @@ function EditEmployeeModal({
     wednesdayHours: employee.wednesdayHours ?? '',
     thursdayHours: employee.thursdayHours ?? '',
     fridayHours: employee.fridayHours ?? '',
+    isAttendanceManager: employee.isAttendanceManager,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -518,6 +524,14 @@ function EditEmployeeModal({
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input type="checkbox" checked={form.trackLessons} onChange={(e) => setField('trackLessons', e.target.checked)} />
           מורה שמדווחת מספר שיעורים (trackLessons)
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <input
+            type="checkbox"
+            checked={form.isAttendanceManager}
+            onChange={(e) => setField('isAttendanceManager', e.target.checked)}
+          />
+          הרשאת ניהול נוכחות מורות — יכולה לצפות, לאשר ולייצא דוחות של כל המורות (בלי גישה לתשלומים/עובדים/חוזים)
         </label>
 
         <div>

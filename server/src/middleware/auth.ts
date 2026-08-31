@@ -44,6 +44,13 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/** מנהל, או מי שקיבל הרשאת ניהול נוכחות (isAttendanceManager) — לצפייה/אישור דוחות הנוכחות של כל המורות. */
+export function requireAdminOrAttendanceManager(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) return res.status(401).json({ error: 'לא מחובר' });
+  if (req.user.role !== 'מנהל' && !req.user.isAttendanceManager) return res.status(403).json({ error: 'אין הרשאה' });
+  next();
+}
+
 export function requirePermission(key: keyof SessionPayload['permissions']) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ error: 'לא מחובר' });

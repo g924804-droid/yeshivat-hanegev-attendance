@@ -38,7 +38,7 @@ function RequireNoPendingContracts({ children }: { children: ReactNode }) {
 function AdminOnly({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/" replace />;
-  if (user.role !== 'מנהל') return <Navigate to="/" replace />;
+  if (user.role !== 'מנהל' && !user.isAttendanceManager) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 

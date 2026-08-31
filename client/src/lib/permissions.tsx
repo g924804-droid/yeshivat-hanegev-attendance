@@ -19,6 +19,7 @@ export type CurrentUser = {
   idNumber: string | null;
   dailyTravelCost: number | null;
   monthlyBusPass: number | null;
+  isAttendanceManager: boolean;
 };
 
 type AuthContextValue = {
