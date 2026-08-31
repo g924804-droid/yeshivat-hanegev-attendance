@@ -31,6 +31,38 @@ function assertConfigured() {
   }
 }
 
+/**
+ * Airtable מגביל ל-5 בקשות לשנייה לכל בסיס. בלי תיאום, בקשות מקבילות (למשל מסך
+ * התצוגה + כניסת עובד/ת באותו רגע) חוצות את המכסה ומחזירות 429 שדולף למשתמש כמו
+ * "Request failed with status code 429". התור הבא מרווח בין תחילת בקשה לבקשה,
+ * וה-retry מטפל במקרה שבכל זאת מתקבל 429 (למשל ממקור חיצוני שמריץ בו-זמנית).
+ */
+const MIN_REQUEST_INTERVAL_MS = 210; // ~4.7 בקשות/שנייה, מתחת למכסה של Airtable
+let queueTail: Promise<void> = Promise.resolve();
+
+function throttle<T>(fn: () => Promise<T>): Promise<T> {
+  const run = queueTail.then(() => fn());
+  queueTail = run.then(
+    () => new Promise((resolve) => setTimeout(resolve, MIN_REQUEST_INTERVAL_MS)),
+    () => new Promise((resolve) => setTimeout(resolve, MIN_REQUEST_INTERVAL_MS))
+  );
+  return run;
+}
+
+async function requestWithRetry<T>(fn: () => Promise<T>, retriesLeft = 4): Promise<T> {
+  try {
+    return await throttle(fn);
+  } catch (err: any) {
+    if (err.response?.status === 429 && retriesLeft > 0) {
+      const retryAfterSec = Number(err.response.headers?.['retry-after']);
+      const delayMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? retryAfterSec * 1000 : 500 * (5 - retriesLeft);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return requestWithRetry(fn, retriesLeft - 1);
+    }
+    throw err;
+  }
+}
+
 export async function airtableFetch(
   tableId: string,
   params: { filterByFormula?: string; fields?: string[]; maxRecords?: number; sort?: { field: string; direction?: 'asc' | 'desc' }[] } = {}
@@ -51,7 +83,8 @@ export async function airtableFetch(
   }
 
   do {
-    const { data } = await client.get(`/${tableId}`, { params: { ...query, offset } });
+    const currentOffset = offset;
+    const { data } = await requestWithRetry(() => client.get(`/${tableId}`, { params: { ...query, offset: currentOffset } }));
     records.push(...data.records);
     offset = data.offset;
   } while (offset);
@@ -62,7 +95,7 @@ export async function airtableFetch(
 export async function airtableGetRecord(tableId: string, recordId: string): Promise<AirtableRecord | null> {
   assertConfigured();
   try {
-    const { data } = await client.get(`/${tableId}/${recordId}`);
+    const { data } = await requestWithRetry(() => client.get(`/${tableId}/${recordId}`));
     return data;
   } catch (err: any) {
     if (err.response?.status === 404) return null;
@@ -72,7 +105,7 @@ export async function airtableGetRecord(tableId: string, recordId: string): Prom
 
 export async function airtableCreate(tableId: string, fields: Record<string, any>): Promise<AirtableRecord> {
   assertConfigured();
-  const { data } = await client.post(`/${tableId}`, { fields });
+  const { data } = await requestWithRetry(() => client.post(`/${tableId}`, { fields }));
   return data;
 }
 
@@ -82,13 +115,13 @@ export async function airtableUpdate(
   fields: Record<string, any>
 ): Promise<AirtableRecord> {
   assertConfigured();
-  const { data } = await client.patch(`/${tableId}/${recordId}`, { fields });
+  const { data } = await requestWithRetry(() => client.patch(`/${tableId}/${recordId}`, { fields }));
   return data;
 }
 
 export async function airtableDelete(tableId: string, recordId: string): Promise<void> {
   assertConfigured();
-  await client.delete(`/${tableId}/${recordId}`);
+  await requestWithRetry(() => client.delete(`/${tableId}/${recordId}`));
 }
 
 /** upsert רשומת נוכחות עובד ב-Airtable, לפי מזהה מערכת (systemId = מזהה הרשומה ב-DB המקומי). */

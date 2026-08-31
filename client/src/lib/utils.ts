@@ -16,6 +16,12 @@ export function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** ממיר "9:00-9:45" למספר דקות מתחילת היום, לצורך מיון כרונולוגי נכון (מיון מחרוזות רגיל שובר בין 9 ל-11). */
+export function startMinutes(time: string): number {
+  const [h, m] = (time || '').split('-')[0].split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
 const HEB_ONES = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
 const HEB_TENS: Record<number, string> = { 10: 'י', 20: 'כ', 30: 'ל', 40: 'מ', 50: 'נ', 60: 'ס', 70: 'ע', 80: 'פ', 90: 'צ' };
 const HEB_HUNDREDS: Record<number, string> = {

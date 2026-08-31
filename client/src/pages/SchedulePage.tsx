@@ -3,7 +3,7 @@ import { Plus, History, Monitor, Clock, Pencil } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { api } from '../lib/api';
-import { DOW_HE } from '../lib/utils';
+import { DOW_HE, startMinutes } from '../lib/utils';
 
 type Lesson = {
   id: string;
@@ -53,10 +53,6 @@ function trackColor(trackId: string | undefined, trackIds: string[]) {
   return TRACK_COLORS[idx % TRACK_COLORS.length] || TRACK_COLORS[0];
 }
 
-function startMinutes(time: string): number {
-  const [h, m] = (time || '').split('-')[0].split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
 
 export function SchedulePage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -95,6 +91,10 @@ export function SchedulePage() {
 
   function teacherName(ids: string[]) {
     return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
+  }
+
+  function trackName(ids: string[] | undefined) {
+    return ids?.map((id) => tracks.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
   }
 
   async function openHistory() {
@@ -198,7 +198,8 @@ export function SchedulePage() {
                                 <Pencil size={11} />
                               </button>
                               <div className="font-semibold truncate pl-4">{l.subject || l.className}</div>
-                              {l.subject && <div className="opacity-70">כיתה {l.className}</div>}
+                              {l.subject && <div className="opacity-70 truncate">כיתה {l.className}</div>}
+                              {trackName(l.track) && <div className="opacity-70 truncate">{trackName(l.track)}</div>}
                               <div className="opacity-80 truncate">
                                 {teacherName(l.teacher)} {l.room ? `· ${l.room}` : ''}
                               </div>

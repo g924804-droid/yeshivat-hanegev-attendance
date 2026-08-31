@@ -47,7 +47,11 @@ router.post('/login', async (req, res) => {
     res.json({ success: true, userName: matched.name, userId: matched.id, permissions });
   } catch (err: any) {
     const notConfigured = String(err.message || '').includes('AIRTABLE_API_KEY');
-    res.status(notConfigured ? 503 : 500).json({ error: err.message || 'שגיאה בהתחברות' });
+    const rateLimited = err.response?.status === 429;
+    const message = rateLimited
+      ? 'המערכת עמוסה כרגע, נסו שוב בעוד כמה שניות'
+      : err.message || 'שגיאה בהתחברות';
+    res.status(notConfigured ? 503 : rateLimited ? 429 : 500).json({ error: message });
   }
 });
 
