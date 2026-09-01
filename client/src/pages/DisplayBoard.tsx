@@ -248,7 +248,7 @@ export function DisplayBoard() {
                   if (isBreak) {
                     return (
                       <div key={row.time} className="flex items-center gap-4 rounded-lg bg-slate-100 border border-slate-200 px-5 py-3">
-                        <span className="font-bold text-slate-500 shrink-0 tabular-nums whitespace-nowrap w-48 text-4xl">
+                        <span className="font-bold text-slate-500 shrink-0 tabular-nums whitespace-nowrap text-4xl">
                           {row.time}
                         </span>
                         <span className="text-slate-400 text-3xl">הפסקה</span>
@@ -257,9 +257,9 @@ export function DisplayBoard() {
                   }
                   return (
                     <div key={row.time} className="flex items-stretch gap-4">
-                      <div className="shrink-0 w-48 flex flex-col justify-center border-l-2 border-amber-100 pl-4">
+                      <div className="shrink-0 flex flex-col justify-center border-l-2 border-amber-100 pl-4">
                         <span className="font-black text-gold-dark tabular-nums whitespace-nowrap text-5xl">{row.time}</span>
-                        {row.label && <span className="text-navy-light/50 truncate text-lg">{row.label}</span>}
+                        {row.label && <span className="text-navy-light/50 whitespace-nowrap text-lg">{row.label}</span>}
                       </div>
                       <div className="flex-1 min-w-0 flex flex-wrap items-stretch gap-3">
                         {cellLessons.map((l) => (
