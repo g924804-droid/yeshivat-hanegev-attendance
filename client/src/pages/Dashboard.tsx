@@ -55,11 +55,27 @@ export function Dashboard() {
   const [showAbsence, setShowAbsence] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // "מזכירת נוכחות" (או מנהל) יכולה למלא נוכחות עבור עובדת אחרת — למשל מורה מחליפה/מבוגרת
+  // שלא ממלאת בעצמה. בררת מחדל: הנוכחות של המשתמשת המחוברת עצמה.
+  const canManageOthers = user?.role === 'מנהל' || !!user?.isAttendanceManager;
+  const [employeeList, setEmployeeList] = useState<{ id: string; name: string }[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
+  const targetUserId = canManageOthers && selectedEmployeeId ? selectedEmployeeId : undefined;
+
+  useEffect(() => {
+    if (!canManageOthers) return;
+    api
+      .get<{ employees: { id: string; name: string }[] }>('/employees/getEmployeeNames')
+      .then((d) => setEmployeeList(d.employees))
+      .catch(() => {});
+  }, [canManageOthers]);
+
   async function load() {
     setLoading(true);
     try {
       const data = await api.get<{ records: AttendanceRecord[]; holidays: Holiday[] }>('/attendance/getMyAttendance', {
         month,
+        ...(targetUserId ? { userId: targetUserId } : {}),
       });
       setRecords(data.records);
       setHolidays(data.holidays);
@@ -73,24 +89,22 @@ export function Dashboard() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month]);
+  }, [month, targetUserId]);
 
   const today = todayStr();
   const todayRecord = records.find((r) => r.date === today);
 
-  // כל ימי החודש עד היום (לא רק ימים שכבר יש להם רשומה), כדי שאפשר יהיה ללחוץ על העט
-  // ולמלא נוכחות רטרואקטיבית גם ליום שעדיין ריק, ולא רק לערוך ימים שכבר מולאו.
+  // כל ימי החודש (כולל עתידיים, למשל חופשה מתוכננת מראש) — לא רק ימים שכבר יש להם רשומה,
+  // כדי שאפשר יהיה ללחוץ על העט ולמלא נוכחות רטרואקטיבית/מראש גם ליום שעדיין ריק.
   const monthDays = useMemo(() => {
     const [year, monthNum] = month.split('-').map(Number);
     const daysInMonth = new Date(year, monthNum, 0).getDate();
     const days: string[] = [];
     for (let d = 1; d <= daysInMonth; d++) {
-      const date = `${month}-${String(d).padStart(2, '0')}`;
-      if (date > today) break;
-      days.push(date);
+      days.push(`${month}-${String(d).padStart(2, '0')}`);
     }
     return days;
-  }, [month, today]);
+  }, [month]);
 
   const clockState: 'in1' | 'out1' | 'in2' | 'out2' | 'done' = useMemo(() => {
     if (!todayRecord) return 'in1';
@@ -106,8 +120,7 @@ export function Dashboard() {
     try {
       const now = new Date().toTimeString().slice(0, 5);
       if (clockState === 'in1' || clockState === 'in2') {
-        const r = await api.post<{ warning?: string }>('/attendance/clockIn', { date: today, clockIn: now });
-        if (r.warning) setNotice(r.warning);
+        await api.post('/attendance/clockIn', { date: today, clockIn: now, ...(targetUserId ? { userId: targetUserId } : {}) });
       } else if (clockState === 'out1' || clockState === 'out2') {
         await api.post('/attendance/clockOut', { recordId: todayRecord!.id, clockOut: now });
       }
@@ -173,9 +186,25 @@ export function Dashboard() {
       {error && <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
 
       <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-navy">טבלת נוכחות חודשית</h3>
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="input w-auto" />
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h3 className="font-bold text-navy">
+            טבלת נוכחות חודשית {canManageOthers && selectedEmployeeId ? `— ${employeeList.find((e) => e.id === selectedEmployeeId)?.name || ''}` : ''}
+          </h3>
+          <div className="flex items-center gap-2">
+            {canManageOthers && (
+              <select
+                className="input w-auto"
+                value={selectedEmployeeId}
+                onChange={(e) => setSelectedEmployeeId(e.target.value)}
+              >
+                <option value="">הנוכחות שלי</option>
+                {employeeList.map((e) => (
+                  <option key={e.id} value={e.id}>{e.name}</option>
+                ))}
+              </select>
+            )}
+            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="input w-auto" />
+          </div>
         </div>
 
         <div className="flex gap-4 mb-4 text-sm">
@@ -219,6 +248,7 @@ export function Dashboard() {
                       <EditRow
                         key={editKey}
                         record={record || draftAttendanceRecord(date)}
+                        employeeId={targetUserId}
                         onCancel={() => setEditingId(null)}
                         onSaved={() => { setEditingId(null); load(); }}
                       />
@@ -293,6 +323,7 @@ export function Dashboard() {
 
       {showAbsence && (
         <AbsenceModal
+          employeeId={targetUserId}
           onClose={() => setShowAbsence(false)}
           onSaved={() => {
             setShowAbsence(false);
@@ -306,10 +337,12 @@ export function Dashboard() {
 
 function EditRow({
   record,
+  employeeId,
   onCancel,
   onSaved,
 }: {
   record: AttendanceRecord;
+  employeeId?: string;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -319,7 +352,11 @@ function EditRow({
   async function save() {
     setSaving(true);
     try {
-      await api.put('/attendance/updateAttendance', { recordId: record.id, ...form });
+      await api.put('/attendance/updateAttendance', {
+        recordId: record.id,
+        ...form,
+        ...(employeeId ? { userId: employeeId } : {}),
+      });
       onSaved();
     } finally {
       setSaving(false);
@@ -370,7 +407,15 @@ function EditRow({
   );
 }
 
-function AbsenceModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function AbsenceModal({
+  employeeId,
+  onClose,
+  onSaved,
+}: {
+  employeeId?: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [date, setDate] = useState(todayStr());
   const [type, setType] = useState<'מחלה' | 'חופשה שנתית' | 'חופשה אישית'>('חופשה שנתית');
   const [notes, setNotes] = useState('');
@@ -382,7 +427,13 @@ function AbsenceModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     setError(null);
     setBusy(true);
     try {
-      await api.post('/attendance/addSickDay', { date, type, notes, sickNoteUrl: sickNoteUrl || undefined });
+      await api.post('/attendance/addSickDay', {
+        date,
+        type,
+        notes,
+        sickNoteUrl: sickNoteUrl || undefined,
+        ...(employeeId ? { userId: employeeId } : {}),
+      });
       onSaved();
     } catch (err: any) {
       setError(err.message);

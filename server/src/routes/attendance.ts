@@ -10,9 +10,13 @@ import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck'
 const router = Router();
 router.use(requireAuth);
 
+/** מנהל, או "מזכירת נוכחות" (isAttendanceManager) — יכולים למלא/לערוך נוכחות של עובדות אחרות (למשל מורות מחליפות/מבוגרות שלא ממלאות בעצמן). */
+function isAttendanceManagerOrAdmin(req: any): boolean {
+  return req.user.role === 'מנהל' || !!req.user.isAttendanceManager;
+}
+
 function targetUserId(req: any): string {
-  const isAdmin = req.user.role === 'מנהל';
-  return isAdmin && req.body?.userId ? req.body.userId : req.user.id;
+  return isAttendanceManagerOrAdmin(req) && req.body?.userId ? req.body.userId : req.user.id;
 }
 
 async function syncRecord(employee: { id: string; name: string; email: string | null }, record: any) {
@@ -90,7 +94,7 @@ router.post('/clockOut', async (req, res) => {
 
     const record = await prisma.attendanceRecord.findUnique({ where: { id: recordId } });
     if (!record) return res.status(404).json({ error: 'רשומה לא נמצאה' });
-    if (record.employeeId !== req.user!.id && req.user!.role !== 'מנהל') {
+    if (record.employeeId !== req.user!.id && !isAttendanceManagerOrAdmin(req)) {
       return res.status(403).json({ error: 'אין הרשאה' });
     }
 
@@ -153,8 +157,7 @@ router.post('/addSickDay', async (req, res) => {
 
 router.get('/getMyAttendance', async (req, res) => {
   try {
-    const isAdmin = req.user!.role === 'מנהל';
-    const employeeId = (isAdmin && (req.query.userId as string)) || req.user!.id;
+    const employeeId = (isAttendanceManagerOrAdmin(req) && (req.query.userId as string)) || req.user!.id;
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
 
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } });
@@ -227,7 +230,7 @@ router.put('/updateAttendance', async (req, res) => {
 
     const record = await prisma.attendanceRecord.findUnique({ where: { id: recordId } });
     if (!record) return res.status(404).json({ error: 'רשומה לא נמצאה' });
-    if (record.employeeId !== req.user!.id && req.user!.role !== 'מנהל') {
+    if (record.employeeId !== req.user!.id && !isAttendanceManagerOrAdmin(req)) {
       return res.status(403).json({ error: 'אין הרשאה' });
     }
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: record.employeeId } });
@@ -263,7 +266,7 @@ router.delete('/deleteAttendance', async (req, res) => {
     const recordId = (req.query.recordId as string) || req.body.recordId;
     const record = await prisma.attendanceRecord.findUnique({ where: { id: recordId } });
     if (!record) return res.status(404).json({ error: 'רשומה לא נמצאה' });
-    if (record.employeeId !== req.user!.id && req.user!.role !== 'מנהל') {
+    if (record.employeeId !== req.user!.id && !isAttendanceManagerOrAdmin(req)) {
       return res.status(403).json({ error: 'אין הרשאה' });
     }
     await prisma.attendanceRecord.delete({ where: { id: recordId } });

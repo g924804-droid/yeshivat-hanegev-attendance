@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { airtableFetch, TABLES } from '../lib/airtable';
-import { requireAuth, requireAdmin } from '../middleware/auth';
+import { requireAuth, requireAdmin, requireAdminOrAttendanceManager } from '../middleware/auth';
 
 const router = Router();
 router.use(requireAuth);
@@ -12,6 +12,20 @@ router.get('/getEmployees', requireAdmin, async (req, res) => {
     res.json({ employees });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת עובדים' });
+  }
+});
+
+/** רשימה מצומצמת (שם בלבד) לבחירת עובדת בעת מילוי נוכחות עבורה — נגישה גם ל"מזכירת נוכחות", לא רק מנהל מלא. */
+router.get('/getEmployeeNames', requireAdminOrAttendanceManager, async (req, res) => {
+  try {
+    const employees = await prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json({ employees });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת רשימת עובדים' });
   }
 });
 

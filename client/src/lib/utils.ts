@@ -102,6 +102,11 @@ export function lessonColor(
   return trackColor(l.track?.[0], trackIds);
 }
 
+/**
+ * 11 צבעים (לא 8) כדי שלא יהיו שתי מסלולים עם אותו צבע בדיוק כשיש יותר מ-8 מסלולים (המספר
+ * פשוט חוזר על עצמו במעגל — היה גורם, למשל, לצבע של "קודש שנה ב'" להיות זהה ל"אדריכלות שנה ב'").
+ * כתום הוחלף בציאן במכוון — היה קרוב מדי חזותית לענבר של קודש.
+ */
 export const TRACK_COLORS = [
   'bg-blue-100 border-blue-300 text-blue-900',
   'bg-purple-100 border-purple-300 text-purple-900',
@@ -110,7 +115,10 @@ export const TRACK_COLORS = [
   'bg-rose-100 border-rose-300 text-rose-900',
   'bg-teal-100 border-teal-300 text-teal-900',
   'bg-indigo-100 border-indigo-300 text-indigo-900',
-  'bg-orange-100 border-orange-300 text-orange-900',
+  'bg-cyan-100 border-cyan-300 text-cyan-900',
+  'bg-lime-100 border-lime-300 text-lime-900',
+  'bg-fuchsia-100 border-fuchsia-300 text-fuchsia-900',
+  'bg-sky-100 border-sky-300 text-sky-900',
 ];
 
 /** צבע קבוע לכל מסלול (לפי המיקום שלו ברשימת המסלולים), כדי שאותו מסלול תמיד יופיע באותו צבע. */
