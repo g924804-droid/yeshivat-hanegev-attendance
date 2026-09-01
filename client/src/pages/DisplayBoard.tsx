@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { CalendarClock, CalendarDays, Megaphone, AlertTriangle } from 'lucide-react';
+import { CalendarClock, CalendarDays, Megaphone } from 'lucide-react';
 import {
   DOW_HE,
   startMinutes,
@@ -96,8 +96,8 @@ function WeekDayCell({
           className={`relative text-[10px] leading-tight rounded px-1 py-0.5 overflow-hidden ${lessonColor(l, trackIds)}`}
         >
           {l.notes && (
-            <span className="absolute top-0 left-0.5 text-red-600">
-              <AlertTriangle size={9} fill="currentColor" className="text-yellow-300" />
+            <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-black ring-1 ring-white">
+              !
             </span>
           )}
           <div className="font-semibold truncate">{l.subject || l.className}</div>
@@ -105,7 +105,12 @@ function WeekDayCell({
             {l.subject && `כיתה ${l.className} · `}
             {teacherName(l.teacher)}
           </div>
-          {l.notes && <div className="font-bold text-red-700 truncate">{l.notes}</div>}
+          {l.notes && (
+            <div className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1 py-0.5 max-w-full">
+              <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
+              <span className="truncate">{l.notes}</span>
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -324,8 +329,8 @@ export function DisplayBoard() {
                             className={`relative rounded-lg border overflow-hidden flex-1 min-w-[12rem] px-5 py-3 ${lessonColor(l, trackIds)}`}
                           >
                             {l.notes && (
-                              <span className="absolute top-1.5 left-1.5 text-red-600 animate-pulse">
-                                <AlertTriangle size={22} fill="currentColor" className="text-yellow-300" />
+                              <span className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center text-lg font-black shadow ring-2 ring-white animate-pulse">
+                                !
                               </span>
                             )}
                             <div className="font-bold truncate text-4xl">{l.subject || l.className}</div>
@@ -334,7 +339,12 @@ export function DisplayBoard() {
                               {trackName(l.track) && `${trackName(l.track)} · `}
                               {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
                             </div>
-                            {l.notes && <div className="mt-1 font-bold text-red-700 truncate text-xl">{l.notes}</div>}
+                            {l.notes && (
+                              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-3 py-1 text-lg font-bold max-w-full">
+                                <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                                <span className="truncate">{l.notes}</span>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

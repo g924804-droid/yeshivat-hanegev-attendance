@@ -80,7 +80,7 @@ export function compareLessonDisplayOrder(a: { className?: string | null }, b: {
   return ai - bi;
 }
 
-const KODESH_YUD_DALED_COLOR = 'bg-sky-50 border-sky-200 text-sky-800';
+const KODESH_YUD_DALED_COLOR = 'bg-sky-100 border-sky-300 text-sky-900';
 
 /**
  * צבע להצגת שיעור: כיתה יד מקבלת צבע קבוע שונה מכיתה יג, גם כששתיהן מאותו מסלול (למשל "קודש") —
@@ -98,14 +98,14 @@ export function lessonColor(
 }
 
 export const TRACK_COLORS = [
-  'bg-blue-50 border-blue-200 text-blue-800',
-  'bg-purple-50 border-purple-200 text-purple-800',
-  'bg-emerald-50 border-emerald-200 text-emerald-800',
-  'bg-amber-50 border-amber-200 text-amber-800',
-  'bg-rose-50 border-rose-200 text-rose-800',
-  'bg-teal-50 border-teal-200 text-teal-800',
-  'bg-indigo-50 border-indigo-200 text-indigo-800',
-  'bg-orange-50 border-orange-200 text-orange-800',
+  'bg-blue-100 border-blue-300 text-blue-900',
+  'bg-purple-100 border-purple-300 text-purple-900',
+  'bg-emerald-100 border-emerald-300 text-emerald-900',
+  'bg-amber-100 border-amber-300 text-amber-900',
+  'bg-rose-100 border-rose-300 text-rose-900',
+  'bg-teal-100 border-teal-300 text-teal-900',
+  'bg-indigo-100 border-indigo-300 text-indigo-900',
+  'bg-orange-100 border-orange-300 text-orange-900',
 ];
 
 /** צבע קבוע לכל מסלול (לפי המיקום שלו ברשימת המסלולים), כדי שאותו מסלול תמיד יופיע באותו צבע. */

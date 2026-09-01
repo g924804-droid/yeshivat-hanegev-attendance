@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History, Monitor, Clock, Pencil, Trash2, MessageSquareWarning } from 'lucide-react';
+import { Plus, History, Monitor, Clock, Pencil, Trash2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { api } from '../lib/api';
@@ -178,8 +178,11 @@ export function SchedulePage() {
                                 <Pencil size={11} />
                               </button>
                               {l.notes && (
-                                <span title={l.notes} className="absolute top-1 right-1 text-amber-600">
-                                  <MessageSquareWarning size={13} />
+                                <span
+                                  title={l.notes}
+                                  className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center text-[9px] font-black ring-1 ring-white"
+                                >
+                                  !
                                 </span>
                               )}
                               <div className="font-semibold truncate pl-4">{l.subject || l.className}</div>
@@ -188,7 +191,12 @@ export function SchedulePage() {
                               <div className="opacity-80 truncate">
                                 {teacherName(l.teacher)} {l.room ? `· ${l.room}` : ''}
                               </div>
-                              {l.notes && <div className="mt-0.5 font-semibold text-amber-700 truncate">{l.notes}</div>}
+                              {l.notes && (
+                                <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 max-w-full">
+                                  <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
+                                  <span className="truncate">{l.notes}</span>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
