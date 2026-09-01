@@ -82,12 +82,16 @@ export function compareLessonDisplayOrder(a: { className?: string | null }, b: {
 
 const KODESH_YUD_DALED_COLOR = 'bg-sky-50 border-sky-200 text-sky-800';
 
-/** צבע להצגת שיעור: שיעורי קודש של כיתה יד מקבלים צבע קבוע שונה מכיתה יג, גם כששניהם מאותו מסלול/נושא. */
+/**
+ * צבע להצגת שיעור: כיתה יד מקבלת צבע קבוע שונה מכיתה יג, גם כששתיהן מאותו מסלול (למשל "קודש") —
+ * בפועל ל"קודש" אין ערך בשדה נושא, השם "קודש" מגיע מהמסלול המשויך, ושתי הכיתות חולקות אותו מסלול
+ * ולכן היו יוצאות באותו צבע בדיוק אלמלא ההתאמה הזו.
+ */
 export function lessonColor(
   l: { subject?: string | null; className?: string | null; track?: string[] },
   trackIds: string[]
 ): string {
-  if ((l.subject || '').trim() === 'קודש' && (l.className || '').trim() === 'יד') {
+  if ((l.className || '').trim() === 'יד') {
     return KODESH_YUD_DALED_COLOR;
   }
   return trackColor(l.track?.[0], trackIds);
