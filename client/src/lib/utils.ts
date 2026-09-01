@@ -85,7 +85,7 @@ export function compareLessonDisplayOrder(a: { className?: string | null }, b: {
   return ai - bi;
 }
 
-const KODESH_YUD_DALED_COLOR = 'bg-sky-100 border-sky-300 text-sky-900';
+const KODESH_YUD_DALED_COLOR = 'bg-amber-300 border-amber-500 text-amber-950';
 
 /**
  * צבע להצגת שיעור: כיתה יד מקבלת צבע קבוע שונה מכיתה יג, גם כששתיהן מאותו מסלול (למשל "קודש") —

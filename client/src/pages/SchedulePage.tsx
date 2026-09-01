@@ -7,11 +7,16 @@ import {
   DOW_HE,
   startMinutes,
   ALL_TIME_SLOTS,
+  TIME_SLOTS,
+  TUESDAY_TIME_SLOTS,
   getTimeSlotsForDay,
   trackColor,
   lessonColor,
   compareLessonDisplayOrder,
 } from '../lib/utils';
+
+const DEFAULT_TIME_SET = new Set(TIME_SLOTS.map((s) => s.time));
+const TUESDAY_TIME_SET = new Set(TUESDAY_TIME_SLOTS.map((s) => s.time));
 
 type Lesson = {
   id: string;
@@ -151,22 +156,37 @@ export function SchedulePage() {
           <tbody>
             {rows.map((row) => {
               const isBreak = row.label === 'הפסקה';
+              // עמודת השעה הרגילה מציגה רק שעות שרלוונטיות לשאר הימים; עמודת השעה של שלישי מציגה רק
+              // שעות שרלוונטיות לשלישי. שעה משותפת (כמו תפילה) מוצגת בשתיהן; שעה לא מוכרת נופלת לעמודה הרגילה.
+              const inDefault = DEFAULT_TIME_SET.has(row.time);
+              const inTuesday = TUESDAY_TIME_SET.has(row.time);
+              const showMainHour = inDefault || !inTuesday;
+              const showTuesdayHour = inTuesday;
+
               if (isBreak) {
                 return (
                   <tr key={row.time} className="bg-slate-100">
                     <td className="p-2 border border-slate-200 text-slate-500 text-xs align-middle">
-                      <div className="font-medium">{row.time}</div>
-                      <div>הפסקה</div>
+                      {showMainHour && (
+                        <>
+                          <div className="font-medium">{row.time}</div>
+                          <div>הפסקה</div>
+                        </>
+                      )}
                     </td>
                     <td colSpan={2} className="p-2 border border-slate-200 text-center text-slate-400 text-xs">
-                      הפסקה
+                      {showMainHour && 'הפסקה'}
                     </td>
                     <td className="p-2 border border-slate-200 text-slate-500 text-xs align-middle bg-slate-100">
-                      <div className="font-medium">{row.time}</div>
-                      <div>הפסקה</div>
+                      {showTuesdayHour && (
+                        <>
+                          <div className="font-medium">{row.time}</div>
+                          <div>הפסקה</div>
+                        </>
+                      )}
                     </td>
                     <td colSpan={3} className="p-2 border border-slate-200 text-center text-slate-400 text-xs">
-                      הפסקה
+                      {showTuesdayHour && 'הפסקה'}
                     </td>
                   </tr>
                 );
@@ -225,13 +245,21 @@ export function SchedulePage() {
               return (
                 <tr key={row.time}>
                   <td className="p-2 border border-slate-200 text-slate-500 text-xs align-top">
-                    <div className="font-medium text-navy">{row.time}</div>
-                    {row.label && <div>{row.label}</div>}
+                    {showMainHour && (
+                      <>
+                        <div className="font-medium text-navy">{row.time}</div>
+                        {row.label && <div>{row.label}</div>}
+                      </>
+                    )}
                   </td>
                   {DAYS.slice(0, 2).map((day) => dayCell(day))}
                   <td className="p-2 border border-slate-200 text-slate-500 text-xs align-top bg-slate-50/60">
-                    <div className="font-medium text-navy">{row.time}</div>
-                    {row.label && <div>{row.label}</div>}
+                    {showTuesdayHour && (
+                      <>
+                        <div className="font-medium text-navy">{row.time}</div>
+                        {row.label && <div>{row.label}</div>}
+                      </>
+                    )}
                   </td>
                   {DAYS.slice(2).map((day) => dayCell(day))}
                 </tr>
