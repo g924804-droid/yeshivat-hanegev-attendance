@@ -6,6 +6,12 @@ import { enrichCurrentUser } from '../middleware/auth';
 
 const router = Router();
 
+/** משווה שמות בלי תלות בסדר המילים (למשל "סיגל רבקה" מול "רבקה סיגל"), כדי שהתאמה לא תיפול רק כי השם ב-Airtable כתוב הפוך. */
+function sameNameIgnoringWordOrder(a: string, b: string): boolean {
+  const normalize = (s: string) => s.trim().split(/\s+/).filter(Boolean).sort().join(' ');
+  return normalize(a) === normalize(b);
+}
+
 router.post('/login', async (req, res) => {
   try {
     const { password } = req.body as { password?: string };
@@ -28,6 +34,9 @@ router.post('/login', async (req, res) => {
     }
     if (!matched) {
       matched = allUsers.find((u) => u.firstName && userName.includes(u.firstName));
+    }
+    if (!matched) {
+      matched = allUsers.find((u) => sameNameIgnoringWordOrder(u.name, userName));
     }
     if (!matched) return res.status(404).json({ error: `לא נמצא עובד תואם לשם "${userName}"` });
 
