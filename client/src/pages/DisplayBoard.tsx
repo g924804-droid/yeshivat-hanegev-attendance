@@ -5,7 +5,6 @@ import {
   startMinutes,
   toHebrewDateString,
   getTimeSlotsForDay,
-  ALL_TIME_SLOTS,
   lessonColor,
   compareLessonDisplayOrder,
 } from '../lib/utils';
@@ -64,58 +63,6 @@ type Lesson = {
 };
 type Ref = { id: string; name: string };
 type Announcement = { id: string; text: string | null; fileName: string | null; fileMime: string | null };
-
-/** תא יום בודד בשורת מסך השבוע — יכול להכיל כמה שיעורים מקבילים (למשל יג/יד באותה שעה). */
-function WeekDayCell({
-  day,
-  row,
-  lessons,
-  teachers,
-  trackIds,
-}: {
-  day: string;
-  row: { time: string; label: string };
-  lessons: Lesson[];
-  teachers: Ref[];
-  trackIds: string[];
-}) {
-  const cellLessons = lessons
-    .filter((l) => l.dayOfWeek === day && l.time === row.time)
-    .sort(compareLessonDisplayOrder);
-  if (cellLessons.length === 0) return <div />;
-
-  function teacherName(ids?: string[]) {
-    return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
-  }
-
-  return (
-    <div className="flex flex-col gap-0.5">
-      {cellLessons.map((l) => (
-        <div
-          key={l.id}
-          className={`relative text-[10px] leading-tight rounded px-1 py-0.5 overflow-hidden ${lessonColor(l, trackIds)}`}
-        >
-          {l.notes && (
-            <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-black ring-1 ring-white">
-              !
-            </span>
-          )}
-          <div className="font-semibold truncate">{l.subject || l.className}</div>
-          <div className="opacity-80 truncate">
-            {l.subject && `כיתה ${l.className} · `}
-            {teacherName(l.teacher)}
-          </div>
-          {l.notes && (
-            <div className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1 py-0.5 max-w-full">
-              <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
-              <span className="truncate">{l.notes}</span>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי']; // אין לימודים בימי שישי כרגע
 const SCHEDULE_POLL_MS = 15 * 60_000; // מערכת השעות מגיעה מ-Airtable — רבע שעה מספיק ומקל על מכסת הבקשות המשותפת
@@ -225,14 +172,6 @@ export function DisplayBoard() {
     const all = [...daySlots, ...Array.from(extraTimes).map((time) => ({ time, label: '' }))];
     return all.sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
   }, [todayLessons, todayDow]);
-  // ציר שעות משותף למסך השבוע — כמו במסך הניהול, כי ימים שונים (שלישי) יכולים לרוץ על מבנה
-  // שעות שונה, וטור שעות אחד באמצע נותן נקודת ייחוס ברורה במקום שכל יום "יזוז" לבד.
-  const weekRows = useMemo(() => {
-    const known = new Set(ALL_TIME_SLOTS.map((s) => s.time));
-    const extraTimes = new Set(lessons.map((l) => l.time).filter((t) => t && !known.has(t)));
-    const all = [...ALL_TIME_SLOTS, ...Array.from(extraTimes).map((time) => ({ time, label: '' }))];
-    return all.sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
-  }, [lessons]);
 
   function teacherName(ids?: string[]) {
     return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
@@ -362,47 +301,53 @@ export function DisplayBoard() {
             <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-gold-dark shrink-0">
               <CalendarDays size={22} /> השבוע
             </h2>
-            {/* טור שעות משותף באמצע (בין שני לשלישי) כנקודת ייחוס — כי יום שלישי רץ על מבנה שעות
-                שונה משאר הימים, וכל השורות מיושרות לפי אותו ציר שעות אחד. */}
+            {/* כל יום מציג רק את השיעורים שלו, לפי הסדר הכרונולוגי שלו בפועל — ניסינו ציר שעות משותף
+                לכל הימים, אבל בגלל שהזמנים בפועל שונים מאוד בין הימים (ובין מסלולים) זה יצר יותר מדי
+                שורות וכיווץ אותן לגודל בלתי קריא. רשימה עצמאית לכל יום נשארת קריאה בלי קשר לכמות. */}
             <FitScale className="flex-1 min-h-0">
-              <div className="flex flex-col gap-1">
-                <div className="grid gap-1.5" style={{ gridTemplateColumns: '1fr 1fr 4.5rem 1fr 1fr 1fr' }}>
-                  {['ראשון', 'שני'].map((day) => (
-                    <div key={day} className={`text-center text-sm font-bold ${day === todayDow ? 'text-gold-dark' : 'text-navy'}`}>
-                      {day}
-                      {day === todayDow && <span className="block text-[10px] font-normal">(היום)</span>}
-                    </div>
-                  ))}
-                  <div />
-                  {['שלישי', 'רביעי', 'חמישי'].map((day) => (
-                    <div key={day} className={`text-center text-sm font-bold ${day === todayDow ? 'text-gold-dark' : 'text-navy'}`}>
-                      {day}
-                      {day === todayDow && <span className="block text-[10px] font-normal">(היום)</span>}
-                    </div>
-                  ))}
-                </div>
-                {weekRows.map((row) => {
-                  const isBreak = row.label === 'הפסקה';
-                  if (isBreak) {
-                    return (
-                      <div key={row.time} className="flex items-center justify-center gap-2 rounded bg-slate-100 border border-slate-200 py-0.5">
-                        <span className="font-bold text-slate-500 text-xs">{row.time}</span>
-                        <span className="text-slate-400 text-xs">הפסקה</span>
-                      </div>
-                    );
-                  }
+              <div className="grid grid-cols-5 gap-2.5">
+                {DAYS.map((day) => {
+                  const dayLessons = lessons
+                    .filter((l) => l.dayOfWeek === day)
+                    .sort((a, b) => startMinutes(a.time) - startMinutes(b.time) || compareLessonDisplayOrder(a, b));
+                  const isToday = day === todayDow;
                   return (
-                    <div key={row.time} className="grid gap-1.5" style={{ gridTemplateColumns: '1fr 1fr 4.5rem 1fr 1fr 1fr' }}>
-                      {['ראשון', 'שני'].map((day) => (
-                        <WeekDayCell key={day} day={day} row={row} lessons={lessons} teachers={teachers} trackIds={trackIds} />
-                      ))}
-                      <div className="flex flex-col items-center justify-center text-center px-0.5">
-                        <span className="font-bold text-navy text-[11px] leading-tight">{row.time}</span>
-                        {row.label && <span className="text-navy-light/50 text-[9px] leading-tight">{row.label}</span>}
+                    <div
+                      key={day}
+                      className={`rounded-xl border p-2 ${isToday ? 'bg-gold/10 border-gold' : 'bg-amber-50/50 border-amber-100'}`}
+                    >
+                      <div className={`font-bold text-sm mb-1.5 ${isToday ? 'text-gold-dark' : 'text-navy'}`}>
+                        {day} {isToday ? '(היום)' : ''}
                       </div>
-                      {['שלישי', 'רביעי', 'חמישי'].map((day) => (
-                        <WeekDayCell key={day} day={day} row={row} lessons={lessons} teachers={teachers} trackIds={trackIds} />
-                      ))}
+                      <div className="flex flex-col gap-1">
+                        {dayLessons.map((l) => (
+                          <div
+                            key={l.id}
+                            className={`relative text-[11px] leading-tight rounded-md border overflow-hidden px-1.5 py-1 ${lessonColor(l, trackIds)}`}
+                          >
+                            {l.notes && (
+                              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-black ring-1 ring-white">
+                                !
+                              </span>
+                            )}
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-semibold truncate">{l.subject || l.className}</span>
+                              <span className="opacity-70 shrink-0">{l.time}</span>
+                            </div>
+                            <div className="opacity-80 truncate">
+                              {l.subject && `כיתה ${l.className} · `}
+                              {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
+                            </div>
+                            {l.notes && (
+                              <div className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1 py-0.5 max-w-full">
+                                <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
+                                <span className="truncate">{l.notes}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {dayLessons.length === 0 && <p className="text-navy-light/40 text-xs">אין שיעורים</p>}
+                      </div>
                     </div>
                   );
                 })}

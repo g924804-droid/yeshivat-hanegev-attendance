@@ -119,7 +119,23 @@ export function SchedulePage() {
               <th className="p-2 border border-slate-200 bg-slate-50 text-slate-500 w-28 shrink-0">
                 <Clock size={13} className="inline ml-1" /> שעה
               </th>
-              {DAYS.map((day) => (
+              {DAYS.slice(0, 2).map((day) => (
+                <th
+                  key={day}
+                  className={`p-2 border border-slate-200 text-navy min-w-[160px] ${
+                    day === todayDow ? 'bg-gold/15' : 'bg-slate-50'
+                  }`}
+                >
+                  {day}
+                  {day === todayDow && <span className="block text-xs font-normal text-gold-dark">היום</span>}
+                </th>
+              ))}
+              {/* עמודת שעה כפולה, צמודה ליום שלישי — נוחות ויזואלית כשמסתכלים על שלישי בלי לחפש
+                  את עמודת השעה הראשית עד לקצה הטבלה (בקשה מפורשת, בהשראת איך שזה נראה ב-Zite). */}
+              <th className="p-2 border border-slate-200 bg-slate-50 text-slate-500 w-20">
+                <Clock size={13} className="inline ml-1" /> שעה
+              </th>
+              {DAYS.slice(2).map((day) => (
                 <th
                   key={day}
                   className={`p-2 border border-slate-200 text-navy min-w-[160px] ${
@@ -142,67 +158,82 @@ export function SchedulePage() {
                       <div className="font-medium">{row.time}</div>
                       <div>הפסקה</div>
                     </td>
-                    <td colSpan={DAYS.length} className="p-2 border border-slate-200 text-center text-slate-400 text-xs">
+                    <td colSpan={2} className="p-2 border border-slate-200 text-center text-slate-400 text-xs">
+                      הפסקה
+                    </td>
+                    <td className="p-2 border border-slate-200 text-slate-500 text-xs align-middle bg-slate-100">
+                      <div className="font-medium">{row.time}</div>
+                      <div>הפסקה</div>
+                    </td>
+                    <td colSpan={3} className="p-2 border border-slate-200 text-center text-slate-400 text-xs">
                       הפסקה
                     </td>
                   </tr>
                 );
               }
+
+              function dayCell(day: string) {
+                const cellLessons = filtered
+                  .filter((l) => l.dayOfWeek === day && l.time === row.time)
+                  .sort(compareLessonDisplayOrder);
+                return (
+                  <td key={day} className="p-1.5 border border-slate-200 align-top">
+                    <div className="flex flex-wrap gap-1">
+                      {cellLessons.map((l) => (
+                        <div
+                          key={l.id}
+                          onDoubleClick={() => setEditingLesson(l)}
+                          className={`group relative rounded-lg border px-2 py-1.5 text-xs flex-1 min-w-[120px] cursor-pointer ${lessonColor(
+                            l,
+                            trackIds
+                          )}`}
+                        >
+                          <button
+                            onClick={() => setEditingLesson(l)}
+                            title="עריכה"
+                            className="absolute top-1 left-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/10 transition-opacity"
+                          >
+                            <Pencil size={11} />
+                          </button>
+                          {l.notes && (
+                            <span
+                              title={l.notes}
+                              className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center text-[9px] font-black ring-1 ring-white"
+                            >
+                              !
+                            </span>
+                          )}
+                          <div className="font-semibold truncate pl-4">{l.subject || l.className}</div>
+                          {l.subject && <div className="opacity-70 truncate">כיתה {l.className}</div>}
+                          {trackName(l.track) && <div className="opacity-70 truncate">{trackName(l.track)}</div>}
+                          <div className="opacity-80 truncate">
+                            {teacherName(l.teacher)} {l.room ? `· ${l.room}` : ''}
+                          </div>
+                          {l.notes && (
+                            <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 max-w-full">
+                              <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
+                              <span className="truncate">{l.notes}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                );
+              }
+
               return (
                 <tr key={row.time}>
                   <td className="p-2 border border-slate-200 text-slate-500 text-xs align-top">
                     <div className="font-medium text-navy">{row.time}</div>
                     {row.label && <div>{row.label}</div>}
                   </td>
-                  {DAYS.map((day) => {
-                    const cellLessons = filtered
-                      .filter((l) => l.dayOfWeek === day && l.time === row.time)
-                      .sort(compareLessonDisplayOrder);
-                    return (
-                      <td key={day} className="p-1.5 border border-slate-200 align-top">
-                        <div className="flex flex-wrap gap-1">
-                          {cellLessons.map((l) => (
-                            <div
-                              key={l.id}
-                              onDoubleClick={() => setEditingLesson(l)}
-                              className={`group relative rounded-lg border px-2 py-1.5 text-xs flex-1 min-w-[120px] cursor-pointer ${lessonColor(
-                                l,
-                                trackIds
-                              )}`}
-                            >
-                              <button
-                                onClick={() => setEditingLesson(l)}
-                                title="עריכה"
-                                className="absolute top-1 left-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/10 transition-opacity"
-                              >
-                                <Pencil size={11} />
-                              </button>
-                              {l.notes && (
-                                <span
-                                  title={l.notes}
-                                  className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center text-[9px] font-black ring-1 ring-white"
-                                >
-                                  !
-                                </span>
-                              )}
-                              <div className="font-semibold truncate pl-4">{l.subject || l.className}</div>
-                              {l.subject && <div className="opacity-70 truncate">כיתה {l.className}</div>}
-                              {trackName(l.track) && <div className="opacity-70 truncate">{trackName(l.track)}</div>}
-                              <div className="opacity-80 truncate">
-                                {teacherName(l.teacher)} {l.room ? `· ${l.room}` : ''}
-                              </div>
-                              {l.notes && (
-                                <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 max-w-full">
-                                  <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
-                                  <span className="truncate">{l.notes}</span>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </td>
-                    );
-                  })}
+                  {DAYS.slice(0, 2).map((day) => dayCell(day))}
+                  <td className="p-2 border border-slate-200 text-slate-500 text-xs align-top bg-slate-50/60">
+                    <div className="font-medium text-navy">{row.time}</div>
+                    {row.label && <div>{row.label}</div>}
+                  </td>
+                  {DAYS.slice(2).map((day) => dayCell(day))}
                 </tr>
               );
             })}
