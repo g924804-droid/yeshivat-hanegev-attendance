@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { airtableFetch, airtableCreate, airtableUpdate, TABLES } from '../lib/airtable';
+import { airtableFetch, airtableCreate, airtableUpdate, airtableDelete, TABLES } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
 import { getFullSchedule, invalidateScheduleCache } from '../lib/scheduleData';
 import { prisma } from '../lib/prisma';
@@ -78,9 +78,46 @@ router.post('/updateScheduleLesson', async (req, res) => {
   }
 });
 
+router.post('/deleteScheduleLesson', async (req, res) => {
+  try {
+    const { id } = req.body as { id?: string };
+    if (!id) return res.status(400).json({ error: 'חסר מזהה שיעור' });
+
+    const before = await airtableFetch(TABLES.lessons, { filterByFormula: `RECORD_ID()="${id}"`, maxRecords: 1 });
+    const record = before[0];
+    if (!record) return res.status(404).json({ error: 'שיעור לא נמצא' });
+
+    await airtableDelete(TABLES.lessons, id);
+
+    const className = record.fields[FIELDS.lessons.className] || '';
+    const dayOfWeek = record.fields[FIELDS.lessons.dayOfWeek] || '';
+    const time = record.fields[FIELDS.lessons.time] || '';
+    await prisma.scheduleHistory.create({
+      data: {
+        description: `נמחק שיעור: ${className} — ${dayOfWeek} ${time}`,
+        changedBy: req.user!.name,
+        changeType: 'delete',
+        lessonId: id,
+        className,
+        dayOfWeek,
+        time,
+        room: record.fields[FIELDS.lessons.room] || null,
+        previousData: JSON.stringify(record.fields),
+      },
+    });
+
+    invalidateScheduleCache();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה במחיקת שיעור' });
+  }
+});
+
 router.get('/getScheduleHistory', async (req, res) => {
   try {
-    const history = await prisma.scheduleHistory.findMany({ orderBy: { changedAt: 'desc' }, take: 200 });
+    // שנה שלמה של שינויים לא אמורה לחצות את המספר הזה בפועל — לא רוצים לחתוך היסטוריה בטעות
+    // כשמישהי רוצה לבדוק אחורה בסוף שנה.
+    const history = await prisma.scheduleHistory.findMany({ orderBy: { changedAt: 'desc' }, take: 5000 });
     res.json({ history });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת היסטוריה' });

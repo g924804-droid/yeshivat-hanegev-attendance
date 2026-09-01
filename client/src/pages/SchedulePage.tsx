@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History, Monitor, Clock, Pencil } from 'lucide-react';
+import { Plus, History, Monitor, Clock, Pencil, Trash2, MessageSquareWarning } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { api } from '../lib/api';
-import { DOW_HE, startMinutes, TIME_SLOTS, trackColor } from '../lib/utils';
+import {
+  DOW_HE,
+  startMinutes,
+  ALL_TIME_SLOTS,
+  getTimeSlotsForDay,
+  trackColor,
+  lessonColor,
+  compareLessonDisplayOrder,
+} from '../lib/utils';
 
 type Lesson = {
   id: string;
@@ -14,6 +22,7 @@ type Lesson = {
   track: string[];
   teacher: string[];
   room: string;
+  notes?: string | null;
 };
 type Ref = { id: string; name: string };
 type HistoryRow = { id: string; description: string; changedAt: string; changedBy: string | null };
@@ -52,9 +61,9 @@ export function SchedulePage() {
   );
 
   const rows = useMemo(() => {
-    const known = new Set(TIME_SLOTS.map((s) => s.time));
+    const known = new Set(ALL_TIME_SLOTS.map((s) => s.time));
     const extraTimes = new Set(filtered.map((l) => l.time).filter((t) => t && !known.has(t)));
-    const all = [...TIME_SLOTS, ...Array.from(extraTimes).map((time) => ({ time, label: '' }))];
+    const all = [...ALL_TIME_SLOTS, ...Array.from(extraTimes).map((time) => ({ time, label: '' }))];
     return all.sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
   }, [filtered]);
 
@@ -146,7 +155,9 @@ export function SchedulePage() {
                     {row.label && <div>{row.label}</div>}
                   </td>
                   {DAYS.map((day) => {
-                    const cellLessons = filtered.filter((l) => l.dayOfWeek === day && l.time === row.time);
+                    const cellLessons = filtered
+                      .filter((l) => l.dayOfWeek === day && l.time === row.time)
+                      .sort(compareLessonDisplayOrder);
                     return (
                       <td key={day} className="p-1.5 border border-slate-200 align-top">
                         <div className="flex flex-wrap gap-1">
@@ -154,8 +165,8 @@ export function SchedulePage() {
                             <div
                               key={l.id}
                               onDoubleClick={() => setEditingLesson(l)}
-                              className={`group relative rounded-lg border px-2 py-1.5 text-xs flex-1 min-w-[120px] cursor-pointer ${trackColor(
-                                l.track?.[0],
+                              className={`group relative rounded-lg border px-2 py-1.5 text-xs flex-1 min-w-[120px] cursor-pointer ${lessonColor(
+                                l,
                                 trackIds
                               )}`}
                             >
@@ -166,12 +177,18 @@ export function SchedulePage() {
                               >
                                 <Pencil size={11} />
                               </button>
+                              {l.notes && (
+                                <span title={l.notes} className="absolute top-1 right-1 text-amber-600">
+                                  <MessageSquareWarning size={13} />
+                                </span>
+                              )}
                               <div className="font-semibold truncate pl-4">{l.subject || l.className}</div>
                               {l.subject && <div className="opacity-70 truncate">כיתה {l.className}</div>}
                               {trackName(l.track) && <div className="opacity-70 truncate">{trackName(l.track)}</div>}
                               <div className="opacity-80 truncate">
                                 {teacherName(l.teacher)} {l.room ? `· ${l.room}` : ''}
                               </div>
+                              {l.notes && <div className="mt-0.5 font-semibold text-amber-700 truncate">{l.notes}</div>}
                             </div>
                           ))}
                         </div>
@@ -255,14 +272,24 @@ function LessonModal({
     dayOfWeek: lesson?.dayOfWeek || 'ראשון',
     trackId: lesson?.track?.[0] || '',
     room: lesson?.room || '',
+    notes: lesson?.notes || '',
   });
-  const knownTime = lesson && TIME_SLOTS.some((s) => s.time === lesson.time);
-  const [timeChoice, setTimeChoice] = useState(lesson ? (knownTime ? lesson.time : CUSTOM_TIME) : TIME_SLOTS[0].time);
+  const daySlots = getTimeSlotsForDay(form.dayOfWeek);
+  const knownTime = lesson && daySlots.some((s) => s.time === lesson.time);
+  const [timeChoice, setTimeChoice] = useState(lesson ? (knownTime ? lesson.time : CUSTOM_TIME) : daySlots[0].time);
   const [customTime, setCustomTime] = useState(lesson && !knownTime ? lesson.time : '');
   const [teacherIds, setTeacherIds] = useState<string[]>(lesson?.teacher || []);
   const [busy, setBusy] = useState(false);
   const [newTeacherName, setNewTeacherName] = useState('');
   const [addingTeacher, setAddingTeacher] = useState(false);
+
+  function changeDay(day: string) {
+    const newSlots = getTimeSlotsForDay(day);
+    setForm((prev) => ({ ...prev, dayOfWeek: day }));
+    if (timeChoice !== CUSTOM_TIME && !newSlots.some((s) => s.time === timeChoice)) {
+      setTimeChoice(newSlots[0].time);
+    }
+  }
 
   function toggleTeacher(id: string) {
     setTeacherIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
@@ -295,6 +322,18 @@ function LessonModal({
     }
   }
 
+  async function handleDelete() {
+    if (!lesson) return;
+    if (!confirm(`למחוק את השיעור "${lesson.subject || lesson.className}" (${lesson.dayOfWeek} ${lesson.time})?`)) return;
+    setBusy(true);
+    try {
+      await api.post('/schedule/deleteScheduleLesson', { id: lesson.id });
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const time = timeChoice === CUSTOM_TIME ? customTime.trim() : timeChoice;
 
   return (
@@ -303,14 +342,14 @@ function LessonModal({
         <h3 className="font-bold text-navy text-lg">{lesson ? 'עריכת שיעור' : 'שיעור חדש'}</h3>
         <input className="input" placeholder="נושא (למשל: חשבון)" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
         <input className="input" placeholder="שם הכיתה" value={form.className} onChange={(e) => setForm({ ...form, className: e.target.value })} />
-        <select className="input" value={form.dayOfWeek} onChange={(e) => setForm({ ...form, dayOfWeek: e.target.value })}>
+        <select className="input" value={form.dayOfWeek} onChange={(e) => changeDay(e.target.value)}>
           {DAYS.map((d) => <option key={d}>{d}</option>)}
         </select>
 
         <div>
           <label className="label">שעה</label>
           <select className="input" value={timeChoice} onChange={(e) => setTimeChoice(e.target.value)}>
-            {TIME_SLOTS.map((s) => (
+            {daySlots.map((s) => (
               <option key={s.time} value={s.time}>
                 {s.time}{s.label ? ` — ${s.label}` : ''}
               </option>
@@ -363,9 +402,29 @@ function LessonModal({
         </div>
 
         <input className="input" placeholder="חדר" value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })} />
-        <div className="flex gap-2 justify-end pt-2">
-          <button className="btn-outline" onClick={onClose}>ביטול</button>
-          <button className="btn-primary" onClick={submit} disabled={busy || !form.className || !time}>שמירה</button>
+
+        <div>
+          <label className="label">הערה (לא חובה) — לשינוי/הוספה חד-פעמית, תופיע מודגשת במסך התצוגה</label>
+          <input
+            className="input"
+            placeholder="לדוגמה: הוחלף לשיעור העשרה"
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          />
+        </div>
+
+        <div className="flex gap-2 justify-between pt-2">
+          {lesson ? (
+            <button className="btn-outline text-red-600 border-red-200 hover:bg-red-50" onClick={handleDelete} disabled={busy}>
+              <Trash2 size={14} /> מחיקה
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button className="btn-outline" onClick={onClose}>ביטול</button>
+            <button className="btn-primary" onClick={submit} disabled={busy || !form.className || !time}>שמירה</button>
+          </div>
         </div>
       </div>
     </div>

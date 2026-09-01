@@ -1,6 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { CalendarClock, CalendarDays, Megaphone } from 'lucide-react';
-import { DOW_HE, startMinutes, toHebrewDateString, TIME_SLOTS, trackColor } from '../lib/utils';
+import { CalendarClock, CalendarDays, Megaphone, AlertTriangle } from 'lucide-react';
+import {
+  DOW_HE,
+  startMinutes,
+  toHebrewDateString,
+  getTimeSlotsForDay,
+  lessonColor,
+  compareLessonDisplayOrder,
+} from '../lib/utils';
 
 /**
  * המסך הפיזי בבניין לא ניתן לגלילה, וכמות השיעורים משתנה מיום ליום — אז במקום לנחש
@@ -52,6 +59,7 @@ type Lesson = {
   track?: string[];
   teacher?: string[];
   room: string;
+  notes?: string | null;
 };
 type Ref = { id: string; name: string };
 type Announcement = { id: string; text: string | null; fileName: string | null; fileMime: string | null };
@@ -158,11 +166,12 @@ export function DisplayBoard() {
   // שורה אחת לכל שעה קבועה ביום (כמו במסך הניהול), כדי שהשעות תמיד יסתדרו זו מתחת לזו
   // בטור אחד ברור, במקום להתפזר בין עמודות. שעות לא סטנדרטיות שיש להן שיעור בפועל נוספות בסוף.
   const todayRows = useMemo(() => {
-    const known = new Set(TIME_SLOTS.map((s) => s.time));
+    const daySlots = getTimeSlotsForDay(todayDow || '');
+    const known = new Set(daySlots.map((s) => s.time));
     const extraTimes = new Set(todayLessons.map((l) => l.time).filter((t) => t && !known.has(t)));
-    const all = [...TIME_SLOTS, ...Array.from(extraTimes).map((time) => ({ time, label: '' }))];
+    const all = [...daySlots, ...Array.from(extraTimes).map((time) => ({ time, label: '' }))];
     return all.sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
-  }, [todayLessons]);
+  }, [todayLessons, todayDow]);
   function teacherName(ids?: string[]) {
     return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
   }
@@ -234,33 +243,41 @@ export function DisplayBoard() {
               <div className="flex flex-col gap-3">
                 {todayRows.map((row) => {
                   const isBreak = row.label === 'הפסקה';
-                  const cellLessons = todayLessons.filter((l) => l.time === row.time);
+                  const cellLessons = todayLessons.filter((l) => l.time === row.time).sort(compareLessonDisplayOrder);
                   if (isBreak) {
                     return (
                       <div key={row.time} className="flex items-center gap-4 rounded-lg bg-slate-100 border border-slate-200 px-5 py-3">
-                        <span className="font-bold text-slate-500 shrink-0 tabular-nums w-40 text-4xl">{row.time}</span>
+                        <span className="font-bold text-slate-500 shrink-0 tabular-nums whitespace-nowrap w-48 text-4xl">
+                          {row.time}
+                        </span>
                         <span className="text-slate-400 text-3xl">הפסקה</span>
                       </div>
                     );
                   }
                   return (
                     <div key={row.time} className="flex items-stretch gap-4">
-                      <div className="shrink-0 w-40 flex flex-col justify-center border-l-2 border-amber-100 pl-4">
-                        <span className="font-black text-gold-dark tabular-nums text-5xl">{row.time}</span>
+                      <div className="shrink-0 w-48 flex flex-col justify-center border-l-2 border-amber-100 pl-4">
+                        <span className="font-black text-gold-dark tabular-nums whitespace-nowrap text-5xl">{row.time}</span>
                         {row.label && <span className="text-navy-light/50 truncate text-lg">{row.label}</span>}
                       </div>
                       <div className="flex-1 min-w-0 flex flex-wrap items-stretch gap-3">
                         {cellLessons.map((l) => (
                           <div
                             key={l.id}
-                            className={`rounded-lg border overflow-hidden flex-1 min-w-[12rem] px-5 py-3 ${trackColor(l.track?.[0], trackIds)}`}
+                            className={`relative rounded-lg border overflow-hidden flex-1 min-w-[12rem] px-5 py-3 ${lessonColor(l, trackIds)}`}
                           >
+                            {l.notes && (
+                              <span className="absolute top-1.5 left-1.5 text-red-600 animate-pulse">
+                                <AlertTriangle size={22} fill="currentColor" className="text-yellow-300" />
+                              </span>
+                            )}
                             <div className="font-bold truncate text-4xl">{l.subject || l.className}</div>
                             <div className="opacity-80 truncate text-2xl">
                               {l.subject && `כיתה ${l.className} · `}
                               {trackName(l.track) && `${trackName(l.track)} · `}
                               {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
                             </div>
+                            {l.notes && <div className="mt-1 font-bold text-red-700 truncate text-xl">{l.notes}</div>}
                           </div>
                         ))}
                       </div>
@@ -285,7 +302,7 @@ export function DisplayBoard() {
                 {DAYS.map((day) => {
                   const dayLessons = lessons
                     .filter((l) => l.dayOfWeek === day)
-                    .sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
+                    .sort((a, b) => startMinutes(a.time) - startMinutes(b.time) || compareLessonDisplayOrder(a, b));
                   const isToday = day === todayDow;
                   return (
                     <div
@@ -299,8 +316,13 @@ export function DisplayBoard() {
                         {dayLessons.map((l) => (
                           <div
                             key={l.id}
-                            className={`text-[11px] leading-tight rounded-md border overflow-hidden px-1.5 py-1 ${trackColor(l.track?.[0], trackIds)}`}
+                            className={`relative text-[11px] leading-tight rounded-md border overflow-hidden px-1.5 py-1 ${lessonColor(l, trackIds)}`}
                           >
+                            {l.notes && (
+                              <span className="absolute top-0.5 left-0.5 text-red-600">
+                                <AlertTriangle size={11} fill="currentColor" className="text-yellow-300" />
+                              </span>
+                            )}
                             <div className="flex items-center justify-between gap-1">
                               <span className="font-semibold truncate">{l.subject || l.className}</span>
                               <span className="opacity-70 shrink-0">{l.time}</span>
@@ -309,6 +331,7 @@ export function DisplayBoard() {
                               {l.subject && `כיתה ${l.className} · `}
                               {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
                             </div>
+                            {l.notes && <div className="font-bold text-red-700 truncate">{l.notes}</div>}
                           </div>
                         ))}
                         {dayLessons.length === 0 && <p className="text-navy-light/40 text-xs">אין שיעורים</p>}

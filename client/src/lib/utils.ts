@@ -38,6 +38,61 @@ export const TIME_SLOTS = [
   { time: '15:15-16:00', label: 'שיעור שמיני' },
 ];
 
+/** מבנה שונה ליום שלישי בלבד (שיעורים ארוכים יותר). */
+export const TUESDAY_TIME_SLOTS = [
+  { time: '8:30-9:00', label: 'תפילה' },
+  { time: '9:00-10:15', label: 'שיעור ראשון' },
+  { time: '10:15-10:45', label: 'הפסקה' },
+  { time: '10:45-11:30', label: 'שיעור שני' },
+  { time: '11:30-12:15', label: 'שיעור שלישי' },
+  { time: '12:15-12:30', label: 'הפסקה' },
+  { time: '12:30-13:15', label: 'שיעור רביעי' },
+  { time: '13:15-14:00', label: 'שיעור חמישי' },
+  { time: '14:00-14:15', label: 'הפסקה' },
+  { time: '14:15-15:00', label: 'שיעור שישי' },
+  { time: '15:00-15:45', label: 'שיעור שביעי' },
+  { time: '15:45-16:00', label: 'הפסקה' },
+  { time: '16:00-16:45', label: 'שיעור שמיני' },
+];
+
+/** מחזיר את מבנה השעות המתאים ליום — יום שלישי שונה משאר הימים. */
+export function getTimeSlotsForDay(day: string): { time: string; label: string }[] {
+  return day === 'שלישי' ? TUESDAY_TIME_SLOTS : TIME_SLOTS;
+}
+
+/** איחוד של כל מבני השעות (לשימוש בטבלת הניהול, שמציגה את כל הימים יחד בציר שעות משותף). */
+export const ALL_TIME_SLOTS = (() => {
+  const byTime = new Map<string, { time: string; label: string }>();
+  for (const slot of [...TIME_SLOTS, ...TUESDAY_TIME_SLOTS]) {
+    if (!byTime.has(slot.time)) byTime.set(slot.time, slot);
+  }
+  return Array.from(byTime.values()).sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
+})();
+
+/** סדר תצוגה קבוע לשיעורי קודש מקבילים (יג תמיד מימין, יד תמיד משמאל), במקום סדר מקרי לפי הנתונים. */
+const CLASS_DISPLAY_ORDER = ['יג', 'יד'];
+export function compareLessonDisplayOrder(a: { className?: string | null }, b: { className?: string | null }): number {
+  const ai = CLASS_DISPLAY_ORDER.indexOf(a.className || '');
+  const bi = CLASS_DISPLAY_ORDER.indexOf(b.className || '');
+  if (ai === -1 && bi === -1) return 0;
+  if (ai === -1) return 1;
+  if (bi === -1) return -1;
+  return ai - bi;
+}
+
+const KODESH_YUD_DALED_COLOR = 'bg-sky-50 border-sky-200 text-sky-800';
+
+/** צבע להצגת שיעור: שיעורי קודש של כיתה יד מקבלים צבע קבוע שונה מכיתה יג, גם כששניהם מאותו מסלול/נושא. */
+export function lessonColor(
+  l: { subject?: string | null; className?: string | null; track?: string[] },
+  trackIds: string[]
+): string {
+  if ((l.subject || '').trim() === 'קודש' && (l.className || '').trim() === 'יד') {
+    return KODESH_YUD_DALED_COLOR;
+  }
+  return trackColor(l.track?.[0], trackIds);
+}
+
 export const TRACK_COLORS = [
   'bg-blue-50 border-blue-200 text-blue-800',
   'bg-purple-50 border-purple-200 text-purple-800',
