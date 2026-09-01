@@ -61,7 +61,7 @@ const SCHEDULE_POLL_MS = 15 * 60_000; // מערכת השעות מגיעה מ-Air
 const ANNOUNCEMENT_POLL_MS = 60_000;
 const ANNOUNCEMENT_ROTATE_MS = 60_000; // כל דקה מתחלפת הודעת הטקסט שמוצגת למטה
 const SLIDE_ROTATE_MS = 60_000; // כל דקה מתחלף בין היום / השבוע / קבצים שהועלו
-const PAGE_RELOAD_MS = 15 * 60_000; // רענון מלא של הדף כל רבע שעה, כדי שעדכונים ייכנסו לתוקף גם בלי גישה פיזית למסך
+const PAGE_RELOAD_MS = 5 * 60_000; // רענון מלא של הדף כל 5 דקות, כדי שעדכונים ייכנסו לתוקף גם בלי גישה פיזית למסך
 
 type Slide = { kind: 'today' } | { kind: 'week' } | { kind: 'file'; announcement: Announcement };
 
