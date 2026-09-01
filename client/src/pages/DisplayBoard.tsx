@@ -162,7 +162,6 @@ export function DisplayBoard() {
     () => lessons.filter((l) => l.dayOfWeek === todayDow).sort((a, b) => startMinutes(a.time) - startMinutes(b.time)),
     [lessons, todayDow]
   );
-  const trackIds = useMemo(() => tracks.map((t) => t.id), [tracks]);
   // שורה אחת לכל שעה קבועה ביום (כמו במסך הניהול), כדי שהשעות תמיד יסתדרו זו מתחת לזו
   // בטור אחד ברור, במקום להתפזר בין עמודות. שעות לא סטנדרטיות שיש להן שיעור בפועל נוספות בסוף.
   const todayRows = useMemo(() => {
@@ -244,7 +243,9 @@ export function DisplayBoard() {
               <div className="flex flex-col gap-3">
                 {todayRows.map((row) => {
                   const isBreak = row.label === 'הפסקה';
-                  const cellLessons = todayLessons.filter((l) => l.time === row.time).sort(compareLessonDisplayOrder);
+                  const cellLessons = todayLessons
+                    .filter((l) => l.time === row.time)
+                    .sort((a, b) => compareLessonDisplayOrder(a, b, tracks));
                   if (isBreak) {
                     return (
                       <div key={row.time} className="flex items-center gap-4 rounded-lg bg-slate-100 border border-slate-200 px-5 py-3">
@@ -265,7 +266,7 @@ export function DisplayBoard() {
                         {cellLessons.map((l) => (
                           <div
                             key={l.id}
-                            className={`relative rounded-lg border overflow-hidden flex-1 min-w-[12rem] px-5 py-3 ${lessonColor(l, trackIds)}`}
+                            className={`relative rounded-lg border overflow-hidden flex-1 min-w-[12rem] px-5 py-3 ${lessonColor(l, tracks)}`}
                           >
                             {l.notes && (
                               <span className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center text-lg font-black shadow ring-2 ring-white animate-pulse">
@@ -309,7 +310,7 @@ export function DisplayBoard() {
                 {DAYS.map((day) => {
                   const dayLessons = lessons
                     .filter((l) => l.dayOfWeek === day)
-                    .sort((a, b) => startMinutes(a.time) - startMinutes(b.time) || compareLessonDisplayOrder(a, b));
+                    .sort((a, b) => startMinutes(a.time) - startMinutes(b.time) || compareLessonDisplayOrder(a, b, tracks));
                   const isToday = day === todayDow;
                   return (
                     <div
@@ -323,7 +324,7 @@ export function DisplayBoard() {
                         {dayLessons.map((l) => (
                           <div
                             key={l.id}
-                            className={`relative text-[11px] leading-tight rounded-md border overflow-hidden px-1.5 py-1 ${lessonColor(l, trackIds)}`}
+                            className={`relative text-[11px] leading-tight rounded-md border overflow-hidden px-1.5 py-1 ${lessonColor(l, tracks)}`}
                           >
                             {l.notes && (
                               <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-black ring-1 ring-white">

@@ -195,7 +195,7 @@ export function SchedulePage() {
               function dayCell(day: string) {
                 const cellLessons = filtered
                   .filter((l) => l.dayOfWeek === day && l.time === row.time)
-                  .sort(compareLessonDisplayOrder);
+                  .sort((a, b) => compareLessonDisplayOrder(a, b, tracks));
                 return (
                   <td key={day} className="p-1.5 border border-slate-200 align-top">
                     <div className="flex flex-wrap gap-1">
@@ -205,7 +205,7 @@ export function SchedulePage() {
                           onDoubleClick={() => setEditingLesson(l)}
                           className={`group relative rounded-lg border px-2 py-1.5 text-xs flex-1 min-w-[120px] cursor-pointer ${lessonColor(
                             l,
-                            trackIds
+                            tracks
                           )}`}
                         >
                           <button
@@ -382,7 +382,9 @@ function LessonModal({
     if (!time) return;
     setBusy(true);
     try {
-      await api.post('/schedule/updateScheduleLesson', { id: lesson?.id, ...form, time, teacherIds });
+      // אין יותר שדה "כיתה" נפרד בטופס — שם המסלול הוא ההזדהות של השיעור, אז זה מה שנשמר בשדה הישן.
+      const className = tracks.find((t) => t.id === form.trackId)?.name || form.className;
+      await api.post('/schedule/updateScheduleLesson', { id: lesson?.id, ...form, className, time, teacherIds });
       onSaved();
     } finally {
       setBusy(false);
@@ -408,7 +410,6 @@ function LessonModal({
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3 max-h-[85vh] overflow-y-auto">
         <h3 className="font-bold text-navy text-lg">{lesson ? 'עריכת שיעור' : 'שיעור חדש'}</h3>
         <input className="input" placeholder="נושא (למשל: חשבון)" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-        <input className="input" placeholder="שם הכיתה" value={form.className} onChange={(e) => setForm({ ...form, className: e.target.value })} />
         <select className="input" value={form.dayOfWeek} onChange={(e) => changeDay(e.target.value)}>
           {DAYS.map((d) => <option key={d}>{d}</option>)}
         </select>
@@ -434,7 +435,7 @@ function LessonModal({
         </div>
 
         <select className="input" value={form.trackId} onChange={(e) => setForm({ ...form, trackId: e.target.value })}>
-          <option value="">מסלול</option>
+          <option value="">מסלול (חובה)</option>
           {tracks.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
 
@@ -490,7 +491,7 @@ function LessonModal({
           )}
           <div className="flex gap-2">
             <button className="btn-outline" onClick={onClose}>ביטול</button>
-            <button className="btn-primary" onClick={submit} disabled={busy || !form.className || !time}>שמירה</button>
+            <button className="btn-primary" onClick={submit} disabled={busy || !form.trackId || !time}>שמירה</button>
           </div>
         </div>
       </div>

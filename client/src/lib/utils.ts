@@ -69,16 +69,34 @@ export const ALL_TIME_SLOTS = (() => {
   return Array.from(byTime.values()).sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
 })();
 
+type TrackRef = { id: string; name: string };
+
 /** שדה "שם הכיתה" מכיל בפועל ערכים כמו "כיתה יג" (לא רק "יג") — מסירים את המילה "כיתה" כדי להשוות רק לפי האות. */
 function classLetter(className?: string | null): string {
   return (className || '').trim().replace(/^כיתה\s+/, '').trim();
 }
 
+/**
+ * יג/יד הן עכשיו מסלולים נפרדים ("קודש י\"ג" / "קודש י\"ד"), לא כיתה בתוך אותו מסלול — קודם
+ * בודקים לפי שם המסלול; שדה "כיתה" (className) נשאר כנפילה-לאחור לנתונים ישנים מלפני השינוי.
+ */
+function kodeshLetter(l: { className?: string | null; track?: string[] }, tracks: TrackRef[]): '' | 'יג' | 'יד' {
+  const trackName = tracks.find((t) => t.id === l.track?.[0])?.name || '';
+  if (trackName.includes('יד')) return 'יד';
+  if (trackName.includes('יג')) return 'יג';
+  const legacy = classLetter(l.className);
+  return legacy === 'יג' || legacy === 'יד' ? legacy : '';
+}
+
 /** סדר תצוגה קבוע לשיעורי קודש מקבילים (יג תמיד מימין, יד תמיד משמאל), במקום סדר מקרי לפי הנתונים. */
 const CLASS_DISPLAY_ORDER = ['יג', 'יד'];
-export function compareLessonDisplayOrder(a: { className?: string | null }, b: { className?: string | null }): number {
-  const ai = CLASS_DISPLAY_ORDER.indexOf(classLetter(a.className));
-  const bi = CLASS_DISPLAY_ORDER.indexOf(classLetter(b.className));
+export function compareLessonDisplayOrder(
+  a: { className?: string | null; track?: string[] },
+  b: { className?: string | null; track?: string[] },
+  tracks: TrackRef[]
+): number {
+  const ai = CLASS_DISPLAY_ORDER.indexOf(kodeshLetter(a, tracks));
+  const bi = CLASS_DISPLAY_ORDER.indexOf(kodeshLetter(b, tracks));
   if (ai === -1 && bi === -1) return 0;
   if (ai === -1) return 1;
   if (bi === -1) return -1;
@@ -87,19 +105,15 @@ export function compareLessonDisplayOrder(a: { className?: string | null }, b: {
 
 const KODESH_YUD_DALED_COLOR = 'bg-amber-300 border-amber-500 text-amber-950';
 
-/**
- * צבע להצגת שיעור: כיתה יד מקבלת צבע קבוע שונה מכיתה יג, גם כששתיהן מאותו מסלול (למשל "קודש") —
- * בפועל ל"קודש" אין ערך בשדה נושא, השם "קודש" מגיע מהמסלול המשויך, ושתי הכיתות חולקות אותו מסלול
- * ולכן היו יוצאות באותו צבע בדיוק אלמלא ההתאמה הזו.
- */
+/** צבע להצגת שיעור: מסלול קודש י"ד מקבל צבע קבוע שונה מקודש י"ג, גם ששניהם באותה משפחת צבע (קודש). */
 export function lessonColor(
   l: { subject?: string | null; className?: string | null; track?: string[] },
-  trackIds: string[]
+  tracks: TrackRef[]
 ): string {
-  if (classLetter(l.className) === 'יד') {
+  if (kodeshLetter(l, tracks) === 'יד') {
     return KODESH_YUD_DALED_COLOR;
   }
-  return trackColor(l.track?.[0], trackIds);
+  return trackColor(l.track?.[0], tracks.map((t) => t.id));
 }
 
 /**
@@ -119,6 +133,7 @@ export const TRACK_COLORS = [
   'bg-lime-100 border-lime-300 text-lime-900',
   'bg-fuchsia-100 border-fuchsia-300 text-fuchsia-900',
   'bg-sky-100 border-sky-300 text-sky-900',
+  'bg-violet-100 border-violet-300 text-violet-900',
 ];
 
 /** צבע קבוע לכל מסלול (לפי המיקום שלו ברשימת המסלולים), כדי שאותו מסלול תמיד יופיע באותו צבע. */
