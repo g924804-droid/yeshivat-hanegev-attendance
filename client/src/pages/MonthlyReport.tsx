@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Download, Send, CheckCircle2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { SignaturePad, SignaturePadHandle } from '../components/SignaturePad';
@@ -41,24 +41,33 @@ const STATUS_STYLE: Record<Report['status'], string> = {
 export function MonthlyReport() {
   const params = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const month = params.month || currentMonth();
+  // נוכח כשמנהל/ת או מזכירת נוכחות פותחים דוח של עובדת אחרת (מ"ניהול" → "צפייה") — אז גם
+  // מציגים למי שייך הדוח, וגם מסתירים חתימה/הגשה כדי שלא "יחתמו" בטעות במקום העובדת עצמה.
+  const targetUserId = searchParams.get('userId') || undefined;
   const [report, setReport] = useState<Report | null>(null);
   const [days, setDays] = useState<Day[]>([]);
+  const [employeeName, setEmployeeName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sigRef = useRef<SignaturePadHandle>(null);
 
   async function load() {
-    const data = await api.get<{ report: Report; days: Day[] }>('/reports/getMonthlyReport', { month });
+    const data = await api.get<{ report: Report; days: Day[]; employeeName: string }>('/reports/getMonthlyReport', {
+      month,
+      ...(targetUserId ? { userId: targetUserId } : {}),
+    });
     setReport(data.report);
     setDays(data.days);
+    setEmployeeName(data.employeeName);
   }
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month]);
+  }, [month, targetUserId]);
 
   async function submit() {
     setError(null);
@@ -102,13 +111,18 @@ export function MonthlyReport() {
   if (!report) return <Layout title="דוח חודשי">טוען...</Layout>;
 
   return (
-    <Layout title={`דוח חודשי — ${month}`}>
+    <Layout title={`דוח חודשי — ${month}${employeeName && targetUserId ? ` — ${employeeName}` : ''}`}>
       <div className="flex items-center justify-between mb-4">
         <button onClick={() => navigate(-1)} className="btn-outline text-sm py-2">
           חזרה
         </button>
         <span className={`badge ${STATUS_STYLE[report.status]}`}>{report.status}</span>
       </div>
+      {targetUserId && (
+        <div className="mb-4 text-sm bg-blue-50 text-blue-800 rounded-xl px-4 py-2">
+          צפייה בדוח של {employeeName} — חתימה והגשה זמינות רק לעובדת עצמה
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
@@ -171,7 +185,7 @@ export function MonthlyReport() {
       {notice && <div className="mb-4 text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-2">{notice}</div>}
       {error && <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
 
-      {report.status === 'טיוטה' ? (
+      {report.status === 'טיוטה' && !targetUserId ? (
         <div className="card">
           <h3 className="font-bold text-navy mb-3">חתימה והגשה</h3>
           <SignaturePad ref={sigRef} />
@@ -180,6 +194,10 @@ export function MonthlyReport() {
               <Send size={16} /> הגשת דוח
             </button>
           </div>
+        </div>
+      ) : report.status === 'טיוטה' ? (
+        <div className="card flex items-center gap-2 text-slate-500">
+          <span>הדוח עדיין בטיוטה — {employeeName} צריכה להגיש אותו בעצמה</span>
         </div>
       ) : (
         <div className="card flex items-center justify-between">

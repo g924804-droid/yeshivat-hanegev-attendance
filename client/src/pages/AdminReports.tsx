@@ -180,7 +180,7 @@ function ReportsTab() {
                 <td>{r.vacationDays}</td>
                 <td>{r.absenceDays}</td>
                 <td className="flex gap-1 justify-center py-1">
-                  <button className="btn-outline text-xs py-1 px-2" onClick={() => navigate(`/report/${month}`)}>
+                  <button className="btn-outline text-xs py-1 px-2" onClick={() => navigate(`/report/${month}?userId=${r.employee.id}`)}>
                     צפייה
                   </button>
                   {r.status === 'הוגש' && (

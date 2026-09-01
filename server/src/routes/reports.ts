@@ -11,8 +11,8 @@ const router = Router();
 router.use(requireAuth);
 
 function targetUserId(req: any): string {
-  const isAdmin = req.user.role === 'מנהל';
-  return isAdmin && (req.body?.userId || req.query?.userId) ? req.body?.userId || req.query?.userId : req.user.id;
+  const canManage = req.user.role === 'מנהל' || !!req.user.isAttendanceManager;
+  return canManage && (req.body?.userId || req.query?.userId) ? req.body?.userId || req.query?.userId : req.user.id;
 }
 
 async function calculateAndUpsert(employeeId: string, month: string) {
@@ -48,7 +48,8 @@ router.get('/getMonthlyReport', async (req, res) => {
     const employeeId = targetUserId(req);
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
     const { report, days } = await calculateAndUpsert(employeeId, month);
-    res.json({ report, days });
+    const employee = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } });
+    res.json({ report, days, employeeName: employee.name });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת הדוח' });
   }
