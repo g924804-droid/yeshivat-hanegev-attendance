@@ -3,8 +3,9 @@ import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { hasPendingContracts } from '../lib/contracts';
 import { calcOvertime, calcTotalHours, getRequiredHoursForDate } from '../lib/hours';
-import { syncAttendanceToAirtable, deleteAttendanceFromAirtable, airtableFetch, TABLES } from '../lib/airtable';
+import { syncAttendanceToAirtable, deleteAttendanceFromAirtable } from '../lib/airtable';
 import { getHoliday } from '../lib/holidays';
+import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
 
 const router = Router();
 router.use(requireAuth);
@@ -45,17 +46,14 @@ router.post('/clockIn', async (req, res) => {
 
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } });
 
-    let warning: string | undefined;
     if (employee.role === 'מורה' && employee.trackLessons) {
       try {
-        const todayAttendance = await airtableFetch(TABLES.attendance, {
-          filterByFormula: `{תאריך} = "${date}"`,
-        });
-        if (todayAttendance.length === 0) {
-          warning = 'טרם סומנה נוכחות תלמידות היום';
+        const missingDates = await getMissingStudentAttendanceDates(employee.name, date.slice(0, 7));
+        if (missingDates.includes(date)) {
+          return res.status(403).json({ error: 'יש להשלים נוכחות תלמידות להיום לפני הכניסה' });
         }
       } catch {
-        /* אם Airtable לא מוגדר — לא חוסמים */
+        /* אם Airtable לא זמין/מוגדר — לא חוסמים, כדי לא לנעול משתמשים כשהאינטגרציה לא זמינה */
       }
     }
 
@@ -79,7 +77,7 @@ router.post('/clockIn', async (req, res) => {
     }
 
     await syncRecord(employee, record);
-    res.json({ success: true, recordId: record.id, shift, warning });
+    res.json({ success: true, recordId: record.id, shift });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בכניסה' });
   }
@@ -193,7 +191,40 @@ router.get('/getMyAttendance', async (req, res) => {
 
 router.put('/updateAttendance', async (req, res) => {
   try {
-    const { recordId, clockIn, clockOut, clockIn2, clockOut2, lessonsCount, type, notes, sickNoteUrl } = req.body;
+    const { recordId, date, clockIn, clockOut, clockIn2, clockOut2, lessonsCount, type, notes, sickNoteUrl } = req.body;
+
+    // אין recordId — זה יום בלי רשומה קיימת (למשל נלחץ העט על יום ריק בטבלה החודשית) — יוצרים חדשה במקום לעדכן.
+    if (!recordId) {
+      if (!date) return res.status(400).json({ error: 'חסר תאריך' });
+      const employeeId = targetUserId(req);
+      const existing = await prisma.attendanceRecord.findFirst({ where: { employeeId, date } });
+      if (existing) {
+        return res.status(400).json({ error: 'כבר קיימת רשומה לתאריך הזה, יש לרענן את הדף' });
+      }
+      const employee = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } });
+      const totalHours = calcTotalHours(clockIn, clockOut, clockIn2, clockOut2);
+      const requiredHours = getRequiredHoursForDate(employee, date);
+      const overtimeHours = calcOvertime(totalHours, requiredHours);
+      const created = await prisma.attendanceRecord.create({
+        data: {
+          employeeId,
+          date,
+          clockIn: clockIn || null,
+          clockOut: clockOut || null,
+          clockIn2: clockIn2 || null,
+          clockOut2: clockOut2 || null,
+          lessonsCount: lessonsCount || 0,
+          type: type || 'רגיל',
+          notes: notes || null,
+          sickNoteUrl: sickNoteUrl || null,
+          totalHours,
+          overtimeHours,
+        },
+      });
+      await syncRecord(employee, created);
+      return res.json({ success: true, record: created });
+    }
+
     const record = await prisma.attendanceRecord.findUnique({ where: { id: recordId } });
     if (!record) return res.status(404).json({ error: 'רשומה לא נמצאה' });
     if (record.employeeId !== req.user!.id && req.user!.role !== 'מנהל') {

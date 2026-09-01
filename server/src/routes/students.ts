@@ -9,7 +9,7 @@ import {
   STUDENT_STATUS_EN_TO_HE,
 } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
-import { getTeacherTrackIds } from '../lib/teacherScope';
+import { getTeacherTrackIds, findTeacherIds } from '../lib/teacherScope';
 import { requireAuth, requirePermission } from '../middleware/auth';
 
 const router = Router();
@@ -108,11 +108,8 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
 
     let lessons = allLessons;
     if (req.user!.role !== 'מנהל') {
-      const teacherRecords = await airtableFetch(TABLES.teachers, {
-        filterByFormula: `{${FIELDS.teachers.name}} = "${req.user!.name}"`,
-      });
-      const teacherId = teacherRecords[0]?.id;
-      lessons = allLessons.filter((l) => (l.fields[FIELDS.lessons.teacher] || []).includes(teacherId));
+      const teacherIds = await findTeacherIds(req.user!.name);
+      lessons = allLessons.filter((l) => (l.fields[FIELDS.lessons.teacher] || []).some((id: string) => teacherIds.includes(id)));
     }
 
     res.json({

@@ -25,6 +25,24 @@ type Holiday = { date: string; name: string; type: 'full' | 'half' };
 
 const TYPE_OPTIONS = ['רגיל', 'מחלה', 'חופשה שנתית', 'חופשה אישית', 'חג', 'חצי יום'];
 
+/** רשומת "טיוטה" ליום שעדיין אין לו רשומה בכלל — id ריק מסמן ל-EditRow וליצירה בשרת שמדובר ביצירה, לא עדכון. */
+function draftAttendanceRecord(date: string): AttendanceRecord {
+  return {
+    id: '',
+    date,
+    clockIn: null,
+    clockOut: null,
+    clockIn2: null,
+    clockOut2: null,
+    totalHours: 0,
+    overtimeHours: 0,
+    lessonsCount: 0,
+    type: 'רגיל',
+    notes: null,
+    sickNoteUrl: null,
+  };
+}
+
 export function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -59,6 +77,20 @@ export function Dashboard() {
 
   const today = todayStr();
   const todayRecord = records.find((r) => r.date === today);
+
+  // כל ימי החודש עד היום (לא רק ימים שכבר יש להם רשומה), כדי שאפשר יהיה ללחוץ על העט
+  // ולמלא נוכחות רטרואקטיבית גם ליום שעדיין ריק, ולא רק לערוך ימים שכבר מולאו.
+  const monthDays = useMemo(() => {
+    const [year, monthNum] = month.split('-').map(Number);
+    const daysInMonth = new Date(year, monthNum, 0).getDate();
+    const days: string[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = `${month}-${String(d).padStart(2, '0')}`;
+      if (date > today) break;
+      days.push(date);
+    }
+    return days;
+  }, [month, today]);
 
   const clockState: 'in1' | 'out1' | 'in2' | 'out2' | 'done' = useMemo(() => {
     if (!todayRecord) return 'in1';
@@ -176,42 +208,79 @@ export function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {records.map((r) => {
-                  const dow = DOW_HE[new Date(`${r.date}T00:00:00`).getDay()];
-                  return editingId === r.id ? (
-                    <EditRow key={r.id} record={r} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); load(); }} />
-                  ) : (
-                    <tr key={r.id} className="border-b last:border-0 hover:bg-slate-50">
-                      <td className="py-2">{r.date}</td>
-                      <td>{dow}</td>
-                      <td>{r.type}</td>
-                      <td>{r.clockIn || '—'}</td>
-                      <td>{r.clockOut || '—'}</td>
-                      <td>{r.clockIn2 || '—'}</td>
-                      <td>{r.clockOut2 || '—'}</td>
-                      <td>{safeFixed(r.totalHours)}</td>
-                      <td>{safeFixed(r.overtimeHours)}</td>
-                      <td>{r.lessonsCount}</td>
-                      <td>
-                        <div className="flex gap-1 justify-center">
-                          <button onClick={() => setEditingId(r.id)} className="p-1.5 rounded-lg hover:bg-slate-200">
+                {monthDays.map((date) => {
+                  const dow = DOW_HE[new Date(`${date}T00:00:00`).getDay()];
+                  const record = records.find((r) => r.date === date);
+                  const holiday = holidays.find((h) => h.date === date);
+                  const editKey = record?.id || date;
+
+                  if (editingId === editKey) {
+                    return (
+                      <EditRow
+                        key={editKey}
+                        record={record || draftAttendanceRecord(date)}
+                        onCancel={() => setEditingId(null)}
+                        onSaved={() => { setEditingId(null); load(); }}
+                      />
+                    );
+                  }
+
+                  if (record) {
+                    return (
+                      <tr key={date} className="border-b last:border-0 hover:bg-slate-50">
+                        <td className="py-2">{record.date}</td>
+                        <td>{dow}</td>
+                        <td>{record.type}</td>
+                        <td>{record.clockIn || '—'}</td>
+                        <td>{record.clockOut || '—'}</td>
+                        <td>{record.clockIn2 || '—'}</td>
+                        <td>{record.clockOut2 || '—'}</td>
+                        <td>{safeFixed(record.totalHours)}</td>
+                        <td>{safeFixed(record.overtimeHours)}</td>
+                        <td>{record.lessonsCount}</td>
+                        <td>
+                          <div className="flex gap-1 justify-center">
+                            <button onClick={() => setEditingId(record.id)} className="p-1.5 rounded-lg hover:bg-slate-200">
+                              <Pencil size={14} />
+                            </button>
+                            <button onClick={() => deleteRecord(record.id)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  if (holiday) {
+                    return (
+                      <tr key={date} className="bg-amber-50 text-amber-800">
+                        <td className="py-2">{date}</td>
+                        <td>{dow}</td>
+                        <td colSpan={8}>{holiday.name} {holiday.type === 'half' ? '(חצי יום)' : ''}</td>
+                        <td>
+                          <button onClick={() => setEditingId(date)} className="p-1.5 rounded-lg hover:bg-amber-100">
                             <Pencil size={14} />
                           </button>
-                          <button onClick={() => deleteRecord(r.id)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600">
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  // אין רשומה ואין חג — יום ריק; העט פותח מילוי רטרואקטיבי במקום רק לאפשר עריכה של מה שכבר קיים.
+                  return (
+                    <tr key={date} className="border-b last:border-0 text-slate-300">
+                      <td className="py-2">{date}</td>
+                      <td>{dow}</td>
+                      <td colSpan={8}>—</td>
+                      <td>
+                        <button onClick={() => setEditingId(date)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500">
+                          <Pencil size={14} />
+                        </button>
                       </td>
                     </tr>
                   );
                 })}
-                {holidays.map((h) => (
-                  <tr key={h.date} className="bg-amber-50 text-amber-800">
-                    <td className="py-2">{h.date}</td>
-                    <td>{DOW_HE[new Date(`${h.date}T00:00:00`).getDay()]}</td>
-                    <td colSpan={9}>{h.name} {h.type === 'half' ? '(חצי יום)' : ''}</td>
-                  </tr>
-                ))}
               </tbody>
             </table>
             {records.length === 0 && <p className="text-center text-slate-400 py-6">אין רשומות החודש</p>}

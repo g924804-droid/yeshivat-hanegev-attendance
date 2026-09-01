@@ -1,19 +1,41 @@
 import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
 
+/**
+ * שמות מורות ב-Airtable כתובים לא אחיד — לפעמים עם תואר ("המורה"/"הרבנית"/"הרב"), לפעמים עם
+ * רווחים מיותרים בהתחלה/בסוף. השוואה מדויקת (===) נכשלת על כל זה, ומורה יכולה "להיעלם" ולא
+ * לראות אף מסלול שלה בלי סיבה נראית לעין. מנקים לפני ההשוואה, ומתאימים גם התאמה חלקית.
+ */
+function normalizeTeacherName(s: string): string {
+  return (s || '')
+    .trim()
+    .replace(/^(המורה|הרבנית|הרב)\s+/, '')
+    .trim();
+}
+
+/** מזהי המורות (ברשומת Airtable) שהשם שלהן תואם, במדויק או חלקית אחרי ניקוי תארים/רווחים. */
+export async function findTeacherIds(teacherName: string): Promise<string[]> {
+  const target = normalizeTeacherName(teacherName);
+  if (!target) return [];
+  const allTeachers = await airtableFetch(TABLES.teachers);
+  return allTeachers
+    .filter((t) => {
+      const raw = normalizeTeacherName(t.fields[FIELDS.teachers.name] || '');
+      return raw && (raw === target || raw.includes(target) || target.includes(raw));
+    })
+    .map((t) => t.id);
+}
+
 /** מזהי המסלולים שמורה אחראית עליהם, לפי lessons→tracks (Airtable). */
 export async function getTeacherTrackIds(teacherName: string): Promise<Set<string>> {
-  const teacherRecords = await airtableFetch(TABLES.teachers, {
-    filterByFormula: `{${FIELDS.teachers.name}} = "${teacherName}"`,
-  });
-  const teacherId = teacherRecords[0]?.id;
+  const teacherIds = await findTeacherIds(teacherName);
   const trackIds = new Set<string>();
-  if (!teacherId) return trackIds;
+  if (teacherIds.length === 0) return trackIds;
 
   const lessons = await airtableFetch(TABLES.lessons);
   for (const lesson of lessons) {
     const teacherLinks: string[] = lesson.fields[FIELDS.lessons.teacher] || [];
-    if (teacherLinks.includes(teacherId)) {
+    if (teacherLinks.some((id) => teacherIds.includes(id))) {
       const trackLinks: string[] = lesson.fields[FIELDS.lessons.track] || [];
       trackLinks.forEach((t) => trackIds.add(t));
     }
