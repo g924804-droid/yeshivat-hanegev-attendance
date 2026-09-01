@@ -77,13 +77,23 @@ function classLetter(className?: string | null): string {
 }
 
 /**
+ * שמות המסלולים כותבים "יג"/"יד" בגרשיים תקניים ("קודש י\"ג") — כלומר יש תו גרש/מרכאות בין
+ * שתי האותיות, לא "יג" צמוד. בדיקת includes('יג') רגילה נכשלת בגלל זה; הביטוי הזה מתעלם
+ * מתו גרש/מרכאות אופציונלי בין האותיות.
+ */
+export function trackNameHasLetter(name: string, letter: 'יג' | 'יד'): boolean {
+  const pattern = letter === 'יג' ? /י["״']?ג/ : /י["״']?ד/;
+  return pattern.test(name);
+}
+
+/**
  * יג/יד הן עכשיו מסלולים נפרדים ("קודש י\"ג" / "קודש י\"ד"), לא כיתה בתוך אותו מסלול — קודם
  * בודקים לפי שם המסלול; שדה "כיתה" (className) נשאר כנפילה-לאחור לנתונים ישנים מלפני השינוי.
  */
 function kodeshLetter(l: { className?: string | null; track?: string[] }, tracks: TrackRef[]): '' | 'יג' | 'יד' {
   const trackName = tracks.find((t) => t.id === l.track?.[0])?.name || '';
-  if (trackName.includes('יד')) return 'יד';
-  if (trackName.includes('יג')) return 'יג';
+  if (trackNameHasLetter(trackName, 'יד')) return 'יד';
+  if (trackNameHasLetter(trackName, 'יג')) return 'יג';
   const legacy = classLetter(l.className);
   return legacy === 'יג' || legacy === 'יד' ? legacy : '';
 }

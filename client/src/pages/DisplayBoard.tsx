@@ -6,6 +6,7 @@ import {
   toHebrewDateString,
   lessonColor,
   trackColor,
+  trackNameHasLetter,
   compareLessonDisplayOrder,
 } from '../lib/utils';
 
@@ -72,9 +73,9 @@ const PAGE_RELOAD_MS = 5 * 60_000; // רענון מלא של הדף כל 5 דק�
 
 type Slide = { kind: 'today' } | { kind: 'week' } | { kind: 'file'; announcement: Announcement };
 
-/** כל סוג שקופית מתחלף בקצב שלה: היום נשאר כמו שהיה, השבוע חצי דקה, ותמונות/הודעות 10 שניות. */
+/** כל סוג שקופית מתחלף בקצב שלה: מערכות (היום/שבוע) כל חצי דקה, ותמונות/הודעות כל 10 שניות. */
 const SLIDE_DURATION_MS: Record<Slide['kind'], number> = {
-  today: 60_000,
+  today: 30_000,
   week: 30_000,
   file: 10_000,
 };
@@ -176,13 +177,20 @@ export function DisplayBoard() {
    * גם "יורשת" את שיעור הקודש של אותה שנה — כל מגמות שנה א' מקבלות את קודש י"ג, וכל מגמות שנה ב'
    * מקבלות את קודש י"ד — כי קודש נלמד בקבוצה משותפת לפי שנה, לא לפי מגמה מקצועית.
    */
-  const professionalTracks = useMemo(() => tracks.filter((t) => !t.name.includes('קודש')), [tracks]);
+  // שנה א' תמיד לפני שנה ב' (סדר קבוע), לא הסדר הגולמי של המסלולים ב-Airtable.
+  const professionalTracks = useMemo(() => {
+    const yearRank = (name: string) => (name.includes('שנה א') ? 0 : name.includes('שנה ב') ? 1 : 2);
+    return tracks
+      .filter((t) => !t.name.includes('קודש'))
+      .slice()
+      .sort((a, b) => yearRank(a.name) - yearRank(b.name));
+  }, [tracks]);
   const kodeshYudGimelTrackId = useMemo(
-    () => tracks.find((t) => t.name.includes('קודש') && t.name.includes('יג'))?.id,
+    () => tracks.find((t) => t.name.includes('קודש') && trackNameHasLetter(t.name, 'יג'))?.id,
     [tracks]
   );
   const kodeshYudDaledTrackId = useMemo(
-    () => tracks.find((t) => t.name.includes('קודש') && t.name.includes('יד'))?.id,
+    () => tracks.find((t) => t.name.includes('קודש') && trackNameHasLetter(t.name, 'יד'))?.id,
     [tracks]
   );
   const todayColumns = useMemo(() => {
@@ -280,17 +288,15 @@ export function DisplayBoard() {
                                 !
                               </span>
                             )}
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-bold truncate text-sm">{l.subject || l.className}</span>
-                              <span className="opacity-70 text-xs shrink-0 tabular-nums">{l.time}</span>
-                            </div>
-                            <div className="opacity-80 truncate text-xs">
+                            <div className="opacity-70 text-xs tabular-nums leading-tight">{l.time}</div>
+                            <div className="font-bold text-sm leading-tight break-words">{l.subject || l.className}</div>
+                            <div className="opacity-80 text-xs leading-tight break-words">
                               {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
                             </div>
                             {l.notes && (
                               <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold max-w-full">
                                 <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
-                                <span className="truncate">{l.notes}</span>
+                                <span className="break-words">{l.notes}</span>
                               </div>
                             )}
                           </div>
