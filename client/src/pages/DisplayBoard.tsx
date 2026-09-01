@@ -4,8 +4,8 @@ import {
   DOW_HE,
   startMinutes,
   toHebrewDateString,
-  getTimeSlotsForDay,
   lessonColor,
+  trackColor,
   compareLessonDisplayOrder,
 } from '../lib/utils';
 
@@ -68,10 +68,16 @@ const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי'];
 const SCHEDULE_POLL_MS = 15 * 60_000; // מערכת השעות מגיעה מ-Airtable — רבע שעה מספיק ומקל על מכסת הבקשות המשותפת
 const ANNOUNCEMENT_POLL_MS = 60_000;
 const ANNOUNCEMENT_ROTATE_MS = 60_000; // כל דקה מתחלפת הודעת הטקסט שמוצגת למטה
-const SLIDE_ROTATE_MS = 60_000; // כל דקה מתחלף בין היום / השבוע / קבצים שהועלו
 const PAGE_RELOAD_MS = 5 * 60_000; // רענון מלא של הדף כל 5 דקות, כדי שעדכונים ייכנסו לתוקף גם בלי גישה פיזית למסך
 
 type Slide = { kind: 'today' } | { kind: 'week' } | { kind: 'file'; announcement: Announcement };
+
+/** כל סוג שקופית מתחלף בקצב שלה: היום נשאר כמו שהיה, השבוע חצי דקה, ותמונות/הודעות 10 שניות. */
+const SLIDE_DURATION_MS: Record<Slide['kind'], number> = {
+  today: 60_000,
+  week: 30_000,
+  file: 10_000,
+};
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -151,9 +157,12 @@ export function DisplayBoard() {
 
   useEffect(() => {
     if (slides.length < 2) return;
-    const t = setInterval(() => setSlideIdx((i) => (i + 1) % slides.length), SLIDE_ROTATE_MS);
-    return () => clearInterval(t);
-  }, [slides.length]);
+    // כל סוג שקופית מתחלף בקצב שונה, אז מתזמנים setTimeout מחדש בכל פעם לפי משך השקופית הנוכחית,
+    // במקום setInterval קבוע אחד שהיה מחליף את כולן באותו קצב.
+    const currentKind = slides[slideIdx % slides.length]?.kind || 'today';
+    const t = setTimeout(() => setSlideIdx((i) => (i + 1) % slides.length), SLIDE_DURATION_MS[currentKind]);
+    return () => clearTimeout(t);
+  }, [slideIdx, slides]);
 
   const slide = slides[slideIdx % slides.length] || { kind: 'today' };
 
@@ -162,22 +171,36 @@ export function DisplayBoard() {
     () => lessons.filter((l) => l.dayOfWeek === todayDow).sort((a, b) => startMinutes(a.time) - startMinutes(b.time)),
     [lessons, todayDow]
   );
-  // שורה אחת לכל שעה קבועה ביום (כמו במסך הניהול), כדי שהשעות תמיד יסתדרו זו מתחת לזו
-  // בטור אחד ברור, במקום להתפזר בין עמודות. שעות לא סטנדרטיות שיש להן שיעור בפועל נוספות בסוף.
-  const todayRows = useMemo(() => {
-    const daySlots = getTimeSlotsForDay(todayDow || '');
-    const known = new Set(daySlots.map((s) => s.time));
-    const extraTimes = new Set(todayLessons.map((l) => l.time).filter((t) => t && !known.has(t)));
-    const all = [...daySlots, ...Array.from(extraTimes).map((time) => ({ time, label: '' }))];
-    return all.sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
-  }, [todayLessons, todayDow]);
+  /**
+   * מסך "היום" מוצג כעמודה נפרדת לכל מגמה מקצועית (לא רשימה אחת משותפת לכולן), וכל עמודה כזו
+   * גם "יורשת" את שיעור הקודש של אותה שנה — כל מגמות שנה א' מקבלות את קודש י"ג, וכל מגמות שנה ב'
+   * מקבלות את קודש י"ד — כי קודש נלמד בקבוצה משותפת לפי שנה, לא לפי מגמה מקצועית.
+   */
+  const professionalTracks = useMemo(() => tracks.filter((t) => !t.name.includes('קודש')), [tracks]);
+  const kodeshYudGimelTrackId = useMemo(
+    () => tracks.find((t) => t.name.includes('קודש') && t.name.includes('יג'))?.id,
+    [tracks]
+  );
+  const kodeshYudDaledTrackId = useMemo(
+    () => tracks.find((t) => t.name.includes('קודש') && t.name.includes('יד'))?.id,
+    [tracks]
+  );
+  const todayColumns = useMemo(() => {
+    return professionalTracks.map((track) => {
+      const kodeshTrackId = track.name.includes('שנה א')
+        ? kodeshYudGimelTrackId
+        : track.name.includes('שנה ב')
+        ? kodeshYudDaledTrackId
+        : undefined;
+      const colLessons = todayLessons
+        .filter((l) => l.track?.[0] === track.id || (kodeshTrackId && l.track?.[0] === kodeshTrackId))
+        .sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
+      return { track, lessons: colLessons };
+    });
+  }, [professionalTracks, kodeshYudGimelTrackId, kodeshYudDaledTrackId, todayLessons]);
 
   function teacherName(ids?: string[]) {
     return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
-  }
-
-  function trackName(ids?: string[]) {
-    return ids?.map((id) => tracks.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
   }
 
   const dateStr = now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -240,60 +263,48 @@ export function DisplayBoard() {
               <CalendarClock size={18} /> היום — {todayDow}
             </h2>
             <FitScale className="flex-1 min-h-0">
-              <div className="flex flex-col gap-3">
-                {todayRows.map((row) => {
-                  const isBreak = row.label === 'הפסקה';
-                  const cellLessons = todayLessons
-                    .filter((l) => l.time === row.time)
-                    .sort((a, b) => compareLessonDisplayOrder(a, b, tracks));
-                  if (isBreak) {
-                    return (
-                      <div key={row.time} className="flex items-center gap-4 rounded-lg bg-slate-100 border border-slate-200 px-5 py-3">
-                        <span className="font-bold text-slate-500 shrink-0 tabular-nums whitespace-nowrap text-4xl">
-                          {row.time}
-                        </span>
-                        <span className="text-slate-400 text-3xl">הפסקה</span>
-                      </div>
-                    );
-                  }
+              <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${todayColumns.length || 1}, 1fr)` }}>
+                {todayColumns.map(({ track, lessons: colLessons }) => {
+                  const color = trackColor(track.id, professionalTracks.map((t) => t.id));
                   return (
-                    <div key={row.time} className="flex items-stretch gap-4">
-                      <div className="shrink-0 flex flex-col justify-center border-l-2 border-amber-100 pl-4">
-                        <span className="font-black text-gold-dark tabular-nums whitespace-nowrap text-5xl">{row.time}</span>
-                        {row.label && <span className="text-navy-light/50 whitespace-nowrap text-lg">{row.label}</span>}
-                      </div>
-                      <div className="flex-1 min-w-0 flex flex-wrap items-stretch gap-3">
-                        {cellLessons.map((l) => (
+                    <div key={track.id} className="rounded-xl border border-amber-100 bg-amber-50/40 overflow-hidden flex flex-col">
+                      <div className={`px-2 py-1.5 font-bold text-sm text-center border-b ${color}`}>{track.name}</div>
+                      <div className="flex flex-col gap-1.5 p-1.5">
+                        {colLessons.map((l) => (
                           <div
                             key={l.id}
-                            className={`relative rounded-lg border overflow-hidden flex-1 min-w-[12rem] px-5 py-3 ${lessonColor(l, tracks)}`}
+                            className={`relative rounded-lg border overflow-hidden px-2 py-1.5 ${lessonColor(l, tracks)}`}
                           >
                             {l.notes && (
-                              <span className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center text-lg font-black shadow ring-2 ring-white animate-pulse">
+                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs font-black shadow ring-2 ring-white animate-pulse">
                                 !
                               </span>
                             )}
-                            <div className="font-bold truncate text-4xl">{l.subject || l.className}</div>
-                            <div className="opacity-80 truncate text-2xl">
-                              {l.subject && `כיתה ${l.className} · `}
-                              {trackName(l.track) && `${trackName(l.track)} · `}
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-bold truncate text-sm">{l.subject || l.className}</span>
+                              <span className="opacity-70 text-xs shrink-0 tabular-nums">{l.time}</span>
+                            </div>
+                            <div className="opacity-80 truncate text-xs">
                               {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
                             </div>
                             {l.notes && (
-                              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-3 py-1 text-lg font-bold max-w-full">
-                                <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                              <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold max-w-full">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
                                 <span className="truncate">{l.notes}</span>
                               </div>
                             )}
                           </div>
                         ))}
+                        {colLessons.length === 0 && <p className="text-navy-light/40 text-xs text-center py-2">אין שיעורים</p>}
                       </div>
                     </div>
                   );
                 })}
               </div>
             </FitScale>
-            {todayLessons.length === 0 && <p className="text-navy-light/50 text-xl py-16 text-center">אין שיעורים היום</p>}
+            {todayColumns.every((c) => c.lessons.length === 0) && (
+              <p className="text-navy-light/50 text-xl py-16 text-center">אין שיעורים היום</p>
+            )}
           </section>
         )}
 
