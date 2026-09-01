@@ -201,7 +201,9 @@ export function DisplayBoard() {
         ? kodeshYudDaledTrackId
         : undefined;
       const colLessons = todayLessons
-        .filter((l) => l.track?.[0] === track.id || (kodeshTrackId && l.track?.[0] === kodeshTrackId))
+        // בודקים בכל המסלולים המקושרים לשיעור, לא רק הראשון — שיעור כמו תפילה יכול להיות
+        // מקושר גם לקודש י"ג וגם לקודש י"ד יחד (משותף לשני השנתונים), לא רק למסלול אחד.
+        .filter((l) => (l.track || []).includes(track.id) || (kodeshTrackId && (l.track || []).includes(kodeshTrackId)))
         .sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
       return { track, lessons: colLessons };
     });
