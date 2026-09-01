@@ -69,11 +69,16 @@ export const ALL_TIME_SLOTS = (() => {
   return Array.from(byTime.values()).sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
 })();
 
+/** שדה "שם הכיתה" מכיל בפועל ערכים כמו "כיתה יג" (לא רק "יג") — מסירים את המילה "כיתה" כדי להשוות רק לפי האות. */
+function classLetter(className?: string | null): string {
+  return (className || '').trim().replace(/^כיתה\s+/, '').trim();
+}
+
 /** סדר תצוגה קבוע לשיעורי קודש מקבילים (יג תמיד מימין, יד תמיד משמאל), במקום סדר מקרי לפי הנתונים. */
 const CLASS_DISPLAY_ORDER = ['יג', 'יד'];
 export function compareLessonDisplayOrder(a: { className?: string | null }, b: { className?: string | null }): number {
-  const ai = CLASS_DISPLAY_ORDER.indexOf(a.className || '');
-  const bi = CLASS_DISPLAY_ORDER.indexOf(b.className || '');
+  const ai = CLASS_DISPLAY_ORDER.indexOf(classLetter(a.className));
+  const bi = CLASS_DISPLAY_ORDER.indexOf(classLetter(b.className));
   if (ai === -1 && bi === -1) return 0;
   if (ai === -1) return 1;
   if (bi === -1) return -1;
@@ -91,7 +96,7 @@ export function lessonColor(
   l: { subject?: string | null; className?: string | null; track?: string[] },
   trackIds: string[]
 ): string {
-  if ((l.className || '').trim() === 'יד') {
+  if (classLetter(l.className) === 'יד') {
     return KODESH_YUD_DALED_COLOR;
   }
   return trackColor(l.track?.[0], trackIds);
