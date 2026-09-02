@@ -102,8 +102,11 @@ export function StudentsList() {
         lessonId: activeLessonId || undefined,
       });
       await load(activeLessonId);
+      // אבחון זמני: אמורה להיעלם לאחר שנוודא שהבעיה נפתרה בפועל אצל המשתמשת.
+      window.alert(`נשמר: ${student.name} — ${status}`);
     } catch (err: any) {
       setError(err.message);
+      window.alert(`שגיאה בסימון נוכחות: ${err.message}`);
     } finally {
       setMarkingId(null);
     }
@@ -112,15 +115,17 @@ export function StudentsList() {
   async function markAllPresent() {
     setBusy(true);
     try {
-      await api.post('/students/bulkMarkAttendance', {
+      const result = await api.post<{ marked: number; skipped: number }>('/students/bulkMarkAttendance', {
         trackId,
         date,
         lessonId: activeLessonId || undefined,
         status: 'נוכחת',
       });
       await load(activeLessonId);
+      window.alert(`סומנו ${result.marked} תלמידות, ${result.skipped} כבר היו מסומנות`);
     } catch (err: any) {
       setError(err.message);
+      window.alert(`שגיאה בסימון הכל: ${err.message}`);
     } finally {
       setBusy(false);
     }
