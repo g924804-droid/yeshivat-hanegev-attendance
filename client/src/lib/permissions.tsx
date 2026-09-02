@@ -21,6 +21,7 @@ export type CurrentUser = {
   monthlyBusPass: number | null;
   isAttendanceManager: boolean;
   trackLessons: boolean;
+  canManageAllStudentTracks: boolean;
 };
 
 type AuthContextValue = {

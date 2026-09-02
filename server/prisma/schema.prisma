@@ -34,6 +34,10 @@ model User {
   thursdayHours       Float?
   fridayHours         Float?
   isAttendanceManager Boolean  @default(false) // הרשאה נוספת (לצד מנהל) לצפות/לאשר את דוחות הנוכחות של כל המורות
+  // הרשאה נפרדת מ-isAttendanceManager: לראות ולסמן נוכחות תלמידות בכל המסלולים (לא רק
+  // המסלולים המקושרים לשיעורים שלה), בלי לקבל גישה לניהול דוחות נוכחות עובדים/מורות ובלי
+  // כפתור "ניהול" בדף הבית — מיועד למזכירה שממלאת נוכחות תלמידות בשביל כמה מסלולים/מורות.
+  canManageAllStudentTracks Boolean @default(false)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

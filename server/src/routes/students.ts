@@ -57,11 +57,20 @@ function getStudentIdsByTrack(trackId: string, allStudents: Awaited<ReturnType<t
   return allStudents.filter((s) => (s.fields[FIELDS.students.track] || []).includes(trackId)).map((s) => s.id);
 }
 
+/**
+ * מנהל, מי שיש לה הרשאת ניהול נוכחות עובדים (isAttendanceManager), או מי שקיבלה במפורש
+ * הרשאה נפרדת לראות את כל המסלולים (canManageAllStudentTracks) — למשל מזכירה שממלאת
+ * נוכחות תלמידות אבל לא אמורה לקבל גישה לניהול דוחות נוכחות של מורות/עובדים.
+ */
+function canSeeAllStudentTracks(user: { role: string; isAttendanceManager: boolean; canManageAllStudentTracks: boolean }): boolean {
+  return user.role === 'מנהל' || user.isAttendanceManager || user.canManageAllStudentTracks;
+}
+
 router.get('/getTracks', requirePermission('studentAttendance'), async (req, res) => {
   try {
     const tracks = await airtableFetch(TABLES.tracks);
     let visible = tracks;
-    if (req.user!.role !== 'מנהל' && !req.user!.isAttendanceManager) {
+    if (!canSeeAllStudentTracks(req.user!)) {
       const trackIds = await getTeacherTrackIds(req.user!.name);
       visible = tracks.filter((t) => trackIds.has(t.id));
     }
@@ -108,7 +117,7 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
     const allStudents = allStudentsRaw.filter((s) => studentIds.includes(s.id));
 
     let todaysLessons = await getTrackLessonsForDate(trackId, date);
-    if (req.user!.role !== 'מנהל' && !req.user!.isAttendanceManager) {
+    if (!canSeeAllStudentTracks(req.user!)) {
       const teacherIds = await findTeacherIds(req.user!.name);
       todaysLessons = todaysLessons.filter((l) => (l.teacher || []).some((id) => teacherIds.includes(id)));
     }

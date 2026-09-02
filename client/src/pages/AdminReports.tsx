@@ -39,6 +39,7 @@ type Employee = {
   thursdayHours: number | null;
   fridayHours: number | null;
   isAttendanceManager: boolean;
+  canManageAllStudentTracks: boolean;
 };
 
 type ReceiptRow = {
@@ -398,6 +399,7 @@ function EditEmployeeModal({
     thursdayHours: employee.thursdayHours ?? '',
     fridayHours: employee.fridayHours ?? '',
     isAttendanceManager: employee.isAttendanceManager,
+    canManageAllStudentTracks: employee.canManageAllStudentTracks,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -533,7 +535,17 @@ function EditEmployeeModal({
           />
           הרשאת "מזכירת נוכחות" — יכולה לצפות, לאשר ולייצא דוחות של כל המורות, וגם למלא/לערוך עבורן ישירות
           נוכחות יומית במסך "נוכחות מורות" (למשל למורה מחליפה/מבוגרת שלא ממלאת בעצמה) — בלי גישה
-          לתשלומים/עובדים/חוזים
+          לתשלומים/עובדים/חוזים. גם מציגה כפתור "ניהול" בדף הבית.
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          <input
+            type="checkbox"
+            checked={form.canManageAllStudentTracks}
+            onChange={(e) => setField('canManageAllStudentTracks', e.target.checked)}
+          />
+          הרשאת "נוכחות תלמידות — כל המסלולים" — יכולה לראות ולסמן נוכחות תלמידות בכל המסלולים,
+          לא רק במסלולים שמקושרים לשיעורים שלה (למשל מזכירה שממלאת עבור כמה מורות). לא מציגה
+          כפתור "ניהול" ולא נותנת גישה לדוחות/נוכחות עובדים.
         </label>
 
         <div>
