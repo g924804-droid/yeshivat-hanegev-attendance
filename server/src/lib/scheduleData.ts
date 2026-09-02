@@ -36,6 +36,8 @@ async function fetchFullSchedule() {
       room: l.fields[FIELDS.lessons.room],
       year: l.fields[FIELDS.lessons.year],
       notes: l.fields[FIELDS.lessons.notes],
+      fromDate: l.fields[FIELDS.lessons.fromDate],
+      toDate: l.fields[FIELDS.lessons.toDate],
     })),
     teachers: teacherList,
     tracks: trackList,

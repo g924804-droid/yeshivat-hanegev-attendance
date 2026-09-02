@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import {
   DOW_HE,
   startMinutes,
+  todayStr,
   ALL_TIME_SLOTS,
   TIME_SLOTS,
   TUESDAY_TIME_SLOTS,
@@ -28,9 +29,18 @@ type Lesson = {
   teacher: string[];
   room: string;
   notes?: string | null;
+  fromDate?: string | null;
+  toDate?: string | null;
 };
 type Ref = { id: string; name: string };
-type HistoryRow = { id: string; description: string; changedAt: string; changedBy: string | null };
+type HistoryRow = {
+  id: string;
+  description: string;
+  changedAt: string;
+  changedBy: string | null;
+  fromDate?: string | null;
+  toDate?: string | null;
+};
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי']; // אין לימודים בימי שישי כרגע
 
@@ -340,6 +350,9 @@ function LessonModal({
     trackId: lesson?.track?.[0] || '',
     room: lesson?.room || '',
     notes: lesson?.notes || '',
+    // מתאריך חובה (שיעור חדש מתחיל היום כברירת מחדל); עד תאריך לא חובה — ריק אומר "עדיין בתוקף".
+    fromDate: lesson?.fromDate || todayStr(),
+    toDate: lesson?.toDate || '',
   });
   const daySlots = getTimeSlotsForDay(form.dayOfWeek);
   const knownTime = lesson && daySlots.some((s) => s.time === lesson.time);
@@ -471,6 +484,27 @@ function LessonModal({
 
         <input className="input" placeholder="חדר" value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })} />
 
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="label">מתאריך (חובה)</label>
+            <input
+              type="date"
+              className="input"
+              value={form.fromDate}
+              onChange={(e) => setForm({ ...form, fromDate: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">עד תאריך (לא חובה — ריק = בתוקף)</label>
+            <input
+              type="date"
+              className="input"
+              value={form.toDate}
+              onChange={(e) => setForm({ ...form, toDate: e.target.value })}
+            />
+          </div>
+        </div>
+
         <div>
           <label className="label">הערה (לא חובה) — לשינוי/הוספה חד-פעמית, תופיע מודגשת במסך התצוגה</label>
           <input
@@ -491,7 +525,9 @@ function LessonModal({
           )}
           <div className="flex gap-2">
             <button className="btn-outline" onClick={onClose}>ביטול</button>
-            <button className="btn-primary" onClick={submit} disabled={busy || !form.trackId || !time}>שמירה</button>
+            <button className="btn-primary" onClick={submit} disabled={busy || !form.trackId || !form.fromDate || !time}>
+              שמירה
+            </button>
           </div>
         </div>
       </div>

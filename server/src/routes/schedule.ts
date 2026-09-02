@@ -19,18 +19,22 @@ router.get('/getSchedule', async (req, res) => {
 
 router.post('/updateScheduleLesson', async (req, res) => {
   try {
-    const { id, className, subject, dayOfWeek, time, trackId, teacherIds, room, year, notes } = req.body as {
-      id?: string;
-      className: string;
-      subject?: string;
-      dayOfWeek: string;
-      time: string;
-      trackId?: string;
-      teacherIds?: string[];
-      room?: string;
-      year?: string;
-      notes?: string;
-    };
+    const { id, className, subject, dayOfWeek, time, trackId, teacherIds, room, year, notes, fromDate, toDate } =
+      req.body as {
+        id?: string;
+        className: string;
+        subject?: string;
+        dayOfWeek: string;
+        time: string;
+        trackId?: string;
+        teacherIds?: string[];
+        room?: string;
+        year?: string;
+        notes?: string;
+        fromDate: string;
+        toDate?: string;
+      };
+    if (!fromDate) return res.status(400).json({ error: 'חובה לרשום תאריך התחלה' });
 
     const fields: Record<string, any> = {
       [FIELDS.lessons.className]: className,
@@ -40,6 +44,8 @@ router.post('/updateScheduleLesson', async (req, res) => {
       [FIELDS.lessons.room]: room,
       [FIELDS.lessons.year]: year,
       [FIELDS.lessons.notes]: notes,
+      [FIELDS.lessons.fromDate]: fromDate,
+      [FIELDS.lessons.toDate]: toDate || null,
     };
     if (trackId) fields[FIELDS.lessons.track] = [trackId];
     if (teacherIds?.length) fields[FIELDS.lessons.teacher] = teacherIds;
@@ -59,7 +65,7 @@ router.post('/updateScheduleLesson', async (req, res) => {
 
     await prisma.scheduleHistory.create({
       data: {
-        description: `${changeType === 'create' ? 'נוצר' : 'עודכן'} שיעור: ${className} — ${dayOfWeek} ${time}`,
+        description: `${changeType === 'create' ? 'נוצר' : 'עודכן'} שיעור: ${className} — ${dayOfWeek} ${time} (${fromDate}${toDate ? ` עד ${toDate}` : ''})`,
         changedBy: req.user!.name,
         changeType,
         lessonId: record.id,
@@ -67,6 +73,8 @@ router.post('/updateScheduleLesson', async (req, res) => {
         dayOfWeek,
         time,
         room,
+        fromDate,
+        toDate: toDate || null,
         previousData: previousData ? JSON.stringify(previousData) : null,
       },
     });
@@ -102,6 +110,8 @@ router.post('/deleteScheduleLesson', async (req, res) => {
         dayOfWeek,
         time,
         room: record.fields[FIELDS.lessons.room] || null,
+        fromDate: record.fields[FIELDS.lessons.fromDate] || null,
+        toDate: record.fields[FIELDS.lessons.toDate] || null,
         previousData: JSON.stringify(record.fields),
       },
     });

@@ -133,6 +133,8 @@ model ScheduleHistory {
   time         String?
   room         String?
   teacherName  String?
+  fromDate     String? // מתי השיעור (בגרסה הזו) נכנס לתוקף
+  toDate       String? // מתי הפסיק להיות בתוקף — ריק = עדיין בתוקף
   previousData String? // JSON
 }
 

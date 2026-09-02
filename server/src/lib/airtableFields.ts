@@ -29,6 +29,8 @@ export const FIELDS = {
     room: 'חדר',
     year: 'שנה',
     notes: 'הערות',
+    fromDate: 'מתאריך ', // כן, יש רווח בסוף בשם השדה בפועל ב-Airtable
+    toDate: 'עד תאריך',
   },
   attendance: {
     date: 'תאריך',
