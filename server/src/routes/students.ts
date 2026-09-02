@@ -20,6 +20,17 @@ router.use(requireAuth);
 
 const DOW_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
+/**
+ * שדה "תאריך" ב-Airtable הוא מסוג date אמיתי (לא טקסט) — Airtable שומר אותו עם רכיב זמן/אזור
+ * פנימי, אז השוואת formula רגילה `{תאריך} = "2026-09-02"` נכשלת בשקט ומחזירה תמיד אפס תוצאות,
+ * גם כשיש בדיוק רשומה כזו (נבדק ישירות מול Airtable). IS_SAME עם יחידת "day" היא הדרך התקינה
+ * להשוות שדה date לתאריך ISO. באג הזה הוא שגרם לכל "סימון נוכחות" להיראות כאילו לא נשמר —
+ * הכתיבה עצמה כן הצליחה, אבל הקריאה החוזרת כדי להציג את הסטטוס תמיד חזרה ריקה.
+ */
+function dateEqualsFormula(fieldName: string, dateStr: string): string {
+  return `IS_SAME({${fieldName}}, "${dateStr}", "day")`;
+}
+
 /** "9:00-9:45" → 540 (דקות מתחילת היום), למיון שיעורי היום לפי סדר כרונולוגי אמיתי. */
 function parseStartMinutes(time?: string | null): number {
   const m = /^(\d{1,2}):(\d{2})/.exec(time || '');
@@ -78,7 +89,7 @@ router.get('/getTracks', requirePermission('studentAttendance'), async (req, res
     const allStudents = await airtableFetch(TABLES.students);
     const today = new Date().toISOString().slice(0, 10);
     const todaysAttendance = await airtableFetch(TABLES.attendance, {
-      filterByFormula: `{${FIELDS.attendance.date}} = "${today}"`,
+      filterByFormula: dateEqualsFormula(FIELDS.attendance.date, today),
     });
 
     const result = visible.map((t) => {
@@ -130,7 +141,7 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
         : todaysLessons[0]?.id || null;
 
     const dayAttendance = await airtableFetch(TABLES.attendance, {
-      filterByFormula: `{${FIELDS.attendance.date}} = "${date}"`,
+      filterByFormula: dateEqualsFormula(FIELDS.attendance.date, date),
     });
 
     const allGrades = await airtableFetch(TABLES.grades);
@@ -238,7 +249,7 @@ router.post('/bulkMarkAttendance', requirePermission('studentAttendance'), async
     if (!studentIds.length) return res.json({ success: true, marked: 0 });
 
     const dayAttendance = await airtableFetch(TABLES.attendance, {
-      filterByFormula: `{${FIELDS.attendance.date}} = "${date}"`,
+      filterByFormula: dateEqualsFormula(FIELDS.attendance.date, date),
     });
 
     let teacherLink: string[] | undefined;
