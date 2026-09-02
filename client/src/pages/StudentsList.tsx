@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, CalendarClock, ChevronRight, ChevronLeft, CheckCheck, Search, User, MapPin } from 'lucide-react';
+import { ArrowRight, CalendarClock, ChevronRight, ChevronLeft, CheckCheck, Check, Search, User, MapPin } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { todayStr, DOW_HE, getTimeSlotsForDay } from '../lib/utils';
@@ -102,11 +102,8 @@ export function StudentsList() {
         lessonId: activeLessonId || undefined,
       });
       await load(activeLessonId);
-      // אבחון זמני: אמורה להיעלם לאחר שנוודא שהבעיה נפתרה בפועל אצל המשתמשת.
-      window.alert(`נשמר: ${student.name} — ${status}`);
     } catch (err: any) {
       setError(err.message);
-      window.alert(`שגיאה בסימון נוכחות: ${err.message}`);
     } finally {
       setMarkingId(null);
     }
@@ -115,17 +112,15 @@ export function StudentsList() {
   async function markAllPresent() {
     setBusy(true);
     try {
-      const result = await api.post<{ marked: number; skipped: number }>('/students/bulkMarkAttendance', {
+      await api.post('/students/bulkMarkAttendance', {
         trackId,
         date,
         lessonId: activeLessonId || undefined,
         status: 'נוכחת',
       });
       await load(activeLessonId);
-      window.alert(`סומנו ${result.marked} תלמידות, ${result.skipped} כבר היו מסומנות`);
     } catch (err: any) {
       setError(err.message);
-      window.alert(`שגיאה בסימון הכל: ${err.message}`);
     } finally {
       setBusy(false);
     }
@@ -291,12 +286,23 @@ export function StudentsList() {
                         key={opt}
                         onClick={() => mark(s, opt)}
                         disabled={markingId === s.id}
-                        className={`badge transition-transform ${
+                        className={`badge transition-transform flex items-center gap-1 ${
                           markingId === s.id
                             ? 'opacity-40 cursor-wait'
                             : 'cursor-pointer hover:scale-105'
-                        } ${s.status === opt ? STATUS_COLOR[opt] : 'bg-slate-100 text-slate-500'}`}
+                        } ${
+                          s.status === opt
+                            ? `${STATUS_COLOR[opt]} ring-2 ring-offset-1 ${
+                                opt === 'נוכחת'
+                                  ? 'ring-green-400'
+                                  : opt === 'חסרה'
+                                  ? 'ring-red-400'
+                                  : 'ring-amber-400'
+                              }`
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
                       >
+                        {s.status === opt && <Check size={13} strokeWidth={3} />}
                         {opt}
                       </button>
                     ))}
