@@ -130,23 +130,25 @@ export function lessonColor(
 }
 
 /**
- * 11 צבעים (לא 8) כדי שלא יהיו שתי מסלולים עם אותו צבע בדיוק כשיש יותר מ-8 מסלולים (המספר
- * פשוט חוזר על עצמו במעגל — היה גורם, למשל, לצבע של "קודש שנה ב'" להיות זהה ל"אדריכלות שנה ב'").
- * כתום הוחלף בציאן במכוון — היה קרוב מדי חזותית לענבר של קודש.
+ * 12 צבעים, מסודרים כך שכל שני צבעים "שכנים" במערך (שני מסלולים שיושבים קרוב ברשימת
+ * המסלולים, למשל שנה א'/שנה ב' של אותו מקצוע) יהיו רחוקים ככל האפשר בגלגל הצבעים —
+ * כדי שלא ייצא כמו "סולם" ו"חשבות שכר ויעוץ מס" שיצאו טורקיז/ציאן, שני גוונים קרובים
+ * מדי, וגרמו לבנות להתבלבל. הסדר לא לפי גוון עוקב (כחול-סגול-ירוק...) אלא "מדלג" סביב
+ * הגלגל בקפיצות של 150°, כך שאין שני גוונים דומים באינדקסים סמוכים.
  */
 export const TRACK_COLORS = [
+  'bg-amber-100 border-amber-300 text-amber-900',
+  'bg-sky-100 border-sky-300 text-sky-900',
+  'bg-fuchsia-100 border-fuchsia-300 text-fuchsia-900',
+  'bg-teal-100 border-teal-300 text-teal-900',
+  'bg-violet-100 border-violet-300 text-violet-900',
+  'bg-lime-100 border-lime-300 text-lime-900',
   'bg-blue-100 border-blue-300 text-blue-900',
+  'bg-rose-100 border-rose-300 text-rose-900',
+  'bg-cyan-100 border-cyan-300 text-cyan-900',
   'bg-purple-100 border-purple-300 text-purple-900',
   'bg-emerald-100 border-emerald-300 text-emerald-900',
-  'bg-amber-100 border-amber-300 text-amber-900',
-  'bg-rose-100 border-rose-300 text-rose-900',
-  'bg-teal-100 border-teal-300 text-teal-900',
   'bg-indigo-100 border-indigo-300 text-indigo-900',
-  'bg-cyan-100 border-cyan-300 text-cyan-900',
-  'bg-lime-100 border-lime-300 text-lime-900',
-  'bg-fuchsia-100 border-fuchsia-300 text-fuchsia-900',
-  'bg-sky-100 border-sky-300 text-sky-900',
-  'bg-violet-100 border-violet-300 text-violet-900',
 ];
 
 /** צבע קבוע לכל מסלול (לפי המיקום שלו ברשימת המסלולים), כדי שאותו מסלול תמיד יופיע באותו צבע. */
