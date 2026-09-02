@@ -17,6 +17,15 @@ router.use(requireAuth);
 
 const DOW_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
+/**
+ * שדה "תלמידות" בטבלת המסלולים הוא טקסט מחושב (שמות מופרדים בפסיקים), לא שדה מקושר אמיתי —
+ * וחלק מהמסלולים אפילו חסרים אותו לגמרי. מקור האמת האמין הוא ההפך: כל תלמידה מחזיקה בעצמה
+ * את רשימת המסلولים שלה (שדה "מסלולים", מערך מזהים) — משם שואבים תמיד.
+ */
+function getStudentIdsByTrack(trackId: string, allStudents: Awaited<ReturnType<typeof airtableFetch>>): string[] {
+  return allStudents.filter((s) => (s.fields[FIELDS.students.track] || []).includes(trackId)).map((s) => s.id);
+}
+
 router.get('/getTracks', requirePermission('studentAttendance'), async (req, res) => {
   try {
     const tracks = await airtableFetch(TABLES.tracks);
@@ -26,13 +35,14 @@ router.get('/getTracks', requirePermission('studentAttendance'), async (req, res
       visible = tracks.filter((t) => trackIds.has(t.id));
     }
 
+    const allStudents = await airtableFetch(TABLES.students);
     const today = new Date().toISOString().slice(0, 10);
     const todaysAttendance = await airtableFetch(TABLES.attendance, {
       filterByFormula: `{${FIELDS.attendance.date}} = "${today}"`,
     });
 
     const result = visible.map((t) => {
-      const studentIds: string[] = t.fields[FIELDS.tracks.students] || [];
+      const studentIds = getStudentIdsByTrack(t.id, allStudents);
       const presentToday = todaysAttendance.filter((a) => {
         const linked: string[] = a.fields[FIELDS.attendance.student] || [];
         return linked.some((id) => studentIds.includes(id));
@@ -61,12 +71,9 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
     const track = await airtableGetRecord(TABLES.tracks, trackId);
     if (!track) return res.status(404).json({ error: 'מסלול לא נמצא' });
 
-    const studentIds: string[] = track.fields[FIELDS.tracks.students] || [];
-    const allStudents = studentIds.length
-      ? await airtableFetch(TABLES.students, {
-          filterByFormula: `OR(${studentIds.map((id) => `RECORD_ID()="${id}"`).join(',')})`,
-        })
-      : [];
+    const allStudentsRaw = await airtableFetch(TABLES.students);
+    const studentIds = getStudentIdsByTrack(trackId, allStudentsRaw);
+    const allStudents = allStudentsRaw.filter((s) => studentIds.includes(s.id));
 
     const dayAttendance = await airtableFetch(TABLES.attendance, {
       filterByFormula: `{${FIELDS.attendance.date}} = "${date}"`,
