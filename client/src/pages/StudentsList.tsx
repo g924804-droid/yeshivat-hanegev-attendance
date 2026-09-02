@@ -39,6 +39,12 @@ function slotLabel(dayOfWeek: string, time: string): string {
   return slot?.label || '';
 }
 
+/** אין שדה נפרד לשם משפחה — ממוסכמת השם העברי, המילה האחרונה בשם היא שם המשפחה. */
+function familyName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  return parts[parts.length - 1] || fullName;
+}
+
 export function StudentsList() {
   const { trackId } = useParams();
   const navigate = useNavigate();
@@ -53,6 +59,7 @@ export function StudentsList() {
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [markingId, setMarkingId] = useState<string | null>(null);
 
   async function load(lessonId?: string | null) {
     try {
@@ -84,6 +91,8 @@ export function StudentsList() {
   }
 
   async function mark(student: Student, status: string) {
+    setError(null);
+    setMarkingId(student.id);
     try {
       await api.post('/students/markStudentAttendance', {
         studentId: student.id,
@@ -95,6 +104,8 @@ export function StudentsList() {
       await load(activeLessonId);
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setMarkingId(null);
     }
   }
 
@@ -119,7 +130,10 @@ export function StudentsList() {
   const dayOfWeek = DOW_HE[new Date(`${date}T00:00:00`).getDay()];
 
   const filteredStudents = useMemo(
-    () => students.filter((s) => s.name.includes(search.trim())),
+    () =>
+      students
+        .filter((s) => s.name.includes(search.trim()))
+        .sort((a, b) => familyName(a.name).localeCompare(familyName(b.name), 'he')),
     [students, search]
   );
 
@@ -271,9 +285,12 @@ export function StudentsList() {
                       <button
                         key={opt}
                         onClick={() => mark(s, opt)}
-                        className={`badge cursor-pointer transition-transform hover:scale-105 ${
-                          s.status === opt ? STATUS_COLOR[opt] : 'bg-slate-100 text-slate-500'
-                        }`}
+                        disabled={markingId === s.id}
+                        className={`badge transition-transform ${
+                          markingId === s.id
+                            ? 'opacity-40 cursor-wait'
+                            : 'cursor-pointer hover:scale-105'
+                        } ${s.status === opt ? STATUS_COLOR[opt] : 'bg-slate-100 text-slate-500'}`}
                       >
                         {opt}
                       </button>
