@@ -4,6 +4,7 @@ import {
   DOW_HE,
   startMinutes,
   toHebrewDateString,
+  getTimeSlotsForDay,
   lessonColor,
   trackColor,
   trackNameHasLetter,
@@ -275,6 +276,11 @@ export function DisplayBoard() {
     () => tracks.find((t) => t.name.includes('קודש') && trackNameHasLetter(t.name, 'יד'))?.id,
     [tracks]
   );
+  // הפסקות הן לפי מבנה היום הכללי (לא לפי מסלול) — אותן הפסקות מוצגות בכל העמודות, באותה שעה.
+  const todayBreakSlots = useMemo(
+    () => getTimeSlotsForDay(todayDow || '').filter((s) => s.label === 'הפסקה'),
+    [todayDow]
+  );
   const todayColumns = useMemo(() => {
     return professionalTracks.map((track) => {
       const kodeshTrackId = track.name.includes('שנה א')
@@ -285,11 +291,14 @@ export function DisplayBoard() {
       const colLessons = todayLessons
         // בודקים בכל המסלולים המקושרים לשיעור, לא רק הראשון — שיעור כמו תפילה יכול להיות
         // מקושר גם לקודש י"ג וגם לקודש י"ד יחד (משותף לשני השנתונים), לא רק למסלול אחד.
-        .filter((l) => (l.track || []).includes(track.id) || (kodeshTrackId && (l.track || []).includes(kodeshTrackId)))
-        .sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
-      return { track, lessons: colLessons };
+        .filter((l) => (l.track || []).includes(track.id) || (kodeshTrackId && (l.track || []).includes(kodeshTrackId)));
+      const items: ({ kind: 'lesson'; time: string; lesson: Lesson } | { kind: 'break'; time: string })[] = [
+        ...colLessons.map((lesson) => ({ kind: 'lesson' as const, time: lesson.time, lesson })),
+        ...todayBreakSlots.map((b) => ({ kind: 'break' as const, time: b.time })),
+      ].sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
+      return { track, items };
     });
-  }, [professionalTracks, kodeshYudGimelTrackId, kodeshYudDaledTrackId, todayLessons]);
+  }, [professionalTracks, kodeshYudGimelTrackId, kodeshYudDaledTrackId, todayLessons, todayBreakSlots]);
 
   // מסך "השבוע" מפוצל לשתי שקופיות נפרדות (שנה א' ושנה ב'), כל אחת עם המסלולים המקצועיים
   // של אותה שנה ביחד עם שיעורי הקודש התואמים — כדי שכל שנתון יראה רק את מה שרלוונטי לו.
@@ -371,7 +380,7 @@ export function DisplayBoard() {
             </h2>
             <FitScale className="flex-1 min-h-0">
               <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${todayColumns.length || 1}, 1fr)` }}>
-                {todayColumns.map(({ track, lessons: colLessons }) => {
+                {todayColumns.map(({ track, items }) => {
                   // אותה רשימת מסלולים (tracks המלאה, לא professionalTracks המסוננת) ששימשה
                   // לצביעת כרטיסי השיעורים עצמם (lessonColor) — אחרת המסלול מקבל אינדקס שונה
                   // בכל רשימה, והכותרת יוצאת בצבע שלא תואם לכרטיסים שלה.
@@ -380,37 +389,49 @@ export function DisplayBoard() {
                     <div key={track.id} className="rounded-xl border border-amber-100 bg-amber-50/40 overflow-hidden flex flex-col">
                       <div className={`px-2 py-1.5 font-bold text-sm text-center border-b ${color}`}>{track.name}</div>
                       <div className="flex flex-col gap-1.5 p-1.5">
-                        {colLessons.map((l) => (
-                          <div
-                            key={l.id}
-                            className={`relative rounded-lg border overflow-hidden px-2 py-1.5 ${lessonColor(l, tracks)}`}
-                          >
-                            {l.notes && (
-                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs font-black shadow ring-2 ring-white animate-pulse">
-                                !
-                              </span>
-                            )}
-                            <div className="opacity-70 text-xs tabular-nums leading-tight">{l.time}</div>
-                            <div className="font-bold text-sm leading-tight break-words">{l.subject || l.className}</div>
-                            <div className="opacity-80 text-xs leading-tight break-words">
-                              {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
+                        {items.map((item) =>
+                          item.kind === 'break' ? (
+                            <div
+                              key={`break-${item.time}`}
+                              className="rounded-lg border border-slate-200 bg-slate-100 px-2 py-1 text-center"
+                            >
+                              <span className="opacity-70 text-xs tabular-nums">{item.time}</span>{' '}
+                              <span className="text-slate-400 text-xs font-semibold">הפסקה</span>
                             </div>
-                            {l.notes && (
-                              <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold max-w-full">
-                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
-                                <span className="break-words">{l.notes}</span>
+                          ) : (
+                            <div
+                              key={item.lesson.id}
+                              className={`relative rounded-lg border overflow-hidden px-2 py-1.5 ${lessonColor(item.lesson, tracks)}`}
+                            >
+                              {item.lesson.notes && (
+                                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs font-black shadow ring-2 ring-white animate-pulse">
+                                  !
+                                </span>
+                              )}
+                              <div className="opacity-70 text-xs tabular-nums leading-tight">{item.lesson.time}</div>
+                              <div className="font-bold text-sm leading-tight break-words">
+                                {item.lesson.subject || item.lesson.className}
                               </div>
-                            )}
-                          </div>
-                        ))}
-                        {colLessons.length === 0 && <p className="text-navy-light/40 text-xs text-center py-2">אין שיעורים</p>}
+                              <div className="opacity-80 text-xs leading-tight break-words">
+                                {teacherName(item.lesson.teacher)} {item.lesson.room ? `· חדר ${item.lesson.room}` : ''}
+                              </div>
+                              {item.lesson.notes && (
+                                <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold max-w-full">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                                  <span className="break-words">{item.lesson.notes}</span>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        )}
+                        {items.length === 0 && <p className="text-navy-light/40 text-xs text-center py-2">אין שיעורים</p>}
                       </div>
                     </div>
                   );
                 })}
               </div>
             </FitScale>
-            {todayColumns.every((c) => c.lessons.length === 0) && (
+            {todayColumns.every((c) => c.items.every((item) => item.kind === 'break')) && (
               <p className="text-navy-light/50 text-xl py-16 text-center">אין שיעורים היום</p>
             )}
           </section>

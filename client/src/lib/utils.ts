@@ -113,16 +113,19 @@ export function compareLessonDisplayOrder(
   return ai - bi;
 }
 
+// שני הצבעים קבועים (לא תלויים במיקום המסלול ברשימה), כדי שהם לא ישתנו סתם כשמוסיפים/מסדרים
+// מסלולים אחרים — ושניהם באותה משפחת ענבר, רק גוון בהיר יותר/כהה יותר, כמו שביקשת.
+const KODESH_YUD_GIMEL_COLOR = 'bg-amber-100 border-amber-300 text-amber-900';
 const KODESH_YUD_DALED_COLOR = 'bg-amber-300 border-amber-500 text-amber-950';
 
-/** צבע להצגת שיעור: מסלול קודש י"ד מקבל צבע קבוע שונה מקודש י"ג, גם ששניהם באותה משפחת צבע (קודש). */
+/** צבע להצגת שיעור: קודש י"ג/י"ד מקבלים תמיד את אותו זוג גוונים קבוע, לא לפי מיקום ברשימת המסלולים. */
 export function lessonColor(
   l: { subject?: string | null; className?: string | null; track?: string[] },
   tracks: TrackRef[]
 ): string {
-  if (kodeshLetter(l, tracks) === 'יד') {
-    return KODESH_YUD_DALED_COLOR;
-  }
+  const letter = kodeshLetter(l, tracks);
+  if (letter === 'יד') return KODESH_YUD_DALED_COLOR;
+  if (letter === 'יג') return KODESH_YUD_GIMEL_COLOR;
   return trackColor(l.track?.[0], tracks.map((t) => t.id));
 }
 
