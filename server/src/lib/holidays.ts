@@ -93,3 +93,28 @@ export async function getHolidaysForYear(year: number): Promise<Holiday[]> {
   await ensureLoaded(year);
   return Array.from(cache!.holidays.values()).filter((h) => h.date.startsWith(String(year)));
 }
+
+const HEBREW_MONTH_NAMES: Record<string, string> = {
+  Nisan: 'ניסן',
+  Iyyar: 'אייר',
+  Sivan: 'סיוון',
+  Tamuz: 'תמוז',
+  Av: 'אב',
+  Elul: 'אלול',
+  Tishrei: 'תשרי',
+  Cheshvan: 'חשוון',
+  Kislev: 'כסלו',
+  Tevet: 'טבת',
+  "Sh'vat": 'שבט',
+  Adar: 'אדר',
+  'Adar I': "אדר א'",
+  'Adar II': "אדר ב'",
+};
+
+/** תאריך עברי לתצוגה בלבד (למשל "20 באלול 5786"), לא לחישובים — פורמט פשוט בלי ניקוד. */
+export async function getHebrewDateLabel(dateStr: string): Promise<string> {
+  const { HDate } = await dynamicImport('@hebcal/core');
+  const hd = new HDate(new Date(`${dateStr}T00:00:00`));
+  const monthName = HEBREW_MONTH_NAMES[hd.getMonthName()] || hd.getMonthName();
+  return `${hd.getDate()} ב${monthName} ${hd.getFullYear()}`;
+}

@@ -129,6 +129,21 @@ export async function airtableDelete(tableId: string, recordId: string): Promise
   await requestWithRetry(() => client.delete(`/${tableId}/${recordId}`));
 }
 
+/** יצירת מספר רשומות בבת אחת ("סמן הכל נוכחות") — Airtable מקבל עד 10 רשומות בבקשה אחת. */
+export async function airtableBatchCreate(
+  tableId: string,
+  records: Record<string, any>[]
+): Promise<AirtableRecord[]> {
+  assertConfigured();
+  const results: AirtableRecord[] = [];
+  for (let i = 0; i < records.length; i += 10) {
+    const chunk = records.slice(i, i + 10).map((fields) => ({ fields }));
+    const { data } = await requestWithRetry(() => client.post(`/${tableId}`, { records: chunk }));
+    results.push(...data.records);
+  }
+  return results;
+}
+
 /** upsert רשומת נוכחות עובד ב-Airtable, לפי מזהה מערכת (systemId = מזהה הרשומה ב-DB המקומי). */
 export async function syncAttendanceToAirtable(opts: {
   systemId: string;
