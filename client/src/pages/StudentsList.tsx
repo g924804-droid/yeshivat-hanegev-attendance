@@ -29,7 +29,9 @@ export function StudentsList() {
   const [students, setStudents] = useState<Student[]>([]);
   const [schedule, setSchedule] = useState<Lesson[]>([]);
   const [trackName, setTrackName] = useState('');
-  const [date] = useState(todayStr());
+  // תאריך בר-בחירה, לא נעול ל"היום" — כדי שאפשר יהיה לחזור אחורה ולמלא נוכחות שהוחמצה
+  // (למשל מזכירה שממלאת במקום מורה שלא הספיקה אתמול).
+  const [date, setDate] = useState(todayStr());
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -49,7 +51,7 @@ export function StudentsList() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackId]);
+  }, [trackId, date]);
 
   async function mark(student: Student, status: string) {
     try {
@@ -65,19 +67,27 @@ export function StudentsList() {
     }
   }
 
+  const isToday = date === todayStr();
+
   return (
     <Layout title={trackName || 'תלמידות'}>
-      <button onClick={() => navigate('/students')} className="btn-outline text-sm py-2 mb-4">
-        <ArrowRight size={16} /> חזרה למסלולים
-      </button>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <button onClick={() => navigate('/students')} className="btn-outline text-sm py-2">
+          <ArrowRight size={16} /> חזרה למסלולים
+        </button>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-slate-500">תאריך:</label>
+          <input type="date" className="input w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+      </div>
 
       {error && <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
 
-      {schedule.length > 0 && (
-        <div className="card mb-4">
-          <h3 className="font-bold text-navy mb-2 flex items-center gap-2">
-            <CalendarClock size={18} /> מערכת שעות היום
-          </h3>
+      <div className="card mb-4">
+        <h3 className="font-bold text-navy mb-2 flex items-center gap-2">
+          <CalendarClock size={18} /> מערכת שעות — {date} {isToday && '(היום)'}
+        </h3>
+        {schedule.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {schedule.map((l) => (
               <span key={l.id} className="badge bg-navy-50 text-navy">
@@ -85,8 +95,10 @@ export function StudentsList() {
               </span>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-slate-400 text-sm">אין שיעור רשום למסלול הזה בתאריך הזה</p>
+        )}
+      </div>
 
       <div className="card overflow-x-auto">
         <table className="w-full text-sm text-center">
@@ -95,7 +107,7 @@ export function StudentsList() {
               <th className="py-2">שם</th>
               <th>כיתה</th>
               <th>ממוצע ציונים</th>
-              <th>נוכחות היום</th>
+              <th>נוכחות — {date}</th>
             </tr>
           </thead>
           <tbody>
