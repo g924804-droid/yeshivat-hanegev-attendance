@@ -21,7 +21,7 @@ router.get('/getTracks', requirePermission('studentAttendance'), async (req, res
   try {
     const tracks = await airtableFetch(TABLES.tracks);
     let visible = tracks;
-    if (req.user!.role !== 'מנהל') {
+    if (req.user!.role !== 'מנהל' && !req.user!.isAttendanceManager) {
       const trackIds = await getTeacherTrackIds(req.user!.name);
       visible = tracks.filter((t) => trackIds.has(t.id));
     }
@@ -107,7 +107,7 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
     }).catch(() => [] as typeof allGrades);
 
     let lessons = allLessons;
-    if (req.user!.role !== 'מנהל') {
+    if (req.user!.role !== 'מנהל' && !req.user!.isAttendanceManager) {
       const teacherIds = await findTeacherIds(req.user!.name);
       lessons = allLessons.filter((l) => (l.fields[FIELDS.lessons.teacher] || []).some((id: string) => teacherIds.includes(id)));
     }

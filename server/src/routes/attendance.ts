@@ -89,7 +89,7 @@ router.post('/clockIn', async (req, res) => {
 
 router.post('/clockOut', async (req, res) => {
   try {
-    const { recordId, clockOut } = req.body as { recordId: string; clockOut: string };
+    const { recordId, clockOut, lessonsCount } = req.body as { recordId: string; clockOut: string; lessonsCount?: number };
     if (!recordId || !clockOut) return res.status(400).json({ error: 'חסר מזהה רשומה או שעת יציאה' });
 
     const record = await prisma.attendanceRecord.findUnique({ where: { id: recordId } });
@@ -99,9 +99,17 @@ router.post('/clockOut', async (req, res) => {
     }
 
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: record.employeeId } });
+    // מורה שמסומנת "מעקב שיעורים" — חובה למלא כמות שיעורים בכל יציאה, לא ניתן לדלג.
+    if (employee.trackLessons && (lessonsCount === undefined || lessonsCount === null || Number.isNaN(lessonsCount))) {
+      return res.status(400).json({ error: 'יש להזין כמות שיעורים לפני היציאה' });
+    }
+
     const shift: 1 | 2 = record.clockIn2 && !record.clockOut2 ? 2 : 1;
 
-    const data = shift === 2 ? { clockOut2: clockOut } : { clockOut };
+    const data: Record<string, any> = shift === 2 ? { clockOut2: clockOut } : { clockOut };
+    if (lessonsCount !== undefined && lessonsCount !== null && !Number.isNaN(lessonsCount)) {
+      data.lessonsCount = lessonsCount;
+    }
     const totalHours = calcTotalHours(
       record.clockIn,
       shift === 1 ? clockOut : record.clockOut,

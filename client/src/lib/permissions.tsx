@@ -20,6 +20,7 @@ export type CurrentUser = {
   dailyTravelCost: number | null;
   monthlyBusPass: number | null;
   isAttendanceManager: boolean;
+  trackLessons: boolean;
 };
 
 type AuthContextValue = {

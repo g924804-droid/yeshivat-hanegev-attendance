@@ -114,9 +114,16 @@ export function Dashboard() {
     return 'done';
   }, [todayRecord]);
 
+  const [showLessonsPrompt, setShowLessonsPrompt] = useState(false);
+
   async function handleClock() {
     setError(null);
     setNotice(null);
+    if ((clockState === 'out1' || clockState === 'out2') && user?.trackLessons && !targetUserId) {
+      // מורה עם "מעקב שיעורים" — חובה למלא כמות שיעורים לפני שהיציאה נרשמת, לא ניתן לדלג.
+      setShowLessonsPrompt(true);
+      return;
+    }
     try {
       const now = new Date().toTimeString().slice(0, 5);
       if (clockState === 'in1' || clockState === 'in2') {
@@ -124,6 +131,18 @@ export function Dashboard() {
       } else if (clockState === 'out1' || clockState === 'out2') {
         await api.post('/attendance/clockOut', { recordId: todayRecord!.id, clockOut: now });
       }
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  async function confirmClockOutWithLessons(lessonsCount: number) {
+    setError(null);
+    try {
+      const now = new Date().toTimeString().slice(0, 5);
+      await api.post('/attendance/clockOut', { recordId: todayRecord!.id, clockOut: now, lessonsCount });
+      setShowLessonsPrompt(false);
       await load();
     } catch (err: any) {
       setError(err.message);
@@ -331,7 +350,47 @@ export function Dashboard() {
           }}
         />
       )}
+
+      {showLessonsPrompt && (
+        <LessonsCountPrompt onCancel={() => setShowLessonsPrompt(false)} onConfirm={confirmClockOutWithLessons} />
+      )}
     </Layout>
+  );
+}
+
+function LessonsCountPrompt({
+  onCancel,
+  onConfirm,
+}: {
+  onCancel: () => void;
+  onConfirm: (lessonsCount: number) => void;
+}) {
+  const [value, setValue] = useState('');
+  const parsed = Number(value);
+  const valid = value.trim() !== '' && !Number.isNaN(parsed) && parsed >= 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3">
+        <h3 className="font-bold text-navy text-lg">כמות שיעורים היום</h3>
+        <p className="text-sm text-slate-500">חובה למלא לפני היציאה, כדי שהסיכום החודשי יהיה מדויק.</p>
+        <input
+          type="number"
+          min={0}
+          className="input"
+          placeholder="מספר שיעורים"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          autoFocus
+        />
+        <div className="flex gap-2 justify-end pt-2">
+          <button className="btn-outline" onClick={onCancel}>ביטול</button>
+          <button className="btn-primary" onClick={() => onConfirm(parsed)} disabled={!valid}>
+            אישור ויציאה
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
