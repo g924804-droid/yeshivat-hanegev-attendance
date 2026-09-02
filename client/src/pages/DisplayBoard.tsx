@@ -65,18 +65,95 @@ type Lesson = {
 type Ref = { id: string; name: string };
 type Announcement = { id: string; text: string | null; fileName: string | null; fileMime: string | null };
 
+/** שקופית "שבוע" אחת, מסוננת לקבוצת מסלולים נתונה (שנה א' או שנה ב') — נעשה שימוש חוזר לשתיהן. */
+function WeekSlide({
+  title,
+  days,
+  todayDow,
+  lessons,
+  trackIds,
+  tracks,
+  teacherName,
+}: {
+  title: string;
+  days: string[];
+  todayDow: string | null;
+  lessons: Lesson[];
+  trackIds: Set<string>;
+  tracks: Ref[];
+  teacherName: (ids?: string[]) => string;
+}) {
+  return (
+    <section className="h-full bg-white/80 rounded-2xl p-4 overflow-hidden shadow-md border border-amber-100 flex flex-col">
+      <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-gold-dark shrink-0">
+        <CalendarDays size={22} /> {title}
+      </h2>
+      <FitScale className="flex-1 min-h-0">
+        <div className="grid grid-cols-5 gap-2.5">
+          {days.map((day) => {
+            const dayLessons = lessons
+              .filter((l) => l.dayOfWeek === day && (l.track || []).some((t) => trackIds.has(t)))
+              .sort((a, b) => startMinutes(a.time) - startMinutes(b.time) || compareLessonDisplayOrder(a, b, tracks));
+            const isToday = day === todayDow;
+            return (
+              <div
+                key={day}
+                className={`rounded-xl border p-2 ${isToday ? 'bg-gold/10 border-gold' : 'bg-amber-50/50 border-amber-100'}`}
+              >
+                <div className={`font-bold text-sm mb-1.5 ${isToday ? 'text-gold-dark' : 'text-navy'}`}>
+                  {day} {isToday ? '(היום)' : ''}
+                </div>
+                <div className="flex flex-col gap-1">
+                  {dayLessons.map((l) => (
+                    <div
+                      key={l.id}
+                      className={`relative text-[11px] leading-tight rounded-md border overflow-hidden px-1.5 py-1 ${lessonColor(l, tracks)}`}
+                    >
+                      {l.notes && (
+                        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-black ring-1 ring-white">
+                          !
+                        </span>
+                      )}
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-semibold truncate">{l.subject || l.className}</span>
+                        <span className="opacity-70 shrink-0">{l.time}</span>
+                      </div>
+                      <div className="opacity-80 truncate">
+                        {l.subject && `כיתה ${l.className} · `}
+                        {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
+                      </div>
+                      {l.notes && (
+                        <div className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1 py-0.5 max-w-full">
+                          <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
+                          <span className="truncate">{l.notes}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {dayLessons.length === 0 && <p className="text-navy-light/40 text-xs">אין שיעורים</p>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </FitScale>
+    </section>
+  );
+}
+
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי']; // אין לימודים בימי שישי כרגע
 const SCHEDULE_POLL_MS = 15 * 60_000; // מערכת השעות מגיעה מ-Airtable — רבע שעה מספיק ומקל על מכסת הבקשות המשותפת
 const ANNOUNCEMENT_POLL_MS = 60_000;
 const ANNOUNCEMENT_ROTATE_MS = 60_000; // כל דקה מתחלפת הודעת הטקסט שמוצגת למטה
 const PAGE_RELOAD_MS = 5 * 60_000; // רענון מלא של הדף כל 5 דקות, כדי שעדכונים ייכנסו לתוקף גם בלי גישה פיזית למסך
 
-type Slide = { kind: 'today' } | { kind: 'week' } | { kind: 'file'; announcement: Announcement };
+type Slide = { kind: 'today' } | { kind: 'week-a' } | { kind: 'week-b' } | { kind: 'file'; announcement: Announcement };
 
 /** כל סוג שקופית מתחלף בקצב שלה: מערכות (היום/שבוע) כל חצי דקה, ותמונות/הודעות כל 10 שניות. */
 const SLIDE_DURATION_MS: Record<Slide['kind'], number> = {
   today: 30_000,
-  week: 30_000,
+  'week-a': 30_000,
+  'week-b': 30_000,
   file: 10_000,
 };
 
@@ -146,7 +223,12 @@ export function DisplayBoard() {
   const fileAnnouncements = useMemo(() => announcements.filter((a) => a.fileName), [announcements]);
 
   const slides: Slide[] = useMemo(
-    () => [{ kind: 'today' }, { kind: 'week' }, ...fileAnnouncements.map((a) => ({ kind: 'file' as const, announcement: a }))],
+    () => [
+      { kind: 'today' },
+      { kind: 'week-a' },
+      { kind: 'week-b' },
+      ...fileAnnouncements.map((a) => ({ kind: 'file' as const, announcement: a })),
+    ],
     [fileAnnouncements]
   );
 
@@ -209,6 +291,19 @@ export function DisplayBoard() {
     });
   }, [professionalTracks, kodeshYudGimelTrackId, kodeshYudDaledTrackId, todayLessons]);
 
+  // מסך "השבוע" מפוצל לשתי שקופיות נפרדות (שנה א' ושנה ב'), כל אחת עם המסלולים המקצועיים
+  // של אותה שנה ביחד עם שיעורי הקודש התואמים — כדי שכל שנתון יראה רק את מה שרלוונטי לו.
+  const yearATrackIds = useMemo(() => {
+    const ids = new Set(professionalTracks.filter((t) => t.name.includes('שנה א')).map((t) => t.id));
+    if (kodeshYudGimelTrackId) ids.add(kodeshYudGimelTrackId);
+    return ids;
+  }, [professionalTracks, kodeshYudGimelTrackId]);
+  const yearBTrackIds = useMemo(() => {
+    const ids = new Set(professionalTracks.filter((t) => t.name.includes('שנה ב')).map((t) => t.id));
+    if (kodeshYudDaledTrackId) ids.add(kodeshYudDaledTrackId);
+    return ids;
+  }, [professionalTracks, kodeshYudDaledTrackId]);
+
   function teacherName(ids?: string[]) {
     return ids?.map((id) => teachers.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
   }
@@ -226,8 +321,10 @@ export function DisplayBoard() {
   const headerSubtitle =
     slide.kind === 'today'
       ? `מערכת שעות — ${DOW_HE[now.getDay()]}`
-      : slide.kind === 'week'
-      ? 'מערכת שעות — השבוע'
+      : slide.kind === 'week-a'
+      ? 'מערכת שעות — השבוע (שנה א\')'
+      : slide.kind === 'week-b'
+      ? 'מערכת שעות — השבוע (שנה ב\')'
       : slide.announcement.text || 'הודעה';
 
   return (
@@ -319,64 +416,28 @@ export function DisplayBoard() {
           </section>
         )}
 
-        {slide.kind === 'week' && (
-          <section className="h-full bg-white/80 rounded-2xl p-4 overflow-hidden shadow-md border border-amber-100 flex flex-col">
-            <h2 className="text-xl font-bold mb-3 flex items-center gap-2 text-gold-dark shrink-0">
-              <CalendarDays size={22} /> השבוע
-            </h2>
-            {/* כל יום מציג רק את השיעורים שלו, לפי הסדר הכרונולוגי שלו בפועל — ניסינו ציר שעות משותף
-                לכל הימים, אבל בגלל שהזמנים בפועל שונים מאוד בין הימים (ובין מסלולים) זה יצר יותר מדי
-                שורות וכיווץ אותן לגודל בלתי קריא. רשימה עצמאית לכל יום נשארת קריאה בלי קשר לכמות. */}
-            <FitScale className="flex-1 min-h-0">
-              <div className="grid grid-cols-5 gap-2.5">
-                {DAYS.map((day) => {
-                  const dayLessons = lessons
-                    .filter((l) => l.dayOfWeek === day)
-                    .sort((a, b) => startMinutes(a.time) - startMinutes(b.time) || compareLessonDisplayOrder(a, b, tracks));
-                  const isToday = day === todayDow;
-                  return (
-                    <div
-                      key={day}
-                      className={`rounded-xl border p-2 ${isToday ? 'bg-gold/10 border-gold' : 'bg-amber-50/50 border-amber-100'}`}
-                    >
-                      <div className={`font-bold text-sm mb-1.5 ${isToday ? 'text-gold-dark' : 'text-navy'}`}>
-                        {day} {isToday ? '(היום)' : ''}
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        {dayLessons.map((l) => (
-                          <div
-                            key={l.id}
-                            className={`relative text-[11px] leading-tight rounded-md border overflow-hidden px-1.5 py-1 ${lessonColor(l, tracks)}`}
-                          >
-                            {l.notes && (
-                              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-black ring-1 ring-white">
-                                !
-                              </span>
-                            )}
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-semibold truncate">{l.subject || l.className}</span>
-                              <span className="opacity-70 shrink-0">{l.time}</span>
-                            </div>
-                            <div className="opacity-80 truncate">
-                              {l.subject && `כיתה ${l.className} · `}
-                              {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
-                            </div>
-                            {l.notes && (
-                              <div className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1 py-0.5 max-w-full">
-                                <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
-                                <span className="truncate">{l.notes}</span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {dayLessons.length === 0 && <p className="text-navy-light/40 text-xs">אין שיעורים</p>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </FitScale>
-          </section>
+        {slide.kind === 'week-a' && (
+          <WeekSlide
+            title="השבוע — שנה א'"
+            days={DAYS}
+            todayDow={todayDow}
+            lessons={lessons}
+            trackIds={yearATrackIds}
+            tracks={tracks}
+            teacherName={teacherName}
+          />
+        )}
+
+        {slide.kind === 'week-b' && (
+          <WeekSlide
+            title="השבוע — שנה ב'"
+            days={DAYS}
+            todayDow={todayDow}
+            lessons={lessons}
+            trackIds={yearBTrackIds}
+            tracks={tracks}
+            teacherName={teacherName}
+          />
         )}
 
         {slide.kind === 'file' && (
