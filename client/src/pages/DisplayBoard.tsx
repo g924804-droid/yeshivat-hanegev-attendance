@@ -275,7 +275,10 @@ export function DisplayBoard() {
             <FitScale className="flex-1 min-h-0">
               <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${todayColumns.length || 1}, 1fr)` }}>
                 {todayColumns.map(({ track, lessons: colLessons }) => {
-                  const color = trackColor(track.id, professionalTracks.map((t) => t.id));
+                  // אותה רשימת מסלולים (tracks המלאה, לא professionalTracks המסוננת) ששימשה
+                  // לצביעת כרטיסי השיעורים עצמם (lessonColor) — אחרת המסלול מקבל אינדקס שונה
+                  // בכל רשימה, והכותרת יוצאת בצבע שלא תואם לכרטיסים שלה.
+                  const color = trackColor(track.id, tracks.map((t) => t.id));
                   return (
                     <div key={track.id} className="rounded-xl border border-amber-100 bg-amber-50/40 overflow-hidden flex flex-col">
                       <div className={`px-2 py-1.5 font-bold text-sm text-center border-b ${color}`}>{track.name}</div>
