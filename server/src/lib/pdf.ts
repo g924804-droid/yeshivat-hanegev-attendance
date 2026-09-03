@@ -42,6 +42,19 @@ function getBrowser() {
   return browserPromise;
 }
 
+/**
+ * מרימה את הדפדפן מראש עם עליית השרת, לא בבקשת ה-PDF הראשונה. בלי זה, הפעלת Chromium
+ * לראשונה על שרת עמוס (Render) לוקחת מעל 30 שניות — יותר מזמן ה-timeout של Puppeteer —
+ * וההדפסה הראשונה של כל עובד/ת אחרי כל עליית שרת נכשלת עם "Navigation timeout" בלי סיבה
+ * עסקית אמיתית. נבדק ישירות: ניסיון ראשון 31.6 שניות (נכשל), ניסיון שני 4.5 שניות (הצליח).
+ */
+export function warmUpBrowser(): void {
+  getBrowser().catch((err) => {
+    console.error('שגיאה בהכנה מראש של דפדפן ה-PDF (לא קריטי — ינסה שוב בבקשה הבאה):', err.message);
+    browserPromise = null;
+  });
+}
+
 /** מרנדר HTML ל-PDF (מחליף את ZitePdf.renderHtml), שומר תחת uploads/<subdir>/ ומחזיר URL יחסי + שם קובץ. */
 export async function renderHtmlToPdf(
   html: string,
@@ -50,7 +63,7 @@ export async function renderHtmlToPdf(
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
     const pdfBuffer = await page.pdf({
       format: 'A4',
       landscape: !!opts.landscape,

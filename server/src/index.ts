@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import fs from 'fs';
 import { enrichCurrentUser } from './middleware/auth';
+import { warmUpBrowser } from './lib/pdf';
 
 import authRoutes from './routes/auth';
 import attendanceRoutes from './routes/attendance';
@@ -76,4 +77,5 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 app.listen(PORT, () => {
   console.log(`שרת מערכת נוכחות ישיבת הנגב פועל על פורט ${PORT}`);
+  warmUpBrowser();
 });

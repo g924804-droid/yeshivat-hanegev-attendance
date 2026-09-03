@@ -157,7 +157,7 @@ router.post('/exportReportPdf', async (req, res) => {
     await prisma.monthlyReport.update({ where: { id: reportId }, data: { pdfUrl: url } });
     res.json({ url, filename });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'שגיאה בייצוא PDF' });
+    res.status(500).json({ error: pdfErrorMessage(err) });
   }
 });
 
@@ -173,8 +173,16 @@ router.get('/exportSummaryPdf', requireAdminOrAttendanceManager, async (req, res
     });
     res.json({ url, filename });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'שגיאה בייצוא סיכום' });
+    res.status(500).json({ error: pdfErrorMessage(err) });
   }
 });
+
+/** רגע ראשון אחרי עליית שרת, לפני שהדפדפן להדפסה סיים להתחמם, יכול עדיין להיכשל ב-timeout — הודעה ברורה עם הנחיה לנסות שוב, במקום טקסט שגיאה טכני. */
+function pdfErrorMessage(err: any): string {
+  if (String(err?.message || '').includes('Navigation timeout')) {
+    return 'ההדפסה עדיין מתחממת אחרי עליית השרת — נסי שוב בעוד כמה שניות';
+  }
+  return err?.message || 'שגיאה בייצוא PDF';
+}
 
 export default router;
