@@ -121,10 +121,17 @@ function ReportsTab() {
   }
 
   async function exportSummary() {
+    // פותחים את הטאב מיד וסינכרונית בתוך ה-click handler, לפני ה-await — אחרת הדפדפן חוסם
+    // את זה כפופ-אפ בשקט ברגע שההדפסה לוקחת יותר מרגע (ראה גם exportPdf ב-MonthlyReport).
+    const pdfWindow = window.open('', '_blank');
     setBusy(true);
     try {
       const r = await api.get<{ url: string }>('/reports/exportSummaryPdf', { month });
-      window.open(r.url, '_blank');
+      if (pdfWindow) pdfWindow.location.href = r.url;
+      else window.open(r.url, '_blank');
+    } catch (err) {
+      pdfWindow?.close();
+      throw err;
     } finally {
       setBusy(false);
     }

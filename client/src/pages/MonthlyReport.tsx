@@ -101,6 +101,10 @@ export function MonthlyReport() {
   }
 
   async function exportPdf() {
+    // חייבים לפתוח את הטאב באופן מיידי וסינכרוני בתוך ה-click handler — יצירת ה-PDF לוקחת
+    // כמה שניות, ואם פותחים את הטאב רק אחרי ה-await, הדפדפן כבר לא מזהה את זה כתוצאה ישירה
+    // מלחיצת המשתמשת וחוסם את זה כ"פופ-אפ" בשקט, בלי שום הודעת שגיאה נראית.
+    const pdfWindow = window.open('', '_blank');
     setBusy(true);
     try {
       const dataUrl = sigRef.current?.getDataUrl();
@@ -108,8 +112,10 @@ export function MonthlyReport() {
         reportId: report!.id,
         signatureDataUrl: dataUrl || undefined,
       });
-      window.open(r.url, '_blank');
+      if (pdfWindow) pdfWindow.location.href = r.url;
+      else window.open(r.url, '_blank');
     } catch (err: any) {
+      pdfWindow?.close();
       setError(err.message);
     } finally {
       setBusy(false);
