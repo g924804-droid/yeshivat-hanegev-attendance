@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CalendarDays, Megaphone } from 'lucide-react';
+import { FitScale } from '../components/FitScale';
 import {
   DOW_HE,
   startMinutes,
@@ -10,47 +11,6 @@ import {
   trackNameHasLetter,
   compareLessonDisplayOrder,
 } from '../lib/utils';
-
-/**
- * המסך הפיזי בבניין לא ניתן לגלילה, וכמות השיעורים משתנה מיום ליום — אז במקום לנחש
- * גודל טקסט לפי כמות שורות, מודדים בפועל את הגובה שהתוכן היה תופס בגודל מלא, ומכווצים
- * (transform: scale) בדיוק כמה שצריך כדי שהכל ייכנס בלי גלישה, ולא פחות מזה.
- */
-function FitScale({ children, className }: { children: ReactNode; className?: string }) {
-  const outerRef = useRef<HTMLDivElement>(null);
-  const innerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-
-  useLayoutEffect(() => {
-    const outer = outerRef.current;
-    const inner = innerRef.current;
-    if (!outer || !inner) return;
-    const measure = () => {
-      const outerH = outer.clientHeight;
-      const innerH = inner.scrollHeight;
-      if (outerH > 0 && innerH > 0) {
-        const next = Math.min(1, outerH / innerH);
-        setScale((prev) => (Math.abs(prev - next) > 0.01 ? next : prev));
-      }
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(inner);
-    ro.observe(outer);
-    return () => ro.disconnect();
-  }, []);
-
-  return (
-    <div ref={outerRef} className={className} style={{ overflow: 'hidden' }}>
-      <div
-        ref={innerRef}
-        style={{ transform: `scale(${scale})`, transformOrigin: 'top right', width: scale < 1 ? `${100 / scale}%` : '100%' }}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
 
 type Lesson = {
   id: string;

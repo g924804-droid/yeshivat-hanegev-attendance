@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, History, Monitor, Clock, Pencil, Trash2, Minimize2, Maximize2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
+import { FitScale } from '../components/FitScale';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { api } from '../lib/api';
 import {
@@ -102,43 +103,8 @@ export function SchedulePage() {
     setShowHistory(true);
   }
 
-  return (
-    <Layout title="מערכת שעות">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <select className="input w-auto" value={trackFilter} onChange={(e) => setTrackFilter(e.target.value)}>
-            <option value="">כל המסלולים</option>
-            {tracks.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-          {!trackFilter && (
-            <div className="hidden lg:flex items-center gap-1.5 flex-wrap">
-              {tracks.map((t) => (
-                <span key={t.id} className={`badge border ${trackColor(t.id, trackIds)}`}>{t.name}</span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <button className="btn-outline" onClick={() => setCompact((c) => !c)}>
-            {compact ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
-            {compact ? 'תצוגה מלאה' : 'תצוגה קומפקטית'}
-          </button>
-          <a href="/display" target="_blank" rel="noreferrer" className="btn-outline">
-            <Monitor size={16} /> מסך תצוגה
-          </a>
-          <button className="btn-outline" onClick={openHistory}>
-            <History size={16} /> היסטוריה
-          </button>
-          <button className="btn-primary" onClick={() => setShowModal(true)}>
-            <Plus size={16} /> שיעור חדש
-          </button>
-        </div>
-      </div>
-
-      <div className="card overflow-x-auto p-0">
-        <table className={`w-full border-collapse ${compact ? 'text-xs' : 'text-sm'}`}>
+  const tableNode = (
+    <table className={`w-full border-collapse ${compact ? 'text-xs' : 'text-sm'}`}>
           <thead>
             <tr>
               <th
@@ -299,7 +265,50 @@ export function SchedulePage() {
             })}
           </tbody>
         </table>
+  );
+
+  return (
+    <Layout title="מערכת שעות">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <select className="input w-auto" value={trackFilter} onChange={(e) => setTrackFilter(e.target.value)}>
+            <option value="">כל המסלולים</option>
+            {tracks.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+          {!trackFilter && (
+            <div className="hidden lg:flex items-center gap-1.5 flex-wrap">
+              {tracks.map((t) => (
+                <span key={t.id} className={`badge border ${trackColor(t.id, trackIds)}`}>{t.name}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-outline" onClick={() => setCompact((c) => !c)}>
+            {compact ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+            {compact ? 'תצוגה מלאה' : 'תצוגה קומפקטית'}
+          </button>
+          <a href="/display" target="_blank" rel="noreferrer" className="btn-outline">
+            <Monitor size={16} /> מסך תצוגה
+          </a>
+          <button className="btn-outline" onClick={openHistory}>
+            <History size={16} /> היסטוריה
+          </button>
+          <button className="btn-primary" onClick={() => setShowModal(true)}>
+            <Plus size={16} /> שיעור חדש
+          </button>
+        </div>
       </div>
+
+      {compact ? (
+        <FitScale className="card p-0" style={{ height: 'calc(100vh - 230px)' }}>
+          {tableNode}
+        </FitScale>
+      ) : (
+        <div className="card overflow-x-auto p-0">{tableNode}</div>
+      )}
 
       <div className="mt-6">
         <AnnouncementsManager />
