@@ -19,6 +19,7 @@ type AttendanceRecord = {
   type: string;
   notes: string | null;
   sickNoteUrl: string | null;
+  hasSpecialRate: boolean;
 };
 
 type Holiday = { date: string; name: string; type: 'full' | 'half' };
@@ -40,6 +41,7 @@ function draftAttendanceRecord(date: string): AttendanceRecord {
     type: 'רגיל',
     notes: null,
     sickNoteUrl: null,
+    hasSpecialRate: false,
   };
 }
 
@@ -284,7 +286,19 @@ export function Dashboard() {
                         <td>{record.clockOut || '—'}</td>
                         <td>{record.clockIn2 || '—'}</td>
                         <td>{record.clockOut2 || '—'}</td>
-                        <td>{safeFixed(record.totalHours)}</td>
+                        <td>
+                          <div className="flex items-center gap-1 justify-center">
+                            {safeFixed(record.totalHours)}
+                            {record.hasSpecialRate && (
+                              <span
+                                title={record.notes || 'שכר שונה מהרגיל'}
+                                className="inline-flex items-center justify-center w-4 h-4 rounded-full border-2 border-black bg-amber-300 text-black text-[9px] font-black"
+                              >
+                                ₪
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td>{safeFixed(record.overtimeHours)}</td>
                         <td>{record.lessonsCount}</td>
                         <td>
@@ -423,46 +437,69 @@ function EditRow({
   }
 
   return (
-    <tr className="bg-slate-50">
-      <td className="py-2">{record.date}</td>
-      <td>{DOW_HE[new Date(`${record.date}T00:00:00`).getDay()]}</td>
-      <td>
-        <select className="input py-1 text-xs" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-          {TYPE_OPTIONS.map((t) => (
-            <option key={t}>{t}</option>
-          ))}
-        </select>
-      </td>
-      {(['clockIn', 'clockOut', 'clockIn2', 'clockOut2'] as const).map((f) => (
-        <td key={f}>
+    <>
+      <tr className="bg-slate-50">
+        <td className="py-2">{record.date}</td>
+        <td>{DOW_HE[new Date(`${record.date}T00:00:00`).getDay()]}</td>
+        <td>
+          <select className="input py-1 text-xs" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+            {TYPE_OPTIONS.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </td>
+        {(['clockIn', 'clockOut', 'clockIn2', 'clockOut2'] as const).map((f) => (
+          <td key={f}>
+            <input
+              type="time"
+              className="input py-1 text-xs"
+              value={form[f] || ''}
+              onChange={(e) => setForm({ ...form, [f]: e.target.value })}
+            />
+          </td>
+        ))}
+        <td colSpan={2} className="text-slate-400 text-xs">מחושב אוטומטית</td>
+        <td>
           <input
-            type="time"
-            className="input py-1 text-xs"
-            value={form[f] || ''}
-            onChange={(e) => setForm({ ...form, [f]: e.target.value })}
+            type="number"
+            className="input py-1 text-xs w-16"
+            value={form.lessonsCount}
+            onChange={(e) => setForm({ ...form, lessonsCount: Number(e.target.value) })}
           />
         </td>
-      ))}
-      <td colSpan={2} className="text-slate-400 text-xs">מחושב אוטומטית</td>
-      <td>
-        <input
-          type="number"
-          className="input py-1 text-xs w-16"
-          value={form.lessonsCount}
-          onChange={(e) => setForm({ ...form, lessonsCount: Number(e.target.value) })}
-        />
-      </td>
-      <td>
-        <div className="flex gap-1 justify-center">
-          <button onClick={save} disabled={saving} className="p-1.5 rounded-lg hover:bg-green-100 text-green-700">
-            <Save size={14} />
-          </button>
-          <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-slate-200">
-            <X size={14} />
-          </button>
-        </div>
-      </td>
-    </tr>
+        <td>
+          <div className="flex gap-1 justify-center">
+            <button onClick={save} disabled={saving} className="p-1.5 rounded-lg hover:bg-green-100 text-green-700">
+              <Save size={14} />
+            </button>
+            <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-slate-200">
+              <X size={14} />
+            </button>
+          </div>
+        </td>
+      </tr>
+      <tr className="bg-slate-50">
+        <td colSpan={11} className="pb-2 px-2">
+          <label className="flex items-center gap-2 text-xs cursor-pointer bg-amber-50 border border-amber-300 rounded-lg px-2 py-1.5 w-fit">
+            <input
+              type="checkbox"
+              checked={form.hasSpecialRate}
+              onChange={(e) => setForm({ ...form, hasSpecialRate: e.target.checked })}
+            />
+            <strong>יש לי שכר שונה מהרגיל ביום הזה</strong> (למשל: תפקיד אחר עם תעריף אחר) — יופיע מודגש לחשבת השכר
+          </label>
+          {form.hasSpecialRate && (
+            <textarea
+              className="input mt-1.5 text-xs"
+              rows={2}
+              placeholder="פרטי מה השכר השונה ועל מה (למשל: 2 שעות משרד ב-120 ש״ח, לא בתעריף הרגיל)"
+              value={form.notes || ''}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+          )}
+        </td>
+      </tr>
+    </>
   );
 }
 

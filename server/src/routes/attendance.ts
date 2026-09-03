@@ -202,7 +202,8 @@ router.get('/getMyAttendance', async (req, res) => {
 
 router.put('/updateAttendance', async (req, res) => {
   try {
-    const { recordId, date, clockIn, clockOut, clockIn2, clockOut2, lessonsCount, type, notes, sickNoteUrl } = req.body;
+    const { recordId, date, clockIn, clockOut, clockIn2, clockOut2, lessonsCount, type, notes, sickNoteUrl, hasSpecialRate } =
+      req.body;
 
     // אין recordId — זה יום בלי רשומה קיימת (למשל נלחץ העט על יום ריק בטבלה החודשית) — יוצרים חדשה במקום לעדכן.
     if (!recordId) {
@@ -228,6 +229,7 @@ router.put('/updateAttendance', async (req, res) => {
           type: type || 'רגיל',
           notes: notes || null,
           sickNoteUrl: sickNoteUrl || null,
+          hasSpecialRate: !!hasSpecialRate,
           totalHours,
           overtimeHours,
         },
@@ -252,6 +254,7 @@ router.put('/updateAttendance', async (req, res) => {
       type: type ?? record.type,
       notes: notes ?? record.notes,
       sickNoteUrl: sickNoteUrl ?? record.sickNoteUrl,
+      hasSpecialRate: hasSpecialRate ?? record.hasSpecialRate,
     };
     const totalHours = calcTotalHours(merged.clockIn, merged.clockOut, merged.clockIn2, merged.clockOut2);
     const requiredHours = getRequiredHoursForDate(employee, record.date);

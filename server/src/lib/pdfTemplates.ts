@@ -19,6 +19,14 @@ const BASE_STYLE = `
     .signature img { max-height: 80px; border-bottom: 1px solid #94a3b8; }
     .holiday-row { background: #fef9e7; }
     .absence-row { background: #fdecea; }
+    /* מודגש גם בהדפסה שחור-לבן: לא מסתמכים על צבע בלבד — מסגרת שחורה עבה + סימן + טקסט מודגש. */
+    .special-row td { border-top: 2px solid #000 !important; border-bottom: 2px solid #000 !important; font-weight: bold; }
+    .special-badge {
+      display: inline-block; border: 2px solid #000; border-radius: 50%; width: 15px; height: 15px;
+      line-height: 11px; font-size: 9px; font-weight: 900; text-align: center; margin-left: 3px;
+    }
+    .stat.special-stat { border: 3px solid #000; background: #fef3c7; }
+    .stat.special-stat .label { color: #000; font-weight: bold; }
   </style>
 `;
 
@@ -32,8 +40,10 @@ export function reportPdfHtml(
 ): string {
   const rows = days
     .map((d) => {
-      const cls = d.holiday ? 'holiday-row' : d.isAbsence ? 'absence-row' : '';
       const r = d.record;
+      const cls = [d.holiday ? 'holiday-row' : '', d.isAbsence ? 'absence-row' : '', r?.hasSpecialRate ? 'special-row' : '']
+        .filter(Boolean)
+        .join(' ');
       return `<tr class="${cls}">
         <td>${d.date}</td>
         <td>${DOW_HE[d.dayOfWeek]}</td>
@@ -42,7 +52,7 @@ export function reportPdfHtml(
         <td>${r?.clockOut || ''}</td>
         <td>${r?.clockIn2 || ''}</td>
         <td>${r?.clockOut2 || ''}</td>
-        <td>${r ? r.totalHours.toFixed(2) : ''}</td>
+        <td>${r ? r.totalHours.toFixed(2) : ''}${r?.hasSpecialRate ? '<span class="special-badge">₪</span>' : ''}</td>
         <td>${r ? r.overtimeHours.toFixed(2) : ''}</td>
         <td>${r?.lessonsCount || ''}</td>
         <td>${r?.notes || ''}</td>
@@ -62,6 +72,11 @@ export function reportPdfHtml(
       <div class="stat"><div class="label">ימי חג</div><div class="value">${report.holidayDays}</div></div>
       <div class="stat"><div class="label">ימי העדרות</div><div class="value">${report.absenceDays}</div></div>
       <div class="stat"><div class="label">שיעורים</div><div class="value">${report.totalLessons}</div></div>
+      ${
+        report.specialRateHours > 0
+          ? `<div class="stat special-stat"><div class="label">⚠ שעות בשכר שונה — לתשומת לב חשבת שכר</div><div class="value">${report.specialRateHours.toFixed(2)}</div></div>`
+          : ''
+      }
     </div>
     <table>
       <thead><tr>
@@ -86,16 +101,17 @@ export function summaryPdfHtml(month: string, reports: (MonthlyReport & { employ
     .map(([dep, list]) => {
       const rows = list
         .map(
-          (r) => `<tr>
+          (r) => `<tr class="${r.specialRateHours > 0 ? 'special-row' : ''}">
         <td>${r.employee.name}</td><td>${r.status}</td><td>${r.totalWorkDays}</td>
         <td>${r.totalHours.toFixed(2)}</td><td>${r.totalOvertime.toFixed(2)}</td>
         <td>${r.sickDays}</td><td>${r.vacationDays}</td><td>${r.absenceDays}</td>
+        <td>${r.specialRateHours > 0 ? `<span class="special-badge">₪</span> ${r.specialRateHours.toFixed(2)}` : '—'}</td>
       </tr>`
         )
         .join('');
       return `<h2>${dep}</h2>
       <table>
-        <thead><tr><th>שם</th><th>סטטוס</th><th>ימי עבודה</th><th>שעות</th><th>עודפות</th><th>מחלה</th><th>חופשה</th><th>העדרות</th></tr></thead>
+        <thead><tr><th>שם</th><th>סטטוס</th><th>ימי עבודה</th><th>שעות</th><th>עודפות</th><th>מחלה</th><th>חופשה</th><th>העדרות</th><th>⚠ שכר שונה</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
     })

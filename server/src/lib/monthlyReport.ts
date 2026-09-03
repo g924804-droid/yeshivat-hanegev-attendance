@@ -21,6 +21,7 @@ export type DayDetail = {
     clockOut2: string | null;
     notes: string | null;
     sickNoteUrl: string | null;
+    hasSpecialRate: boolean;
   } | null;
   isAbsence: boolean;
 };
@@ -35,6 +36,7 @@ export type MonthlyTotals = {
   holidayDays: number;
   absenceHours: number;
   absenceDays: number;
+  specialRateHours: number;
 };
 
 /** עובר יום-יום על החודש (ליבת calculateMonthlyReport מהספק 4.3). */
@@ -58,6 +60,7 @@ export async function buildMonthDetail(employee: User, month: string): Promise<{
     holidayDays: 0,
     absenceHours: 0,
     absenceDays: 0,
+    specialRateHours: 0,
   };
   const days: DayDetail[] = [];
 
@@ -82,6 +85,7 @@ export async function buildMonthDetail(employee: User, month: string): Promise<{
         totals.totalHours += record.totalHours;
         totals.totalOvertime += record.overtimeHours;
         totals.totalLessons += record.lessonsCount;
+        if (record.hasSpecialRate) totals.specialRateHours += record.totalHours;
       } else if (record.type === 'מחלה') {
         totals.sickDays += 1;
       } else if (record.type === 'חופשה שנתית' || record.type === 'חופשה אישית') {
@@ -117,6 +121,7 @@ export async function buildMonthDetail(employee: User, month: string): Promise<{
             clockOut2: record.clockOut2,
             notes: record.notes,
             sickNoteUrl: record.sickNoteUrl,
+            hasSpecialRate: record.hasSpecialRate,
           }
         : null,
       isAbsence,
@@ -126,6 +131,7 @@ export async function buildMonthDetail(employee: User, month: string): Promise<{
   totals.totalHours = Math.round(totals.totalHours * 100) / 100;
   totals.totalOvertime = Math.round(totals.totalOvertime * 100) / 100;
   totals.absenceHours = Math.round(totals.absenceHours * 100) / 100;
+  totals.specialRateHours = Math.round(totals.specialRateHours * 100) / 100;
 
   return { days, totals };
 }

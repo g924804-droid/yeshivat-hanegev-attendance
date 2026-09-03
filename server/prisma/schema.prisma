@@ -62,6 +62,9 @@ model AttendanceRecord {
   type           String   @default("רגיל") // רגיל | מחלה | חופשה שנתית | חופשה אישית | חג | חצי יום
   notes          String?
   sickNoteUrl    String?
+  // מורה שמלמדת כמה דברים יכולה לקבל שכר שונה על חלק מהשעות (למשל תפקיד משרדי מול הוראה) —
+  // הדגל הזה מפריד את השעות האלה בחישוב החודשי כדי שחשבת שכר לא תצטרך לחפש את זה בהערות.
+  hasSpecialRate Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -86,6 +89,7 @@ model MonthlyReport {
   holidayDays       Int      @default(0)
   absenceHours      Float    @default(0)
   absenceDays       Int      @default(0)
+  specialRateHours  Float    @default(0) // תת-קבוצה של totalHours — שעות שסומנו בשכר שונה מהרגיל
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

@@ -18,6 +18,7 @@ type Report = {
   holidayDays: number;
   absenceDays: number;
   absenceHours: number;
+  specialRateHours: number;
   status: 'טיוטה' | 'הוגש' | 'אושר';
   pdfUrl: string | null;
 };
@@ -29,7 +30,14 @@ type Day = {
   isFuture: boolean;
   holiday?: { name: string; type: 'full' | 'half' };
   isAbsence: boolean;
-  record: { type: string; totalHours: number; overtimeHours: number; lessonsCount: number } | null;
+  record: {
+    type: string;
+    totalHours: number;
+    overtimeHours: number;
+    lessonsCount: number;
+    notes: string | null;
+    hasSpecialRate: boolean;
+  } | null;
 };
 
 const STATUS_STYLE: Record<Report['status'], string> = {
@@ -140,6 +148,12 @@ export function MonthlyReport() {
             <p className="text-xl font-bold text-navy">{value}</p>
           </div>
         ))}
+        {report.specialRateHours > 0 && (
+          <div className="card text-center py-4 border-2 border-black bg-amber-50 col-span-2">
+            <p className="text-black text-xs mb-1 font-bold">⚠ שעות בשכר שונה מהרגיל — לתשומת לב חשבת השכר</p>
+            <p className="text-xl font-black text-black">{safeFixed(report.specialRateHours)}</p>
+          </div>
+        )}
       </div>
 
       <div className="card mb-6 overflow-x-auto">
@@ -173,7 +187,23 @@ export function MonthlyReport() {
                   <td className="py-1.5">{d.date}</td>
                   <td>{DOW_HE[d.dayOfWeek]}</td>
                   <td>{d.holiday ? d.holiday.name : d.record ? d.record.type : d.isAbsence ? 'העדרות' : d.isSaturday ? 'שבת' : '—'}</td>
-                  <td>{d.record ? safeFixed(d.record.totalHours) : '—'}</td>
+                  <td>
+                    {d.record ? (
+                      <span className="inline-flex items-center gap-1">
+                        {safeFixed(d.record.totalHours)}
+                        {d.record.hasSpecialRate && (
+                          <span
+                            title={d.record.notes || 'שכר שונה מהרגיל'}
+                            className="inline-flex items-center justify-center w-4 h-4 rounded-full border-2 border-black bg-amber-300 text-black text-[9px] font-black"
+                          >
+                            ₪
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>{d.record ? safeFixed(d.record.overtimeHours) : '—'}</td>
                   <td>{d.record?.lessonsCount || '—'}</td>
                 </tr>

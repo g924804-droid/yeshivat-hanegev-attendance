@@ -15,6 +15,7 @@ type ReportRow = {
   sickDays: number;
   vacationDays: number;
   absenceDays: number;
+  specialRateHours: number;
   employee: { id: string; name: string; department: string | null };
 };
 
@@ -166,12 +167,13 @@ function ReportsTab() {
               <th>מחלה</th>
               <th>חופשה</th>
               <th>היעדרות</th>
+              <th>⚠ שכר שונה</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {reports.map((r) => (
-              <tr key={r.id} className="border-b last:border-0 hover:bg-slate-50">
+              <tr key={r.id} className={`border-b last:border-0 hover:bg-slate-50 ${r.specialRateHours > 0 ? 'bg-amber-50' : ''}`}>
                 <td className="py-2">{r.employee.name}</td>
                 <td>{r.employee.department || '—'}</td>
                 <td>{r.status}</td>
@@ -180,6 +182,15 @@ function ReportsTab() {
                 <td>{r.sickDays}</td>
                 <td>{r.vacationDays}</td>
                 <td>{r.absenceDays}</td>
+                <td>
+                  {r.specialRateHours > 0 ? (
+                    <span className="inline-flex items-center gap-1 font-bold border-2 border-black rounded-full px-2 py-0.5 bg-amber-200">
+                      ₪ {safeFixed(r.specialRateHours)}
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </td>
                 <td className="flex gap-1 justify-center py-1">
                   <button className="btn-outline text-xs py-1 px-2" onClick={() => navigate(`/report/${month}?userId=${r.employee.id}`)}>
                     צפייה
