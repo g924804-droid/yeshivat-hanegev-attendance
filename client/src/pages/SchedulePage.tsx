@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History, Monitor, Clock, Pencil, Trash2 } from 'lucide-react';
+import { Plus, History, Monitor, Clock, Pencil, Trash2, Minimize2, Maximize2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { api } from '../lib/api';
@@ -56,6 +56,12 @@ export function SchedulePage() {
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  // תצוגה קומפקטית: עמודות וכרטיסי שיעור צרים וקטנים יותר, כדי שכל השבוע ייכנס בלי גלילה
+  // אופקית במסכים רגילים. נשמר ב-localStorage כדי שהבחירה תישאר גם ברענון/כניסה הבאה.
+  const [compact, setCompact] = useState(() => localStorage.getItem('scheduleCompact') === '1');
+  useEffect(() => {
+    localStorage.setItem('scheduleCompact', compact ? '1' : '0');
+  }, [compact]);
 
   async function load() {
     const data = await api.get<{ lessons: Lesson[]; teachers: Ref[]; tracks: Ref[] }>('/schedule/getSchedule');
@@ -115,6 +121,10 @@ export function SchedulePage() {
           )}
         </div>
         <div className="flex gap-2">
+          <button className="btn-outline" onClick={() => setCompact((c) => !c)}>
+            {compact ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+            {compact ? 'תצוגה מלאה' : 'תצוגה קומפקטית'}
+          </button>
           <a href="/display" target="_blank" rel="noreferrer" className="btn-outline">
             <Monitor size={16} /> מסך תצוגה
           </a>
@@ -128,37 +138,47 @@ export function SchedulePage() {
       </div>
 
       <div className="card overflow-x-auto p-0">
-        <table className="w-full text-sm border-collapse">
+        <table className={`w-full border-collapse ${compact ? 'text-xs' : 'text-sm'}`}>
           <thead>
             <tr>
-              <th className="p-2 border border-slate-200 bg-slate-50 text-slate-500 w-28 shrink-0">
-                <Clock size={13} className="inline ml-1" /> שעה
+              <th
+                className={`border border-slate-200 bg-slate-50 text-slate-500 shrink-0 ${
+                  compact ? 'p-1 w-14 text-[10px]' : 'p-2 w-28'
+                }`}
+              >
+                <Clock size={compact ? 10 : 13} className="inline ml-1" /> {!compact && 'שעה'}
               </th>
               {DAYS.slice(0, 2).map((day) => (
                 <th
                   key={day}
-                  className={`p-2 border border-slate-200 text-navy min-w-[160px] ${
+                  className={`border border-slate-200 text-navy ${compact ? 'p-1 min-w-[90px] text-[11px]' : 'p-2 min-w-[160px]'} ${
                     day === todayDow ? 'bg-gold/15' : 'bg-slate-50'
                   }`}
                 >
                   {day}
-                  {day === todayDow && <span className="block text-xs font-normal text-gold-dark">היום</span>}
+                  {day === todayDow && (
+                    <span className={`block font-normal text-gold-dark ${compact ? 'text-[9px]' : 'text-xs'}`}>היום</span>
+                  )}
                 </th>
               ))}
               {/* עמודת שעה כפולה, צמודה ליום שלישי — נוחות ויזואלית כשמסתכלים על שלישי בלי לחפש
                   את עמודת השעה הראשית עד לקצה הטבלה (בקשה מפורשת, בהשראת איך שזה נראה ב-Zite). */}
-              <th className="p-2 border border-slate-200 bg-slate-50 text-slate-500 w-20">
-                <Clock size={13} className="inline ml-1" /> שעה
+              <th
+                className={`border border-slate-200 bg-slate-50 text-slate-500 ${compact ? 'p-1 w-12 text-[10px]' : 'p-2 w-20'}`}
+              >
+                <Clock size={compact ? 10 : 13} className="inline ml-1" /> {!compact && 'שעה'}
               </th>
               {DAYS.slice(2).map((day) => (
                 <th
                   key={day}
-                  className={`p-2 border border-slate-200 text-navy min-w-[160px] ${
+                  className={`border border-slate-200 text-navy ${compact ? 'p-1 min-w-[90px] text-[11px]' : 'p-2 min-w-[160px]'} ${
                     day === todayDow ? 'bg-gold/15' : 'bg-slate-50'
                   }`}
                 >
                   {day}
-                  {day === todayDow && <span className="block text-xs font-normal text-gold-dark">היום</span>}
+                  {day === todayDow && (
+                    <span className={`block font-normal text-gold-dark ${compact ? 'text-[9px]' : 'text-xs'}`}>היום</span>
+                  )}
                 </th>
               ))}
             </tr>
@@ -173,29 +193,32 @@ export function SchedulePage() {
               const showMainHour = inDefault || !inTuesday;
               const showTuesdayHour = inTuesday;
 
+              const cellPad = compact ? 'p-1' : 'p-2';
+              const hourTextSize = compact ? 'text-[10px]' : 'text-xs';
+
               if (isBreak) {
                 return (
                   <tr key={row.time} className="bg-slate-100">
-                    <td className="p-2 border border-slate-200 text-slate-500 text-xs align-middle">
+                    <td className={`${cellPad} border border-slate-200 text-slate-500 ${hourTextSize} align-middle`}>
                       {showMainHour && (
                         <>
                           <div className="font-medium">{row.time}</div>
-                          <div>הפסקה</div>
+                          {!compact && <div>הפסקה</div>}
                         </>
                       )}
                     </td>
-                    <td colSpan={2} className="p-2 border border-slate-200 text-center text-slate-400 text-xs">
+                    <td colSpan={2} className={`${cellPad} border border-slate-200 text-center text-slate-400 ${hourTextSize}`}>
                       {showMainHour && 'הפסקה'}
                     </td>
-                    <td className="p-2 border border-slate-200 text-slate-500 text-xs align-middle bg-slate-100">
+                    <td className={`${cellPad} border border-slate-200 text-slate-500 ${hourTextSize} align-middle bg-slate-100`}>
                       {showTuesdayHour && (
                         <>
                           <div className="font-medium">{row.time}</div>
-                          <div>הפסקה</div>
+                          {!compact && <div>הפסקה</div>}
                         </>
                       )}
                     </td>
-                    <td colSpan={3} className="p-2 border border-slate-200 text-center text-slate-400 text-xs">
+                    <td colSpan={3} className={`${cellPad} border border-slate-200 text-center text-slate-400 ${hourTextSize}`}>
                       {showTuesdayHour && 'הפסקה'}
                     </td>
                   </tr>
@@ -207,23 +230,22 @@ export function SchedulePage() {
                   .filter((l) => l.dayOfWeek === day && l.time === row.time)
                   .sort((a, b) => compareLessonDisplayOrder(a, b, tracks));
                 return (
-                  <td key={day} className="p-1.5 border border-slate-200 align-top">
+                  <td key={day} className={`${compact ? 'p-1' : 'p-1.5'} border border-slate-200 align-top`}>
                     <div className="flex flex-wrap gap-1">
                       {cellLessons.map((l) => (
                         <div
                           key={l.id}
                           onDoubleClick={() => setEditingLesson(l)}
-                          className={`group relative rounded-lg border px-2 py-1.5 text-xs flex-1 min-w-[120px] cursor-pointer ${lessonColor(
-                            l,
-                            tracks
-                          )}`}
+                          className={`group relative rounded-lg border cursor-pointer flex-1 ${lessonColor(l, tracks)} ${
+                            compact ? 'px-1 py-1 text-[10px] min-w-[80px]' : 'px-2 py-1.5 text-xs min-w-[120px]'
+                          }`}
                         >
                           <button
                             onClick={() => setEditingLesson(l)}
                             title="עריכה"
                             className="absolute top-1 left-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/10 transition-opacity"
                           >
-                            <Pencil size={11} />
+                            <Pencil size={compact ? 9 : 11} />
                           </button>
                           {l.notes && (
                             <span
@@ -233,13 +255,13 @@ export function SchedulePage() {
                               !
                             </span>
                           )}
-                          <div className="font-semibold truncate pl-4">{l.subject || l.className}</div>
-                          {l.subject && <div className="opacity-70 truncate">כיתה {l.className}</div>}
-                          {trackName(l.track) && <div className="opacity-70 truncate">{trackName(l.track)}</div>}
+                          <div className={`font-semibold truncate ${compact ? 'pl-3' : 'pl-4'}`}>{l.subject || l.className}</div>
+                          {!compact && l.subject && <div className="opacity-70 truncate">כיתה {l.className}</div>}
+                          {!compact && trackName(l.track) && <div className="opacity-70 truncate">{trackName(l.track)}</div>}
                           <div className="opacity-80 truncate">
-                            {teacherName(l.teacher)} {l.room ? `· ${l.room}` : ''}
+                            {teacherName(l.teacher)} {!compact && l.room ? `· ${l.room}` : ''}
                           </div>
-                          {l.notes && (
+                          {!compact && l.notes && (
                             <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 max-w-full">
                               <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
                               <span className="truncate">{l.notes}</span>
@@ -254,20 +276,20 @@ export function SchedulePage() {
 
               return (
                 <tr key={row.time}>
-                  <td className="p-2 border border-slate-200 text-slate-500 text-xs align-top">
+                  <td className={`${cellPad} border border-slate-200 text-slate-500 ${hourTextSize} align-top`}>
                     {showMainHour && (
                       <>
                         <div className="font-medium text-navy">{row.time}</div>
-                        {row.label && <div>{row.label}</div>}
+                        {!compact && row.label && <div>{row.label}</div>}
                       </>
                     )}
                   </td>
                   {DAYS.slice(0, 2).map((day) => dayCell(day))}
-                  <td className="p-2 border border-slate-200 text-slate-500 text-xs align-top bg-slate-50/60">
+                  <td className={`${cellPad} border border-slate-200 text-slate-500 ${hourTextSize} align-top bg-slate-50/60`}>
                     {showTuesdayHour && (
                       <>
                         <div className="font-medium text-navy">{row.time}</div>
-                        {row.label && <div>{row.label}</div>}
+                        {!compact && row.label && <div>{row.label}</div>}
                       </>
                     )}
                   </td>
