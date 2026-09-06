@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { airtableFetch, airtableCreate, airtableUpdate, TABLES } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
 import { getFullSchedule } from '../lib/scheduleData';
-import { getTeacherTrackIds, getTeacherStudentIds, findTeacherIds } from '../lib/teacherScope';
+import { getTeacherTrackIds, getTeacherStudentIds, findTeacherIds, canSeeAllStudentTracks } from '../lib/teacherScope';
 import { requireAuth, requirePermission } from '../middleware/auth';
 
 const router = Router();
@@ -18,7 +18,7 @@ router.get('/getGrades', requirePermission('grades'), async (req, res) => {
     const trackId = req.query.trackId as string | undefined;
     let grades = await airtableFetch(TABLES.grades);
 
-    if (req.user!.role !== 'מנהל') {
+    if (!canSeeAllStudentTracks(req.user!)) {
       const allowedStudentIds = await getTeacherStudentIds(req.user!.name);
       grades = grades.filter((g) =>
         (g.fields[FIELDS.grades.studentLinked] || []).some((id: string) => allowedStudentIds.has(id))
@@ -69,7 +69,7 @@ router.get('/getTracks', requirePermission('grades'), async (req, res) => {
   try {
     const tracks = await airtableFetch(TABLES.tracks);
     let visible = tracks;
-    if (req.user!.role !== 'מנהל') {
+    if (!canSeeAllStudentTracks(req.user!)) {
       const trackIds = await getTeacherTrackIds(req.user!.name);
       visible = tracks.filter((t) => trackIds.has(t.id));
     }
@@ -105,7 +105,7 @@ router.get('/getTrackSubjects', requirePermission('grades'), async (req, res) =>
 
     const { lessons } = await getFullSchedule();
     let trackLessons = lessons.filter((l) => (l.track || []).includes(trackId));
-    if (req.user!.role !== 'מנהל') {
+    if (!canSeeAllStudentTracks(req.user!)) {
       const teacherIds = await findTeacherIds(req.user!.name);
       trackLessons = trackLessons.filter((l) => (l.teacher || []).some((id) => teacherIds.includes(id)));
     }
@@ -134,7 +134,7 @@ router.get('/getStudentsForGrading', requirePermission('grades'), async (req, re
 
     const allStudentsRaw = await airtableFetch(TABLES.students);
     let studentIds = getStudentIdsByTrack(trackId, allStudentsRaw);
-    if (req.user!.role !== 'מנהל') {
+    if (!canSeeAllStudentTracks(req.user!)) {
       const allowed = await getTeacherStudentIds(req.user!.name);
       studentIds = studentIds.filter((id) => allowed.has(id));
     }

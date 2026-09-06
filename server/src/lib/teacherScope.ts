@@ -2,6 +2,20 @@ import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
 
 /**
+ * מנהל, מי שיש לה הרשאת ניהול נוכחות עובדים (isAttendanceManager), או מי שקיבלה במפורש
+ * הרשאה נפרדת לראות את כל המסلولים (canManageAllStudentTracks) — למשל מזכירה שממלאת
+ * נוכחות תלמידות/ציונים אבל לא אמורה לקבל גישה לניהול דוחות נוכחות של מורות/עובדים.
+ * משותף בין נוכחות תלמידות וציונים — שתי המסכים צריכים בדיוק את אותו כלל "מי רואה הכל".
+ */
+export function canSeeAllStudentTracks(user: {
+  role: string;
+  isAttendanceManager: boolean;
+  canManageAllStudentTracks: boolean;
+}): boolean {
+  return user.role === 'מנהל' || user.isAttendanceManager || user.canManageAllStudentTracks;
+}
+
+/**
  * שמות מורות ב-Airtable כתובים לא אחיד — לפעמים עם תואר ("המורה"/"הרבנית"/"הרב"), לפעמים עם
  * רווחים מיותרים בהתחלה/בסוף. השוואה מדויקת (===) נכשלת על כל זה, ומורה יכולה "להיעלם" ולא
  * לראות אף מסלול שלה בלי סיבה נראית לעין. מנקים לפני ההשוואה, ומתאימים גם התאמה חלקית.

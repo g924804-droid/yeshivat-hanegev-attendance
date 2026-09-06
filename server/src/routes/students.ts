@@ -12,7 +12,7 @@ import {
 import { FIELDS } from '../lib/airtableFields';
 import { getFullSchedule } from '../lib/scheduleData';
 import { getHebrewDateLabel } from '../lib/holidays';
-import { getTeacherTrackIds, findTeacherIds } from '../lib/teacherScope';
+import { getTeacherTrackIds, findTeacherIds, canSeeAllStudentTracks } from '../lib/teacherScope';
 import { requireAuth, requirePermission } from '../middleware/auth';
 
 const router = Router();
@@ -66,15 +66,6 @@ async function getTrackLessonsForDate(trackId: string, date: string) {
  */
 function getStudentIdsByTrack(trackId: string, allStudents: Awaited<ReturnType<typeof airtableFetch>>): string[] {
   return allStudents.filter((s) => (s.fields[FIELDS.students.track] || []).includes(trackId)).map((s) => s.id);
-}
-
-/**
- * מנהל, מי שיש לה הרשאת ניהול נוכחות עובדים (isAttendanceManager), או מי שקיבלה במפורש
- * הרשאה נפרדת לראות את כל המסלולים (canManageAllStudentTracks) — למשל מזכירה שממלאת
- * נוכחות תלמידות אבל לא אמורה לקבל גישה לניהול דוחות נוכחות של מורות/עובדים.
- */
-function canSeeAllStudentTracks(user: { role: string; isAttendanceManager: boolean; canManageAllStudentTracks: boolean }): boolean {
-  return user.role === 'מנהל' || user.isAttendanceManager || user.canManageAllStudentTracks;
 }
 
 router.get('/getTracks', requirePermission('studentAttendance'), async (req, res) => {
