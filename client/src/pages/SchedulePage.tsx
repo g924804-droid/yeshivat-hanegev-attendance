@@ -222,8 +222,12 @@ export function SchedulePage() {
                             </span>
                           )}
                           <div className={`font-semibold truncate ${compact ? 'pl-3' : 'pl-4'}`}>{l.subject || l.className}</div>
-                          {!compact && l.subject && <div className="opacity-70 truncate">כיתה {l.className}</div>}
-                          {!compact && trackName(l.track) && <div className="opacity-70 truncate">{trackName(l.track)}</div>}
+                          {!compact && l.subject && l.className !== l.subject && (
+                            <div className="opacity-70 truncate">כיתה {l.className}</div>
+                          )}
+                          {!compact && trackName(l.track) && trackName(l.track) !== (l.subject || l.className) && (
+                            <div className="opacity-70 truncate">{trackName(l.track)}</div>
+                          )}
                           <div className="opacity-80 truncate">
                             {teacherName(l.teacher)} {!compact && l.room ? `· ${l.room}` : ''}
                           </div>
