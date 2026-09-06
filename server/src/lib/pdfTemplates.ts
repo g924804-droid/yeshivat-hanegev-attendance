@@ -4,19 +4,21 @@ import { DayDetail } from './monthlyReport';
 const BASE_STYLE = `
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Arial', 'Rubik', sans-serif; direction: rtl; padding: 24px; color: #1e293b; }
-    h1 { color: #0f172a; font-size: 20px; margin-bottom: 4px; }
+    /* מכווץ בכוונה — דוח חודש שלם (עד 31 שורות) + חתימה חייבים להיכנס בעמוד A4 אחד;
+       החתימה לא אמורה "לגלוש" לעמוד שני. */
+    body { font-family: 'Arial', 'Rubik', sans-serif; direction: rtl; padding: 10px 16px; color: #1e293b; }
+    h1 { color: #0f172a; font-size: 17px; margin: 0 0 2px; }
     h2 { color: #1e3a5f; font-size: 15px; margin-top: 24px; }
-    .meta { color: #475569; font-size: 13px; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    th, td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: center; }
+    .meta { color: #475569; font-size: 11px; margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+    th, td { border: 1px solid #cbd5e1; padding: 2px 5px; text-align: center; }
     th { background: #0f172a; color: #f1c40f; }
-    .summary { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
-    .stat { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 14px; min-width: 90px; }
-    .stat .label { font-size: 10px; color: #64748b; }
-    .stat .value { font-size: 18px; font-weight: bold; color: #0f172a; }
-    .signature { margin-top: 24px; }
-    .signature img { max-height: 80px; border-bottom: 1px solid #94a3b8; }
+    .summary { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+    .stat { border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; min-width: 76px; }
+    .stat .label { font-size: 9px; color: #64748b; }
+    .stat .value { font-size: 14px; font-weight: bold; color: #0f172a; }
+    .signature { margin-top: 10px; page-break-inside: avoid; font-size: 11px; }
+    .signature img { max-height: 50px; border-bottom: 1px solid #94a3b8; }
     .holiday-row { background: #fef9e7; }
     .absence-row { background: #fdecea; }
     /* מודגש גם בהדפסה שחור-לבן: לא מסתמכים על צבע בלבד — מסגרת שחורה עבה + סימן + טקסט מודגש. */
