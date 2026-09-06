@@ -382,7 +382,6 @@ function LessonModal({
     className: lesson?.className || '',
     subject: lesson?.subject || '',
     dayOfWeek: lesson?.dayOfWeek || 'ראשון',
-    trackId: lesson?.track?.[0] || '',
     room: lesson?.room || '',
     notes: lesson?.notes || '',
     // מתאריך חובה (שיעור חדש מתחיל היום כברירת מחדל); עד תאריך לא חובה — ריק אומר "עדיין בתוקף".
@@ -394,6 +393,8 @@ function LessonModal({
   const [timeChoice, setTimeChoice] = useState(lesson ? (knownTime ? lesson.time : CUSTOM_TIME) : daySlots[0].time);
   const [customTime, setCustomTime] = useState(lesson && !knownTime ? lesson.time : '');
   const [teacherIds, setTeacherIds] = useState<string[]>(lesson?.teacher || []);
+  // כמה מסלולים בבת אחת — לאירוע/כנס משותף (למשל כנס לכולם), במקום ליצור את אותו שיעור בנפרד לכל מסلול.
+  const [trackIds, setTrackIds] = useState<string[]>(lesson?.track || []);
   const [busy, setBusy] = useState(false);
   const [newTeacherName, setNewTeacherName] = useState('');
   const [addingTeacher, setAddingTeacher] = useState(false);
@@ -404,6 +405,14 @@ function LessonModal({
     if (timeChoice !== CUSTOM_TIME && !newSlots.some((s) => s.time === timeChoice)) {
       setTimeChoice(newSlots[0].time);
     }
+  }
+
+  function toggleTrack(id: string) {
+    setTrackIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
+  }
+
+  function toggleAllTracks() {
+    setTrackIds((prev) => (prev.length === tracks.length ? [] : tracks.map((t) => t.id)));
   }
 
   function toggleTeacher(id: string) {
@@ -427,12 +436,17 @@ function LessonModal({
 
   async function submit() {
     const time = timeChoice === CUSTOM_TIME ? customTime.trim() : timeChoice;
-    if (!time) return;
+    if (!time || !trackIds.length) return;
     setBusy(true);
     try {
-      // אין יותר שדה "כיתה" נפרד בטופס — שם המסלול הוא ההזדהות של השיעור, אז זה מה שנשמר בשדה הישן.
-      const className = tracks.find((t) => t.id === form.trackId)?.name || form.className;
-      await api.post('/schedule/updateScheduleLesson', { id: lesson?.id, ...form, className, time, teacherIds });
+      // אין יותר שדה "כיתה" נפרד בטופס — שם/שמות המסלול הם ההזדהות של השיעור, אז זה מה
+      // שנשמר בשדה הישן. אירוע משותף לכמה מסלולים (כמו כנס לכולם) מקבל את כל השמות מחוברים.
+      const className =
+        tracks
+          .filter((t) => trackIds.includes(t.id))
+          .map((t) => t.name)
+          .join(' + ') || form.className;
+      await api.post('/schedule/updateScheduleLesson', { id: lesson?.id, ...form, className, time, trackIds, teacherIds });
       onSaved();
     } finally {
       setBusy(false);
@@ -482,10 +496,25 @@ function LessonModal({
           )}
         </div>
 
-        <select className="input" value={form.trackId} onChange={(e) => setForm({ ...form, trackId: e.target.value })}>
-          <option value="">מסלול (חובה)</option>
-          {tracks.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
+        <div>
+          <label className="label">מסלול (חובה, אפשר לבחור כמה — למשל כנס משותף לכולם)</label>
+          <div className="border rounded-xl p-2 max-h-40 overflow-y-auto space-y-1">
+            <label className="flex items-center gap-2 text-sm px-1 py-0.5 rounded hover:bg-slate-50 cursor-pointer font-semibold border-b pb-1.5 mb-1">
+              <input
+                type="checkbox"
+                checked={tracks.length > 0 && trackIds.length === tracks.length}
+                onChange={toggleAllTracks}
+              />
+              כל המסלולים (כנס/אירוע לכולם)
+            </label>
+            {tracks.map((t) => (
+              <label key={t.id} className="flex items-center gap-2 text-sm px-1 py-0.5 rounded hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" checked={trackIds.includes(t.id)} onChange={() => toggleTrack(t.id)} />
+                {t.name}
+              </label>
+            ))}
+          </div>
+        </div>
 
         <div>
           <label className="label">מורות (אפשר לבחור כמה)</label>
@@ -560,7 +589,7 @@ function LessonModal({
           )}
           <div className="flex gap-2">
             <button className="btn-outline" onClick={onClose}>ביטול</button>
-            <button className="btn-primary" onClick={submit} disabled={busy || !form.trackId || !form.fromDate || !time}>
+            <button className="btn-primary" onClick={submit} disabled={busy || !trackIds.length || !form.fromDate || !time}>
               שמירה
             </button>
           </div>

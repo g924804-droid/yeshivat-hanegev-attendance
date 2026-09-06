@@ -19,14 +19,14 @@ router.get('/getSchedule', async (req, res) => {
 
 router.post('/updateScheduleLesson', async (req, res) => {
   try {
-    const { id, className, subject, dayOfWeek, time, trackId, teacherIds, room, year, notes, fromDate, toDate } =
+    const { id, className, subject, dayOfWeek, time, trackIds, teacherIds, room, year, notes, fromDate, toDate } =
       req.body as {
         id?: string;
         className: string;
         subject?: string;
         dayOfWeek: string;
         time: string;
-        trackId?: string;
+        trackIds?: string[];
         teacherIds?: string[];
         room?: string;
         year?: string;
@@ -35,6 +35,7 @@ router.post('/updateScheduleLesson', async (req, res) => {
         toDate?: string;
       };
     if (!fromDate) return res.status(400).json({ error: 'חובה לרשום תאריך התחלה' });
+    if (!trackIds?.length) return res.status(400).json({ error: 'חובה לבחור לפחות מסלול אחד' });
 
     const fields: Record<string, any> = {
       [FIELDS.lessons.className]: className,
@@ -46,8 +47,10 @@ router.post('/updateScheduleLesson', async (req, res) => {
       [FIELDS.lessons.notes]: notes,
       [FIELDS.lessons.fromDate]: fromDate,
       [FIELDS.lessons.toDate]: toDate || null,
+      // מסלול הוא כבר שדה מקושר מרובה-ערכים ב-Airtable (כמו "תפילה" ששייכת גם לקודש י"ג
+      // וגם לקודש י"ד) — אירוע/כנס משותף לכמה מסלולים נכתב כאן פשוט כשיעור אחד עם כמה מסלולים.
+      [FIELDS.lessons.track]: trackIds,
     };
-    if (trackId) fields[FIELDS.lessons.track] = [trackId];
     if (teacherIds?.length) fields[FIELDS.lessons.teacher] = teacherIds;
 
     let previousData: any = null;
