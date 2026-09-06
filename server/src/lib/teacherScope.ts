@@ -43,18 +43,20 @@ export async function getTeacherTrackIds(teacherName: string): Promise<Set<strin
   return trackIds;
 }
 
-/** מזהי התלמידות ששייכות למסלולים של מורה נתונה. */
+/**
+ * מזהי התלמידות ששייכות למסלולים של מורה נתונה. שדה "תלמידות" בטבלת המסلولים הוא טקסט
+ * מחושב, לא שדה מקושר אמיתי (ולפעמים חסר לגמרי) — מקור האמת האמין הוא ההפך: כל תלמידה
+ * מחזיקה בעצמה את רשימת המסلولים שלה. אותו תיקון שכבר נעשה ב-students.ts.
+ */
 export async function getTeacherStudentIds(teacherName: string): Promise<Set<string>> {
   const trackIds = await getTeacherTrackIds(teacherName);
   if (trackIds.size === 0) return new Set();
 
-  const tracks = await airtableFetch(TABLES.tracks, {
-    filterByFormula: `OR(${Array.from(trackIds).map((id) => `RECORD_ID()="${id}"`).join(',')})`,
-  });
+  const allStudents = await airtableFetch(TABLES.students);
   const studentIds = new Set<string>();
-  for (const t of tracks) {
-    const ids: string[] = t.fields[FIELDS.tracks.students] || [];
-    ids.forEach((id) => studentIds.add(id));
+  for (const s of allStudents) {
+    const studentTracks: string[] = s.fields[FIELDS.students.track] || [];
+    if (studentTracks.some((t) => trackIds.has(t))) studentIds.add(s.id);
   }
   return studentIds;
 }
