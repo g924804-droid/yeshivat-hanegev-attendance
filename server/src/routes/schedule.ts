@@ -66,21 +66,28 @@ router.post('/updateScheduleLesson', async (req, res) => {
       changeType = 'create';
     }
 
-    await prisma.scheduleHistory.create({
-      data: {
-        description: `${changeType === 'create' ? 'נוצר' : 'עודכן'} שיעור: ${className} — ${dayOfWeek} ${time} (${fromDate}${toDate ? ` עד ${toDate}` : ''})`,
-        changedBy: req.user!.name,
-        changeType,
-        lessonId: record.id,
-        className,
-        dayOfWeek,
-        time,
-        room,
-        fromDate,
-        toDate: toDate || null,
-        previousData: previousData ? JSON.stringify(previousData) : null,
-      },
-    });
+    // השיעור כבר נשמר בהצלחה ב-Airtable בשלב הזה — רישום ההיסטוריה הוא תיעוד נלווה, לא
+    // חלק מהפעולה עצמה. אם כתיבה זו נכשלת (למשל תקלת חיבור זמנית ל-DB המקומי, שקורה מדי
+    // פעם), אסור שזה יגרום למשתמשת לראות "נכשל" על שינוי שבפועל כבר הצליח ונשמר.
+    try {
+      await prisma.scheduleHistory.create({
+        data: {
+          description: `${changeType === 'create' ? 'נוצר' : 'עודכן'} שיעור: ${className} — ${dayOfWeek} ${time} (${fromDate}${toDate ? ` עד ${toDate}` : ''})`,
+          changedBy: req.user!.name,
+          changeType,
+          lessonId: record.id,
+          className,
+          dayOfWeek,
+          time,
+          room,
+          fromDate,
+          toDate: toDate || null,
+          previousData: previousData ? JSON.stringify(previousData) : null,
+        },
+      });
+    } catch (historyErr: any) {
+      console.error('שגיאה ברישום היסטוריית מערכת שעות (השיעור עצמו כן נשמר):', historyErr.message);
+    }
 
     invalidateScheduleCache();
     res.json({ success: true, recordId: record.id });
@@ -103,21 +110,27 @@ router.post('/deleteScheduleLesson', async (req, res) => {
     const className = record.fields[FIELDS.lessons.className] || '';
     const dayOfWeek = record.fields[FIELDS.lessons.dayOfWeek] || '';
     const time = record.fields[FIELDS.lessons.time] || '';
-    await prisma.scheduleHistory.create({
-      data: {
-        description: `נמחק שיעור: ${className} — ${dayOfWeek} ${time}`,
-        changedBy: req.user!.name,
-        changeType: 'delete',
-        lessonId: id,
-        className,
-        dayOfWeek,
-        time,
-        room: record.fields[FIELDS.lessons.room] || null,
-        fromDate: record.fields[FIELDS.lessons.fromDate] || null,
-        toDate: record.fields[FIELDS.lessons.toDate] || null,
-        previousData: JSON.stringify(record.fields),
-      },
-    });
+    // המחיקה מ-Airtable כבר הצליחה בשלב הזה — כנ"ל, לא רוצים שכישלון ברישום ההיסטוריה
+    // הנלווה יגרום לדווח "נכשל" על מחיקה שבפועל כבר קרתה.
+    try {
+      await prisma.scheduleHistory.create({
+        data: {
+          description: `נמחק שיעור: ${className} — ${dayOfWeek} ${time}`,
+          changedBy: req.user!.name,
+          changeType: 'delete',
+          lessonId: id,
+          className,
+          dayOfWeek,
+          time,
+          room: record.fields[FIELDS.lessons.room] || null,
+          fromDate: record.fields[FIELDS.lessons.fromDate] || null,
+          toDate: record.fields[FIELDS.lessons.toDate] || null,
+          previousData: JSON.stringify(record.fields),
+        },
+      });
+    } catch (historyErr: any) {
+      console.error('שגיאה ברישום היסטוריית מערכת שעות (המחיקה עצמה כן בוצעה):', historyErr.message);
+    }
 
     invalidateScheduleCache();
     res.json({ success: true });
