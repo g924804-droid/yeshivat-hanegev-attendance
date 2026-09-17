@@ -6,6 +6,8 @@ import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import { currentMonth, safeFixed } from '../lib/utils';
 
+const WORK_AREAS = ['קודש', 'אדריכלות', 'עיצוב מדיה', 'מזכירות', 'הנהלת חשבונות', 'סולם'];
+
 type ReportRow = {
   id: string;
   month: string;
@@ -24,6 +26,7 @@ type Employee = {
   name: string;
   role: string;
   department: string | null;
+  workArea: string | null;
   isActive: boolean;
   email: string | null;
   idNumber: string | null;
@@ -227,6 +230,7 @@ function EmployeesTab() {
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [workAreaFilter, setWorkAreaFilter] = useState('');
 
   async function load() {
     const data = await api.get<{ employees: Employee[] }>('/employees/getEmployees');
@@ -247,8 +251,11 @@ function EmployeesTab() {
     [employees]
   );
   const filteredEmployees = useMemo(
-    () => (departmentFilter ? employees.filter((e) => e.department === departmentFilter) : employees),
-    [employees, departmentFilter]
+    () =>
+      employees
+        .filter((e) => !departmentFilter || e.department === departmentFilter)
+        .filter((e) => !workAreaFilter || e.workArea === workAreaFilter),
+    [employees, departmentFilter, workAreaFilter]
   );
 
   async function importFromAirtable() {
@@ -274,12 +281,20 @@ function EmployeesTab() {
   return (
     <div>
       <div className="flex justify-between gap-2 mb-2 flex-wrap">
-        <select className="input w-auto" value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
-          <option value="">כל המחלקות</option>
-          {departments.map((d) => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-        </select>
+        <div className="flex gap-2 flex-wrap">
+          <select className="input w-auto" value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
+            <option value="">כל המחלקות</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+          <select className="input w-auto" value={workAreaFilter} onChange={(e) => setWorkAreaFilter(e.target.value)}>
+            <option value="">כל תחומי העיסוק</option>
+            {WORK_AREAS.map((w) => (
+              <option key={w} value={w}>{w}</option>
+            ))}
+          </select>
+        </div>
         <div className="flex gap-2">
           <button className="btn-outline" onClick={importFromAirtable} disabled={importBusy}>
             <RefreshCw size={16} className={importBusy ? 'animate-spin' : ''} /> ייבוא עובדים מ-Airtable
@@ -297,6 +312,7 @@ function EmployeesTab() {
               <th className="py-2"><Users size={14} className="inline" /> שם</th>
               <th>תפקיד</th>
               <th>מחלקה</th>
+              <th>תחום עיסוק</th>
               <th>פעיל</th>
               <th></th>
             </tr>
@@ -307,6 +323,7 @@ function EmployeesTab() {
                 <td className="py-2">{e.name}</td>
                 <td>{e.role}</td>
                 <td>{e.department || '—'}</td>
+                <td>{e.workArea || '—'}</td>
                 <td>{e.isActive ? 'כן' : 'לא'}</td>
                 <td>
                   <div className="flex gap-1 justify-center">
@@ -347,7 +364,7 @@ function EmployeesTab() {
 }
 
 function AddEmployeeModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({ name: '', email: '', role: 'עובד', department: '', dailyRequiredHours: 8 });
+  const [form, setForm] = useState({ name: '', email: '', role: 'עובד', department: '', workArea: '', dailyRequiredHours: 8 });
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -378,6 +395,12 @@ function AddEmployeeModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
           <option>תיכון</option>
           <option>סמינר</option>
           <option>ניהול</option>
+        </select>
+        <select className="input" value={form.workArea} onChange={(e) => setForm({ ...form, workArea: e.target.value })}>
+          <option value="">תחום עיסוק</option>
+          {WORK_AREAS.map((w) => (
+            <option key={w}>{w}</option>
+          ))}
         </select>
         <div>
           <label className="label">שעות יומיות נדרשות</label>
@@ -420,6 +443,7 @@ function EditEmployeeModal({
     email: employee.email || '',
     role: employee.role,
     department: employee.department || '',
+    workArea: employee.workArea || '',
     isActive: employee.isActive,
     idNumber: employee.idNumber || '',
     employmentType: employee.employmentType || '',
@@ -452,6 +476,7 @@ function EditEmployeeModal({
         id: employee.id,
         ...form,
         department: form.department || null,
+        workArea: form.workArea || null,
         idNumber: form.idNumber || null,
         employmentType: form.employmentType || null,
         dailyTravelCost: form.dailyTravelCost === '' ? null : Number(form.dailyTravelCost),
@@ -505,6 +530,15 @@ function EditEmployeeModal({
             </select>
           </div>
           <div>
+            <label className="label">תחום עיסוק</label>
+            <select className="input" value={form.workArea} onChange={(e) => setField('workArea', e.target.value)}>
+              <option value="">—</option>
+              {WORK_AREAS.map((w) => (
+                <option key={w}>{w}</option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="label">תעודת זהות</label>
             <input className="input" value={form.idNumber} onChange={(e) => setField('idNumber', e.target.value)} />
           </div>
@@ -515,6 +549,7 @@ function EditEmployeeModal({
               <option value="שעתי">שעתי</option>
               <option value="חודשי">חודשי</option>
               <option value="נגד קבלה">נגד קבלה</option>
+              <option value="מורה לפי תקן">מורה לפי תקן</option>
             </select>
           </div>
           <div>

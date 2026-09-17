@@ -18,6 +18,9 @@ model User {
   lastName            String?
   role                String // מורה | עובד | מנהל
   department          String?
+  // תחום העיסוק שלה בפועל (לא "מחלקה" הכללית) — קודש, אדריכלות, עיצוב מדיה, מזכירות,
+  // הנהלת חשבונות, סולם וכו', כדי לדעת בקלות איפה כל עובדת/מורה מועסקת בפועל.
+  workArea            String?
   isActive            Boolean  @default(true)
   idNumber            String?
   travelExpenses      Float?
