@@ -49,7 +49,14 @@ router.get('/getMonthlyReport', async (req, res) => {
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
     const { report, days } = await calculateAndUpsert(employeeId, month);
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } });
-    res.json({ report, days, employeeName: employee.name });
+
+    let missingReceipt = false;
+    if (employee.employmentType === 'נגד קבלה') {
+      const hasReceipt = await prisma.receipt.findFirst({ where: { employeeId, month } });
+      missingReceipt = !hasReceipt;
+    }
+
+    res.json({ report, days, employeeName: employee.name, missingReceipt });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת הדוח' });
   }
@@ -78,6 +85,18 @@ router.post('/submitMonthlyReport', async (req, res) => {
     }
 
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: report.employeeId } });
+
+    // עובדת "נגד קבלה" (לא שכירה רגילה) — לא ניתן להגיש דוח חודשי בלי שהעלתה קבלה לחודש הזה,
+    // אחרת חשבת השכר לא יכולה לשלם לה כלל.
+    if (employee.employmentType === 'נגד קבלה') {
+      const hasReceipt = await prisma.receipt.findFirst({
+        where: { employeeId: employee.id, month: report.month },
+      });
+      if (!hasReceipt) {
+        return res.status(400).json({ error: 'עובדת נגד קבלה — יש להעלות קבלה לחודש הזה לפני הגשת הדוח' });
+      }
+    }
+
     if (employee.role === 'מורה' && employee.trackLessons) {
       try {
         const missingDates = await getMissingStudentAttendanceDates(employee.name, report.month);
@@ -115,7 +134,9 @@ router.post('/approveReport', requireAdminOrAttendanceManager, async (req, res) 
 router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) => {
   try {
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
-    const employees = await prisma.user.findMany({ where: { isActive: true } });
+    // עובדת "חודשי" (משכורת גלובלית) לא צריכה להגיש דוח שעות בכלל — השכר שלה לא תלוי בשעות.
+    // לא נספרת כ"חסרה" ולא בסך העובדים הנדרשים, כדי שהתצוגה תשקף רק מי שבאמת צריכה להגיש.
+    const employees = await prisma.user.findMany({ where: { isActive: true, employmentType: { not: 'חודשי' } } });
     const reports = await prisma.monthlyReport.findMany({
       where: { month },
       include: { employee: true },

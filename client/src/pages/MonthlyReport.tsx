@@ -57,19 +57,21 @@ export function MonthlyReport() {
   const [report, setReport] = useState<Report | null>(null);
   const [days, setDays] = useState<Day[]>([]);
   const [employeeName, setEmployeeName] = useState<string | null>(null);
+  const [missingReceipt, setMissingReceipt] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sigRef = useRef<SignaturePadHandle>(null);
 
   async function load() {
-    const data = await api.get<{ report: Report; days: Day[]; employeeName: string }>('/reports/getMonthlyReport', {
-      month,
-      ...(targetUserId ? { userId: targetUserId } : {}),
-    });
+    const data = await api.get<{ report: Report; days: Day[]; employeeName: string; missingReceipt: boolean }>(
+      '/reports/getMonthlyReport',
+      { month, ...(targetUserId ? { userId: targetUserId } : {}) }
+    );
     setReport(data.report);
     setDays(data.days);
     setEmployeeName(data.employeeName);
+    setMissingReceipt(data.missingReceipt);
   }
 
   useEffect(() => {
@@ -135,6 +137,11 @@ export function MonthlyReport() {
       {targetUserId && (
         <div className="mb-4 text-sm bg-blue-50 text-blue-800 rounded-xl px-4 py-2">
           צפייה בדוח של {employeeName} — חתימה והגשה זמינות רק לעובדת עצמה
+        </div>
+      )}
+      {missingReceipt && !targetUserId && (
+        <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">
+          את מוגדרת כעובדת נגד קבלה — יש להעלות קבלה לחודש {month} (בעמוד "נוכחות מורות", בקטע "קבלות") לפני שאפשר להגיש את הדוח.
         </div>
       )}
 
@@ -226,7 +233,7 @@ export function MonthlyReport() {
           <h3 className="font-bold text-navy mb-3">חתימה והגשה</h3>
           <SignaturePad ref={sigRef} />
           <div className="flex gap-2 mt-4">
-            <button className="btn-primary" onClick={submit} disabled={busy}>
+            <button className="btn-primary" onClick={submit} disabled={busy || missingReceipt} title={missingReceipt ? 'יש להעלות קבלה לחודש הזה לפני ההגשה' : ''}>
               <Send size={16} /> הגשת דוח
             </button>
           </div>

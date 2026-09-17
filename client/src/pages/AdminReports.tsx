@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus, Pencil } from 'lucide-react';
 import { Layout } from '../components/Layout';
@@ -226,6 +226,7 @@ function EmployeesTab() {
   const [editing, setEditing] = useState<Employee | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+  const [departmentFilter, setDepartmentFilter] = useState('');
 
   async function load() {
     const data = await api.get<{ employees: Employee[] }>('/employees/getEmployees');
@@ -240,6 +241,15 @@ function EmployeesTab() {
     await api.delete('/employees/deleteEmployee', { id });
     await load();
   }
+
+  const departments = useMemo(
+    () => Array.from(new Set(employees.map((e) => e.department).filter(Boolean))) as string[],
+    [employees]
+  );
+  const filteredEmployees = useMemo(
+    () => (departmentFilter ? employees.filter((e) => e.department === departmentFilter) : employees),
+    [employees, departmentFilter]
+  );
 
   async function importFromAirtable() {
     setImportBusy(true);
@@ -263,13 +273,21 @@ function EmployeesTab() {
 
   return (
     <div>
-      <div className="flex justify-end gap-2 mb-2">
-        <button className="btn-outline" onClick={importFromAirtable} disabled={importBusy}>
-          <RefreshCw size={16} className={importBusy ? 'animate-spin' : ''} /> ייבוא עובדים מ-Airtable
-        </button>
-        <button className="btn-primary" onClick={() => setShowAdd(true)}>
-          <Plus size={16} /> הוספת עובד
-        </button>
+      <div className="flex justify-between gap-2 mb-2 flex-wrap">
+        <select className="input w-auto" value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
+          <option value="">כל המחלקות</option>
+          {departments.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+        <div className="flex gap-2">
+          <button className="btn-outline" onClick={importFromAirtable} disabled={importBusy}>
+            <RefreshCw size={16} className={importBusy ? 'animate-spin' : ''} /> ייבוא עובדים מ-Airtable
+          </button>
+          <button className="btn-primary" onClick={() => setShowAdd(true)}>
+            <Plus size={16} /> הוספת עובד
+          </button>
+        </div>
       </div>
       {importResult && <p className="text-sm text-slate-600 mb-4 text-left">{importResult}</p>}
       <div className="card overflow-x-auto">
@@ -284,7 +302,7 @@ function EmployeesTab() {
             </tr>
           </thead>
           <tbody>
-            {employees.map((e) => (
+            {filteredEmployees.map((e) => (
               <tr key={e.id} className="border-b last:border-0 hover:bg-slate-50">
                 <td className="py-2">{e.name}</td>
                 <td>{e.role}</td>
