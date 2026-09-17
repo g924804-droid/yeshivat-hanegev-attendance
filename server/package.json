@@ -26,6 +26,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^2.7.0",
+    "nodemailer": "^10.0.10",
     "puppeteer-core": "^22.15.0",
     "zod": "^3.23.8"
   },
@@ -37,6 +38,7 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.14.15",
     "@types/node-fetch": "^2.6.11",
+    "@types/nodemailer": "^8.0.2",
     "prisma": "^5.19.1",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",

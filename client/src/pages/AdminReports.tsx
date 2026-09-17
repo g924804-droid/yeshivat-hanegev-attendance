@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus, Pencil } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus, Pencil, Mail } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
@@ -229,6 +229,8 @@ function EmployeesTab() {
   const [editing, setEditing] = useState<Employee | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+  const [reminderBusy, setReminderBusy] = useState(false);
+  const [reminderResult, setReminderResult] = useState<string | null>(null);
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [workAreaFilter, setWorkAreaFilter] = useState('');
 
@@ -278,6 +280,22 @@ function EmployeesTab() {
     }
   }
 
+  async function sendReminders() {
+    if (!confirm('לשלוח עכשיו תזכורת חודשית במייל לכל העובדים (חוץ מ"חודשי")?')) return;
+    setReminderBusy(true);
+    setReminderResult(null);
+    try {
+      const r = await api.post<{ sent: number; errors: string[] }>('/reports/sendMonthlyReminders');
+      setReminderResult(
+        `נשלחו ${r.sent} תזכורות` + (r.errors.length ? ` — ${r.errors.length} שגיאות: ${r.errors.join('; ')}` : '')
+      );
+    } catch (err: any) {
+      setReminderResult(err.message || 'שגיאה בשליחת תזכורות');
+    } finally {
+      setReminderBusy(false);
+    }
+  }
+
   return (
     <div>
       <div className="flex justify-between gap-2 mb-2 flex-wrap">
@@ -296,6 +314,9 @@ function EmployeesTab() {
           </select>
         </div>
         <div className="flex gap-2">
+          <button className="btn-outline" onClick={sendReminders} disabled={reminderBusy}>
+            <Mail size={16} /> שלח תזכורת חודשית עכשיו
+          </button>
           <button className="btn-outline" onClick={importFromAirtable} disabled={importBusy}>
             <RefreshCw size={16} className={importBusy ? 'animate-spin' : ''} /> ייבוא עובדים מ-Airtable
           </button>
@@ -305,6 +326,7 @@ function EmployeesTab() {
         </div>
       </div>
       {importResult && <p className="text-sm text-slate-600 mb-4 text-left">{importResult}</p>}
+      {reminderResult && <p className="text-sm text-slate-600 mb-4 text-left">{reminderResult}</p>}
       <div className="card overflow-x-auto">
         <table className="w-full text-sm text-center">
           <thead>

@@ -166,4 +166,7 @@ model SiteSettings {
   siteName String?
   logoData Bytes?
   logoMime String?
+  // YYYY-MM של הפעם האחרונה ששלחנו תזכורת חודשית — מונע שליחה כפולה אם השרת עולה כמה
+  // פעמים ביום האחרון של החודש (למשל אחרי דיפלוי).
+  lastReminderMonth String?
 }

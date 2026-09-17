@@ -6,9 +6,20 @@ import { hasPendingContracts } from '../lib/contracts';
 import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
 import { renderHtmlToPdf } from '../lib/pdf';
 import { reportPdfHtml, summaryPdfHtml } from '../lib/pdfTemplates';
+import { sendMonthlyReminders } from '../lib/monthlyReminder';
 
 const router = Router();
 router.use(requireAuth);
+
+/** שליחה ידנית (בדיקה, או תזכורת חד-פעמית מחוץ ללוח הזמנים האוטומטי). */
+router.post('/sendMonthlyReminders', requireAdmin, async (req, res) => {
+  try {
+    const result = await sendMonthlyReminders();
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשליחת תזכורות' });
+  }
+});
 
 function targetUserId(req: any): string {
   const canManage = req.user.role === 'מנהל' || !!req.user.isAttendanceManager;

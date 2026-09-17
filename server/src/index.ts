@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { enrichCurrentUser } from './middleware/auth';
 import { warmUpBrowser } from './lib/pdf';
+import { checkAndSendMonthlyReminder } from './lib/monthlyReminder';
 
 import authRoutes from './routes/auth';
 import attendanceRoutes from './routes/attendance';
@@ -78,4 +79,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 app.listen(PORT, () => {
   console.log(`שרת מערכת נוכחות ישיבת הנגב פועל על פורט ${PORT}`);
   warmUpBrowser();
+  // בודקים כל שעה אם היום הוא היום האחרון בחודש — מספיק תדיר כדי לתפוס את זה גם אחרי
+  // עליית שרת מחדש, בלי צורך בספריית cron נפרדת עבור בדיקה כל כך פשוטה.
+  checkAndSendMonthlyReminder();
+  setInterval(checkAndSendMonthlyReminder, 60 * 60 * 1000);
 });
