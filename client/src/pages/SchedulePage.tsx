@@ -393,7 +393,7 @@ function LessonModal({
   const [timeChoice, setTimeChoice] = useState(lesson ? (knownTime ? lesson.time : CUSTOM_TIME) : daySlots[0].time);
   const [customTime, setCustomTime] = useState(lesson && !knownTime ? lesson.time : '');
   const [teacherIds, setTeacherIds] = useState<string[]>(lesson?.teacher || []);
-  // כמה מסלולים בבת אחת — לאירוע/כנס משותף (למשל כנס לכולם), במקום ליצור את אותו שיעור בנפרד לכל מסلול.
+  // כמה מסלולים בבת אחת — לאירוע/כנס משותף (למשל כנס לכולם), במקום ליצור את אותו שיעור בנפרד לכל מסלול.
   const [trackIds, setTrackIds] = useState<string[]>(lesson?.track || []);
   const [busy, setBusy] = useState(false);
   const [newTeacherName, setNewTeacherName] = useState('');

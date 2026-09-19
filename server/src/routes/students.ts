@@ -62,7 +62,7 @@ async function getTrackLessonsForDate(trackId: string, date: string) {
 /**
  * שדה "תלמידות" בטבלת המסלולים הוא טקסט מחושב (שמות מופרדים בפסיקים), לא שדה מקושר אמיתי —
  * וחלק מהמסלולים אפילו חסרים אותו לגמרי. מקור האמת האמין הוא ההפך: כל תלמידה מחזיקה בעצמה
- * את רשימת המסلولים שלה (שדה "מסלולים", מערך מזהים) — משם שואבים תמיד.
+ * את רשימת המסלולים שלה (שדה "מסלולים", מערך מזהים) — משם שואבים תמיד.
  */
 function getStudentIdsByTrack(trackId: string, allStudents: Awaited<ReturnType<typeof airtableFetch>>): string[] {
   return allStudents.filter((s) => (s.fields[FIELDS.students.track] || []).includes(trackId)).map((s) => s.id);

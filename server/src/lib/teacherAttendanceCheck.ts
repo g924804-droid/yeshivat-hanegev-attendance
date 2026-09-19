@@ -5,6 +5,13 @@ const DOW_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי'
 
 type RequiredSlot = { date: string; trackId: string };
 
+/** שיעורים ישנים בלי מתאריך/עד-תאריך נחשבים תקפים תמיד — התאריכים נוספו רק בהמשך (כמו ב-students.ts). */
+function lessonAppliesOnDate(l: { fromDate?: string | null; toDate?: string | null }, date: string): boolean {
+  if (l.fromDate && date < l.fromDate) return false;
+  if (l.toDate && date > l.toDate) return false;
+  return true;
+}
+
 /** לפי מערכת השעות: לכל יום בחודש שהמורה לימדה בו (יום בשבוע תואם), את/ה המסלול שלימדה בו. */
 async function getRequiredAttendanceSlots(teacherName: string, month: string): Promise<RequiredSlot[]> {
   const teacherRecords = await airtableFetch(TABLES.teachers, {
@@ -28,6 +35,14 @@ async function getRequiredAttendanceSlots(teacherName: string, month: string): P
     const dow = DOW_HE[new Date(`${date}T00:00:00`).getDay()];
     for (const lesson of myLessons) {
       if (lesson.fields[FIELDS.lessons.dayOfWeek] !== dow) continue;
+      if (
+        !lessonAppliesOnDate(
+          { fromDate: lesson.fields[FIELDS.lessons.fromDate], toDate: lesson.fields[FIELDS.lessons.toDate] },
+          date
+        )
+      ) {
+        continue;
+      }
       const trackIds: string[] = lesson.fields[FIELDS.lessons.track] || [];
       trackIds.forEach((trackId) => slots.push({ date, trackId }));
     }
@@ -48,12 +63,16 @@ export async function getMissingStudentAttendanceDates(teacherName: string, mont
   if (slots.length === 0) return [];
 
   const trackIds = [...new Set(slots.map((s) => s.trackId))];
-  const tracks = await airtableFetch(TABLES.tracks, {
-    filterByFormula: `OR(${trackIds.map((id) => `RECORD_ID()="${id}"`).join(',')})`,
-  });
+  // שדה "תלמידות" בטבלת המסלולים הוא טקסט מחושב, לא שדה מקושר אמיתי (ולפעמים חסר לגמרי) —
+  // אותו תיקון שכבר נעשה ב-students.ts וב-teacherScope.ts: מקור האמת הוא שדה "מסלולים" של
+  // כל תלמידה בעצמה, לא ההפך.
+  const allStudents = await airtableFetch(TABLES.students);
   const trackStudents = new Map<string, Set<string>>();
-  for (const t of tracks) {
-    trackStudents.set(t.id, new Set(t.fields[FIELDS.tracks.students] || []));
+  for (const trackId of trackIds) {
+    const ids = allStudents
+      .filter((s) => (s.fields[FIELDS.students.track] || []).includes(trackId))
+      .map((s) => s.id);
+    trackStudents.set(trackId, new Set(ids));
   }
 
   const attendance = await airtableFetch(TABLES.attendance, {

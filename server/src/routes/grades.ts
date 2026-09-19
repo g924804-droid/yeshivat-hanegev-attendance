@@ -8,7 +8,7 @@ import { requireAuth, requirePermission } from '../middleware/auth';
 const router = Router();
 router.use(requireAuth);
 
-/** אותו מקור אמת כמו students.ts: לתלמידה יש שדה "מסلولים" משלה — לא סומכים על שדה מחושב בטבלת המסلولים. */
+/** אותו מקור אמת כמו students.ts: לתלמידה יש שדה "מסלולים" משלה — לא סומכים על שדה מחושב בטבלת המסלולים. */
 function getStudentIdsByTrack(trackId: string, allStudents: Awaited<ReturnType<typeof airtableFetch>>): string[] {
   return allStudents.filter((s) => (s.fields[FIELDS.students.track] || []).includes(trackId)).map((s) => s.id);
 }
@@ -125,7 +125,7 @@ router.get('/getTrackSubjects', requirePermission('grades'), async (req, res) =>
   }
 });
 
-/** תלמידות המסلول + הציון הקיים שלהן במקצוע הנבחר (אם יש), למילוי/עריכה — כמו נוכחות תלמידות. */
+/** תלמידות המסלול + הציון הקיים שלהן במקצוע הנבחר (אם יש), למילוי/עריכה — כמו נוכחות תלמידות. */
 router.get('/getStudentsForGrading', requirePermission('grades'), async (req, res) => {
   try {
     const trackId = req.query.trackId as string;

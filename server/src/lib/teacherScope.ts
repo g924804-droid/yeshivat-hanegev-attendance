@@ -3,7 +3,7 @@ import { FIELDS } from './airtableFields';
 
 /**
  * מנהל, מי שיש לה הרשאת ניהול נוכחות עובדים (isAttendanceManager), או מי שקיבלה במפורש
- * הרשאה נפרדת לראות את כל המסلولים (canManageAllStudentTracks) — למשל מזכירה שממלאת
+ * הרשאה נפרדת לראות את כל המסלולים (canManageAllStudentTracks) — למשל מזכירה שממלאת
  * נוכחות תלמידות/ציונים אבל לא אמורה לקבל גישה לניהול דוחות נוכחות של מורות/עובדים.
  * משותף בין נוכחות תלמידות וציונים — שתי המסכים צריכים בדיוק את אותו כלל "מי רואה הכל".
  */
@@ -58,9 +58,9 @@ export async function getTeacherTrackIds(teacherName: string): Promise<Set<strin
 }
 
 /**
- * מזהי התלמידות ששייכות למסלולים של מורה נתונה. שדה "תלמידות" בטבלת המסلولים הוא טקסט
+ * מזהי התלמידות ששייכות למסלולים של מורה נתונה. שדה "תלמידות" בטבלת המסלולים הוא טקסט
  * מחושב, לא שדה מקושר אמיתי (ולפעמים חסר לגמרי) — מקור האמת האמין הוא ההפך: כל תלמידה
- * מחזיקה בעצמה את רשימת המסلولים שלה. אותו תיקון שכבר נעשה ב-students.ts.
+ * מחזיקה בעצמה את רשימת המסלולים שלה. אותו תיקון שכבר נעשה ב-students.ts.
  */
 export async function getTeacherStudentIds(teacherName: string): Promise<Set<string>> {
   const trackIds = await getTeacherTrackIds(teacherName);
