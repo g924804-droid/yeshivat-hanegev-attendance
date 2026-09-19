@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus, Pencil, Mail } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus, Pencil, Mail, Undo2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
@@ -123,6 +123,12 @@ function ReportsTab() {
     await load();
   }
 
+  async function revertToDraft(id: string) {
+    if (!confirm('לבטל את ההגשה ולהחזיר את הדוח לטיוטה? החתימה תימחק ואפשר יהיה להגיש מחדש.')) return;
+    await api.post('/reports/revertReportToDraft', { reportId: id });
+    await load();
+  }
+
   async function exportSummary() {
     // פותחים את הטאב מיד וסינכרונית בתוך ה-click handler, לפני ה-await — אחרת הדפדפן חוסם
     // את זה כפופ-אפ בשקט ברגע שההדפסה לוקחת יותר מרגע (ראה גם exportPdf ב-MonthlyReport).
@@ -208,6 +214,14 @@ function ReportsTab() {
                   {r.status === 'הוגש' && (
                     <button className="btn-gold text-xs py-1 px-2" onClick={() => approve(r.id)}>
                       <CheckCircle2 size={14} /> אשר
+                    </button>
+                  )}
+                  {(r.status === 'הוגש' || r.status === 'אושר') && (
+                    <button
+                      className="btn-outline text-xs py-1 px-2 text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => revertToDraft(r.id)}
+                    >
+                      <Undo2 size={14} /> ביטול הגשה
                     </button>
                   )}
                 </td>

@@ -142,6 +142,20 @@ router.post('/approveReport', requireAdminOrAttendanceManager, async (req, res) 
   }
 });
 
+/** ביטול הגשה/אישור — מחזיר דוח לטיוטה, כדי שאפשר יהיה לתקן ולהגיש מחדש (או פשוט לבטל הגשת בדיקה). */
+router.post('/revertReportToDraft', requireAdminOrAttendanceManager, async (req, res) => {
+  try {
+    const { reportId } = req.body as { reportId: string };
+    const updated = await prisma.monthlyReport.update({
+      where: { id: reportId },
+      data: { status: 'טיוטה', employeeSignature: null },
+    });
+    res.json({ success: true, report: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בביטול ההגשה' });
+  }
+});
+
 router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) => {
   try {
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
