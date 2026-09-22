@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, CalendarClock, ChevronRight, ChevronLeft, CheckCheck, Check, Search, User, MapPin } from 'lucide-react';
+import { ArrowRight, CalendarClock, ChevronRight, ChevronLeft, CheckCheck, Check, Search, User, MapPin, AlertTriangle } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { todayStr, DOW_HE, getTimeSlotsForDay } from '../lib/utils';
@@ -15,6 +15,7 @@ type Student = {
   avgGrade: number | null;
 };
 type Lesson = { id: string; className: string; time: string; room: string; teacherName: string };
+type MissingSlot = { date: string; time: string; lessonId: string };
 
 const STATUS_OPTIONS = ['נוכחת', 'חסרה', 'איחור'];
 const STATUS_COLOR: Record<string, string> = {
@@ -63,8 +64,11 @@ export function StudentsList() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [markingId, setMarkingId] = useState<string | null>(null);
+  const [missingSlots, setMissingSlots] = useState<MissingSlot[]>([]);
 
-  async function load(lessonId?: string | null) {
+  // מקבל תאריך מפורש (לא סומך על ה-state) כדי שקפיצה ליום אחר (חצים/בחירת תאריך/לחיצה על
+  // "תאריך חסר") תמיד תביא את הנתונים של היום הנכון, בלי מרוץ בין קריאה ישנה לחדשה.
+  async function load(targetDate: string, lessonId?: string | null) {
     try {
       const data = await api.get<{
         track: { name: string };
@@ -72,7 +76,7 @@ export function StudentsList() {
         schedule: Lesson[];
         activeLessonId: string | null;
         hebrewDate: string;
-      }>('/students/getStudentsByTrack', { trackId, date, lessonId: lessonId || undefined });
+      }>('/students/getStudentsByTrack', { trackId, date: targetDate, lessonId: lessonId || undefined });
       setTrackName(data.track.name);
       setStudents(data.students);
       setSchedule(data.schedule);
@@ -83,14 +87,30 @@ export function StudentsList() {
     }
   }
 
+  function goToDate(targetDate: string, lessonId?: string) {
+    setDate(targetDate);
+    load(targetDate, lessonId);
+  }
+
   useEffect(() => {
-    load();
+    load(date);
+    api
+      .get<{ missing: MissingSlot[] }>('/students/getMissingAttendanceForTrack', { trackId })
+      .then((r) => setMissingSlots(r.missing))
+      .catch(() => setMissingSlots([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackId, date]);
+  }, [trackId]);
 
   function selectLesson(lessonId: string) {
     if (lessonId === activeLessonId) return;
-    load(lessonId);
+    load(date, lessonId);
+  }
+
+  function refreshMissing() {
+    api
+      .get<{ missing: MissingSlot[] }>('/students/getMissingAttendanceForTrack', { trackId })
+      .then((r) => setMissingSlots(r.missing))
+      .catch(() => {});
   }
 
   async function mark(student: Student, status: string) {
@@ -104,7 +124,8 @@ export function StudentsList() {
         existingAttendanceId: student.attendanceId || undefined,
         lessonId: activeLessonId || undefined,
       });
-      await load(activeLessonId);
+      await load(date, activeLessonId);
+      refreshMissing();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -121,7 +142,8 @@ export function StudentsList() {
         lessonId: activeLessonId || undefined,
         status: 'נוכחת',
       });
-      await load(activeLessonId);
+      await load(date, activeLessonId);
+      refreshMissing();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -157,10 +179,30 @@ export function StudentsList() {
 
       {error && <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
 
+      {/* תאריכים/שעות שעדיין חסרה בהם נוכחות תלמידות — כדי שלא תצטרך לחפש בלוח שנה */}
+      {missingSlots.length > 0 && (
+        <div className="card mb-4 border-amber-300 bg-amber-50">
+          <h3 className="font-bold text-amber-900 mb-2 flex items-center gap-2">
+            <AlertTriangle size={18} /> נוכחות תלמידות חסרה
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {missingSlots.map((s) => (
+              <button
+                key={`${s.date}-${s.lessonId}`}
+                onClick={() => goToDate(s.date, s.lessonId)}
+                className="badge cursor-pointer bg-white border border-amber-400 text-amber-900 hover:bg-amber-100"
+              >
+                {displayDate(s.date)} · {s.time}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ניווט תאריך */}
       <div className="card mb-4 flex items-center justify-between gap-2">
         <button
-          onClick={() => setDate(addDays(date, -1))}
+          onClick={() => goToDate(addDays(date, -1))}
           className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0"
           title="יום קודם"
         >
@@ -179,12 +221,12 @@ export function StudentsList() {
             type="date"
             className="input w-auto mt-2 text-sm py-1"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => goToDate(e.target.value)}
           />
         </div>
 
         <button
-          onClick={() => setDate(addDays(date, 1))}
+          onClick={() => goToDate(addDays(date, 1))}
           className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0"
           title="יום הבא"
         >

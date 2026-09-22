@@ -3,7 +3,7 @@ import { FIELDS } from './airtableFields';
 
 const DOW_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
-type RequiredSlot = { date: string; trackId: string };
+type RequiredSlot = { date: string; time: string; trackId: string; lessonId: string };
 
 /** שיעורים ישנים בלי מתאריך/עד-תאריך נחשבים תקפים תמיד — התאריכים נוספו רק בהמשך (כמו ב-students.ts). */
 function lessonAppliesOnDate(l: { fromDate?: string | null; toDate?: string | null }, date: string): boolean {
@@ -12,7 +12,7 @@ function lessonAppliesOnDate(l: { fromDate?: string | null; toDate?: string | nu
   return true;
 }
 
-/** לפי מערכת השעות: לכל יום בחודש שהמורה לימדה בו (יום בשבוע תואם), את/ה המסלול שלימדה בו. */
+/** לפי מערכת השעות: לכל יום בחודש שהמורה לימדה בו (יום בשבוע תואם), את/ה המסלול והשיעור שלימדה בו. */
 async function getRequiredAttendanceSlots(teacherName: string, month: string): Promise<RequiredSlot[]> {
   const teacherRecords = await airtableFetch(TABLES.teachers, {
     filterByFormula: `{${FIELDS.teachers.name}} = "${teacherName}"`,
@@ -44,21 +44,26 @@ async function getRequiredAttendanceSlots(teacherName: string, month: string): P
         continue;
       }
       const trackIds: string[] = lesson.fields[FIELDS.lessons.track] || [];
-      trackIds.forEach((trackId) => slots.push({ date, trackId }));
+      const time = lesson.fields[FIELDS.lessons.time] || '';
+      trackIds.forEach((trackId) => slots.push({ date, time, trackId, lessonId: lesson.id }));
     }
   }
 
   const seen = new Set<string>();
   return slots.filter((s) => {
-    const key = `${s.date}|${s.trackId}`;
+    const key = `${s.date}|${s.trackId}|${s.lessonId}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-/** תאריכים בחודש שבהם המורה לימדה (לפי מערכת השעות) אך עדיין לא סומנה נוכחות לתלמידות המסלול שלה. */
-export async function getMissingStudentAttendanceDates(teacherName: string, month: string): Promise<string[]> {
+/** אותו חישוב, אבל מחזיר את הפרטים המלאים (תאריך+שעה+מסלול+שיעור) של כל שיבוץ חסר —
+ * למסך "נוכחות תלמידות" שרוצה להראות למורה בדיוק לאן לקפוץ, לא רק אילו תאריכים. */
+export async function getMissingAttendanceSlots(
+  teacherName: string,
+  month: string
+): Promise<RequiredSlot[]> {
   const slots = await getRequiredAttendanceSlots(teacherName, month);
   if (slots.length === 0) return [];
 
@@ -88,9 +93,13 @@ export async function getMissingStudentAttendanceDates(teacherName: string, mont
     }
   }
 
-  const missingDates = new Set<string>();
-  for (const slot of slots) {
-    if (!covered.has(`${slot.date}|${slot.trackId}`)) missingDates.add(slot.date);
-  }
-  return Array.from(missingDates).sort();
+  return slots
+    .filter((slot) => !covered.has(`${slot.date}|${slot.trackId}`))
+    .sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
+}
+
+/** תאריכים בחודש שבהם המורה לימדה (לפי מערכת השעות) אך עדיין לא סומנה נוכחות לתלמידות המסלול שלה. */
+export async function getMissingStudentAttendanceDates(teacherName: string, month: string): Promise<string[]> {
+  const missing = await getMissingAttendanceSlots(teacherName, month);
+  return Array.from(new Set(missing.map((s) => s.date))).sort();
 }

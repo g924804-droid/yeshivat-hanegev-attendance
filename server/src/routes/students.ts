@@ -13,6 +13,7 @@ import { FIELDS } from '../lib/airtableFields';
 import { getFullSchedule } from '../lib/scheduleData';
 import { getHebrewDateLabel } from '../lib/holidays';
 import { getTeacherTrackIds, findTeacherIds, canSeeAllStudentTracks } from '../lib/teacherScope';
+import { getMissingAttendanceSlots } from '../lib/teacherAttendanceCheck';
 import { requireAuth, requirePermission } from '../middleware/auth';
 
 const router = Router();
@@ -67,6 +68,28 @@ async function getTrackLessonsForDate(trackId: string, date: string) {
 function getStudentIdsByTrack(trackId: string, allStudents: Awaited<ReturnType<typeof airtableFetch>>): string[] {
   return allStudents.filter((s) => (s.fields[FIELDS.students.track] || []).includes(trackId)).map((s) => s.id);
 }
+
+/**
+ * תאריכים/שעות שהמורה עדיין לא סימנה נוכחות תלמידות במסלול הזה — כדי שברגע שהיא נכנסת
+ * למסלול היא תראה מיד לאן לקפוץ, בלי לחפש בלוח שנה. אם המשתמשת היא מנהלת/מזכירת נוכחות
+ * (לא מורה בפועל) הרשימה פשוט תצא ריקה — זה בסדר, זה מיועד למורה שממלאת לעצמה.
+ */
+router.get('/getMissingAttendanceForTrack', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    const trackId = req.query.trackId as string;
+    const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+    if (!trackId) return res.status(400).json({ error: 'חסר מזהה מסלול' });
+
+    const slots = await getMissingAttendanceSlots(req.user!.name, month);
+    const missing = slots
+      .filter((s) => s.trackId === trackId)
+      .map((s) => ({ date: s.date, time: s.time, lessonId: s.lessonId }));
+
+    res.json({ missing });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בבדיקת נוכחות חסרה' });
+  }
+});
 
 router.get('/getTracks', requirePermission('studentAttendance'), async (req, res) => {
   try {
