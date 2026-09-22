@@ -39,10 +39,13 @@ function slotLabel(dayOfWeek: string, time: string): string {
   return slot?.label || '';
 }
 
-/** אין שדה נפרד לשם משפחה — ממוסכמת השם העברי, המילה האחרונה בשם היא שם המשפחה. */
+/**
+ * אין שדה נפרד לשם משפחה — לפי המוסכמה בנתונים בפועל (למשל "אדלר בת שבע", "כהן יסכה"),
+ * שם המשפחה הוא המילה הראשונה, לא האחרונה. תיקון לבאג קודם שמיין לפי השם הפרטי בטעות.
+ */
 function familyName(fullName: string): string {
   const parts = fullName.trim().split(/\s+/);
-  return parts[parts.length - 1] || fullName;
+  return parts[0] || fullName;
 }
 
 export function StudentsList() {
