@@ -331,23 +331,31 @@ export function StudentsList() {
                         key={opt}
                         onClick={() => mark(s, opt)}
                         disabled={markingId === s.id}
-                        className={`badge transition-transform flex items-center gap-1 ${
+                        className={`badge transition-transform flex items-center gap-1 font-bold ${
                           markingId === s.id
                             ? 'opacity-40 cursor-wait'
                             : 'cursor-pointer hover:scale-105'
                         } ${
                           s.status === opt
-                            ? `${STATUS_COLOR[opt]} ring-2 ring-offset-1 ${
+                            ? `${STATUS_COLOR[opt]} ring-2 ring-offset-1 shadow-sm ${
                                 opt === 'נוכחת'
-                                  ? 'ring-green-400'
+                                  ? 'ring-green-500'
                                   : opt === 'חסרה'
-                                  ? 'ring-red-400'
-                                  : 'ring-amber-400'
+                                  ? 'ring-red-500'
+                                  : 'ring-amber-500'
                               }`
-                            : 'bg-slate-100 text-slate-500'
+                            : 'bg-slate-100 text-slate-500 font-normal'
                         }`}
                       >
-                        {s.status === opt && <Check size={13} strokeWidth={3} />}
+                        {s.status === opt && (
+                          <span
+                            className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${
+                              opt === 'נוכחת' ? 'bg-green-600' : opt === 'חסרה' ? 'bg-red-600' : 'bg-amber-600'
+                            }`}
+                          >
+                            <Check size={12} strokeWidth={3.5} />
+                          </span>
+                        )}
                         {opt}
                       </button>
                     ))}
