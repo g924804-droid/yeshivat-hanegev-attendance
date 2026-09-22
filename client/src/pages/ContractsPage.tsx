@@ -13,6 +13,7 @@ type Contract = {
   employee: { id: string; name: string };
   uploadedAt: string;
   signedAt: string | null;
+  employeeSignature: string | null;
 };
 type Employee = { id: string; name: string };
 
@@ -76,9 +77,17 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
               </button>
             )}
             {c.status === 'נחתם' && (
-              <p className="text-green-700 text-xs mt-2 flex items-center gap-1">
-                <CheckCircle2 size={14} /> נחתם ב-{new Date(c.signedAt!).toLocaleDateString('he-IL')}
-              </p>
+              <div className="mt-2">
+                <p className="text-green-700 text-xs flex items-center gap-1">
+                  <CheckCircle2 size={14} /> נחתם ב-{new Date(c.signedAt!).toLocaleDateString('he-IL')}
+                </p>
+                {c.employeeSignature && (
+                  <div className="mt-2 border rounded-lg p-2 bg-slate-50">
+                    <p className="text-[10px] text-slate-400 mb-1">חתימת העובד/ת:</p>
+                    <img src={c.employeeSignature} alt="חתימה" className="max-h-16 bg-white rounded border" />
+                  </div>
+                )}
+              </div>
             )}
           </div>
         ))}
