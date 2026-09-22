@@ -12,6 +12,36 @@ function sameNameIgnoringWordOrder(a: string, b: string): boolean {
   return normalize(a) === normalize(b);
 }
 
+function levenshtein(a: string, b: string): number {
+  const dp: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+/**
+ * מוצא של-Airtable ולעובד יש כתיב כמעט זהה (למשל "זגדון" מול "זיגדון" — אות אחת חסרה) —
+ * מקרה אמיתי שקרה: היה לעובדת חשבון תקין, אבל ההתחברות נכשלה כי השם ב-Airtable לא היה
+ * זהה אות-באות לשם במערכת. מקבלים התאמה רק אם היא חד-משמעית (בדיוק עובדת אחת קרובה מספיק),
+ * כדי לא לנחש בטעות בין שתי עובדות בעלות שמות דומים.
+ */
+function findFuzzyNameMatch<T extends { name: string }>(userName: string, users: T[]): T | undefined {
+  const candidates = users
+    .map((u) => ({ user: u, distance: levenshtein(u.name.trim(), userName) }))
+    .filter((c) => c.distance > 0 && c.distance <= 2)
+    .sort((a, b) => a.distance - b.distance);
+  if (candidates.length === 0) return undefined;
+  if (candidates.length > 1 && candidates[0].distance === candidates[1].distance) return undefined;
+  return candidates[0].user;
+}
+
 router.post('/login', async (req, res) => {
   try {
     const { password } = req.body as { password?: string };
@@ -37,6 +67,9 @@ router.post('/login', async (req, res) => {
     }
     if (!matched) {
       matched = allUsers.find((u) => sameNameIgnoringWordOrder(u.name, userName));
+    }
+    if (!matched) {
+      matched = findFuzzyNameMatch(userName, allUsers);
     }
     if (!matched) return res.status(404).json({ error: `לא נמצא עובד תואם לשם "${userName}"` });
 
