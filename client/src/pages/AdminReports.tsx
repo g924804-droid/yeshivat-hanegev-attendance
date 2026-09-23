@@ -18,6 +18,8 @@ type ReportRow = {
   vacationDays: number;
   absenceDays: number;
   specialRateHours: number;
+  isNewEmployee: boolean;
+  hasNewContract: boolean;
   employee: { id: string; name: string; department: string | null };
 };
 
@@ -189,8 +191,27 @@ function ReportsTab() {
           </thead>
           <tbody>
             {reports.map((r) => (
-              <tr key={r.id} className={`border-b last:border-0 hover:bg-slate-50 ${r.specialRateHours > 0 ? 'bg-amber-50' : ''}`}>
-                <td className="py-2">{r.employee.name}</td>
+              <tr
+                key={r.id}
+                className={`border-b last:border-0 hover:bg-slate-50 ${
+                  r.specialRateHours > 0 || r.isNewEmployee || r.hasNewContract ? 'bg-amber-50' : ''
+                }`}
+              >
+                <td className="py-2">
+                  <div className="flex items-center justify-center gap-1.5">
+                    {r.employee.name}
+                    {r.isNewEmployee && (
+                      <span className="badge bg-amber-200 border border-amber-400 text-amber-900 text-[10px]">
+                        עובד/ת חדשה
+                      </span>
+                    )}
+                    {r.hasNewContract && (
+                      <span className="badge bg-amber-200 border border-amber-400 text-amber-900 text-[10px]">
+                        חוזה חדש
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td>{r.employee.department || '—'}</td>
                 <td>{r.status}</td>
                 <td>{safeFixed(r.totalHours)}</td>

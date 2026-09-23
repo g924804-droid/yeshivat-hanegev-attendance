@@ -91,7 +91,11 @@ export function reportPdfHtml(
   </body></html>`;
 }
 
-export function summaryPdfHtml(month: string, reports: (MonthlyReport & { employee: User })[]): string {
+export function summaryPdfHtml(
+  month: string,
+  reports: (MonthlyReport & { employee: User })[],
+  newFlags?: Map<string, { isNewEmployee: boolean; hasNewContract: boolean }>
+): string {
   const byDept = new Map<string, (MonthlyReport & { employee: User })[]>();
   for (const r of reports) {
     const dep = r.employee.department || 'ללא מחלקה';
@@ -102,18 +106,27 @@ export function summaryPdfHtml(month: string, reports: (MonthlyReport & { employ
   const sections = Array.from(byDept.entries())
     .map(([dep, list]) => {
       const rows = list
-        .map(
-          (r) => `<tr class="${r.specialRateHours > 0 ? 'special-row' : ''}">
+        .map((r) => {
+          const flag = newFlags?.get(r.employeeId);
+          const isFlagged = r.specialRateHours > 0 || flag?.isNewEmployee || flag?.hasNewContract;
+          const noteBadges = [
+            flag?.isNewEmployee ? '<span class="special-badge">★</span> עובד/ת חדשה' : '',
+            flag?.hasNewContract ? '<span class="special-badge">★</span> חוזה חדש' : '',
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          return `<tr class="${isFlagged ? 'special-row' : ''}">
         <td>${r.employee.name}</td><td>${r.status}</td><td>${r.totalWorkDays}</td>
         <td>${r.totalHours.toFixed(2)}</td><td>${r.totalOvertime.toFixed(2)}</td>
         <td>${r.sickDays}</td><td>${r.vacationDays}</td><td>${r.absenceDays}</td>
         <td>${r.specialRateHours > 0 ? `<span class="special-badge">₪</span> ${r.specialRateHours.toFixed(2)}` : '—'}</td>
-      </tr>`
-        )
+        <td>${noteBadges || '—'}</td>
+      </tr>`;
+        })
         .join('');
       return `<h2>${dep}</h2>
       <table>
-        <thead><tr><th>שם</th><th>סטטוס</th><th>ימי עבודה</th><th>שעות</th><th>עודפות</th><th>מחלה</th><th>חופשה</th><th>העדרות</th><th>⚠ שכר שונה</th></tr></thead>
+        <thead><tr><th>שם</th><th>סטטוס</th><th>ימי עבודה</th><th>שעות</th><th>עודפות</th><th>מחלה</th><th>חופשה</th><th>העדרות</th><th>⚠ שכר שונה</th><th>⚠ הערה</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
     })

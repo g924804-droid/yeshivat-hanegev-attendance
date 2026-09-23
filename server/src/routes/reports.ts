@@ -21,6 +21,35 @@ router.post('/sendMonthlyReminders', requireAdmin, async (req, res) => {
   }
 });
 
+/**
+ * מי מהעובדים הפעילים היא "עובדת חדשה" (נוצרה החודש הזה) או שיש לה "חוזה חדש" (הועלה או
+ * נחתם החודש הזה) — בשביל לסמן לחשבת השכר שיש כאן משהו שכדאי לבדוק, בדוח על-המסך וב-PDF.
+ */
+async function getNewEmployeeContractFlags(
+  month: string
+): Promise<Map<string, { isNewEmployee: boolean; hasNewContract: boolean }>> {
+  const inMonth = (d: Date | null) => !!d && d.toISOString().slice(0, 7) === month;
+
+  const [employees, contracts] = await Promise.all([
+    prisma.user.findMany({ select: { id: true, createdAt: true } }),
+    prisma.contract.findMany({ select: { employeeId: true, uploadedAt: true, signedAt: true } }),
+  ]);
+
+  const newContractByEmployee = new Set<string>();
+  for (const c of contracts) {
+    if (inMonth(c.uploadedAt) || inMonth(c.signedAt)) newContractByEmployee.add(c.employeeId);
+  }
+
+  const flags = new Map<string, { isNewEmployee: boolean; hasNewContract: boolean }>();
+  for (const e of employees) {
+    flags.set(e.id, {
+      isNewEmployee: inMonth(e.createdAt),
+      hasNewContract: newContractByEmployee.has(e.id),
+    });
+  }
+  return flags;
+}
+
 function targetUserId(req: any): string {
   const canManage = req.user.role === 'מנהל' || !!req.user.isAttendanceManager;
   return canManage && (req.body?.userId || req.query?.userId) ? req.body?.userId || req.query?.userId : req.user.id;
@@ -178,7 +207,10 @@ router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) =
       missing: missingEmployees.length,
     };
 
-    res.json({ reports, missingEmployees, summary });
+    const flags = await getNewEmployeeContractFlags(month);
+    const reportsWithFlags = reports.map((r) => ({ ...r, ...(flags.get(r.employeeId) || { isNewEmployee: false, hasNewContract: false }) }));
+
+    res.json({ reports: reportsWithFlags, missingEmployees, summary });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת הדוחות' });
   }
@@ -211,7 +243,8 @@ router.get('/exportSummaryPdf', requireAdminOrAttendanceManager, async (req, res
   try {
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
     const reports = await prisma.monthlyReport.findMany({ where: { month }, include: { employee: true } });
-    const html = summaryPdfHtml(month, reports);
+    const flags = await getNewEmployeeContractFlags(month);
+    const html = summaryPdfHtml(month, reports, flags);
     const { url, filename } = await renderHtmlToPdf(html, {
       subdir: 'summaries',
       filename: `סיכום-${month}.pdf`,
