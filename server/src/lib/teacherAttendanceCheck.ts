@@ -84,6 +84,12 @@ export async function getMissingAttendanceSlots(
     .sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
 }
 
+/** תאריכים בחודש (עד היום) שבהם למורה יש שיעורים לפי מערכת השעות בפועל. */
+export async function getTeachingDates(teacherName: string, month: string): Promise<string[]> {
+  const slots = await getRequiredAttendanceSlots(teacherName, month);
+  return Array.from(new Set(slots.map((s) => s.date))).sort();
+}
+
 /** תאריכים בחודש שבהם המורה לימדה (לפי מערכת השעות) אך עדיין לא סומנה נוכחות לתלמידות המסלול שלה. */
 export async function getMissingStudentAttendanceDates(teacherName: string, month: string): Promise<string[]> {
   const missing = await getMissingAttendanceSlots(teacherName, month);

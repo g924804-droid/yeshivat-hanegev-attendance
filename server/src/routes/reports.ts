@@ -256,9 +256,34 @@ router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) =
     };
 
     const flags = await getNewEmployeeContractFlags(month);
-    const reportsWithFlags = reports.map((r) => ({ ...r, ...(flags.get(r.employeeId) || { isNewEmployee: false, hasNewContract: false }) }));
 
-    res.json({ reports: reportsWithFlags, missingEmployees, summary });
+    // קבלות שהוגשו וממתינות לאישור — כדי שהנהלת החשבונות תראה בסיכום הדוחות אצל איזו מורה מחכות קבלות.
+    // כל הקבלות הממתינות של העובד/ת (לא רק של החודש המוצג), כי קבלה ישנה שנשכחה חשובה לא פחות.
+    const pendingGroups = await prisma.receipt.groupBy({
+      by: ['employeeId'],
+      where: { status: 'ממתין' },
+      _count: { _all: true },
+    });
+    const pendingByEmployee = new Map(pendingGroups.map((g) => [g.employeeId, g._count._all]));
+    const pendingEmployees = await prisma.user.findMany({
+      where: { id: { in: [...pendingByEmployee.keys()] } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    const pendingReceipts = pendingEmployees.map((e) => ({ id: e.id, name: e.name, count: pendingByEmployee.get(e.id)! }));
+
+    const reportsWithFlags = reports.map((r) => ({
+      ...r,
+      ...(flags.get(r.employeeId) || { isNewEmployee: false, hasNewContract: false }),
+      pendingReceipts: pendingByEmployee.get(r.employeeId) || 0,
+    }));
+
+    res.json({
+      reports: reportsWithFlags,
+      missingEmployees,
+      pendingReceipts,
+      summary: { ...summary, pendingReceipts: pendingReceipts.reduce((s, p) => s + p.count, 0) },
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת הדוחות' });
   }

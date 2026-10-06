@@ -22,8 +22,11 @@ type ReportRow = {
   specialRateHours: number;
   isNewEmployee: boolean;
   hasNewContract: boolean;
+  pendingReceipts: number;
   employee: { id: string; name: string; department: string | null };
 };
+
+type PendingReceipts = { id: string; name: string; count: number };
 
 type Employee = {
   id: string;
@@ -122,6 +125,7 @@ function ReportsTab() {
   const [month, setMonth] = useUrlState('month', currentMonth());
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [missing, setMissing] = useState<{ id: string; name: string }[]>([]);
+  const [pendingReceipts, setPendingReceipts] = useState<PendingReceipts[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -140,12 +144,15 @@ function ReportsTab() {
   }
 
   async function load() {
-    const data = await api.get<{ reports: ReportRow[]; missingEmployees: any[]; summary: any }>(
-      '/reports/getAllReports',
-      { month }
-    );
+    const data = await api.get<{
+      reports: ReportRow[];
+      missingEmployees: any[];
+      pendingReceipts: PendingReceipts[];
+      summary: any;
+    }>('/reports/getAllReports', { month });
     setReports(data.reports);
     setMissing(data.missingEmployees);
+    setPendingReceipts(data.pendingReceipts || []);
     setSummary(data.summary);
   }
 
@@ -220,14 +227,18 @@ function ReportsTab() {
       {exportError && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2 mb-4">{exportError}</p>}
 
       {summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
           {[
             ['סה"כ עובדים', summary.totalEmployees],
             ['הוגשו', summary.submitted],
             ['אושרו', summary.approved],
             ['חסרים', summary.missing],
+            ['קבלות ממתינות לאישור', summary.pendingReceipts ?? 0],
           ].map(([l, v]) => (
-            <div key={l as string} className="card text-center py-4">
+            <div
+              key={l as string}
+              className={`card text-center py-4 ${l === 'קבלות ממתינות לאישור' && Number(v) > 0 ? 'bg-amber-50 border-amber-300' : ''}`}
+            >
               <p className="text-slate-500 text-xs mb-1">{l}</p>
               <p className="text-xl font-bold text-navy">{v}</p>
             </div>
@@ -270,6 +281,11 @@ function ReportsTab() {
                     {r.hasNewContract && (
                       <span className="badge bg-amber-200 border border-amber-400 text-amber-900 text-[10px]">
                         חוזה חדש
+                      </span>
+                    )}
+                    {r.pendingReceipts > 0 && (
+                      <span className="badge bg-sky-100 border border-sky-300 text-sky-900 text-[10px]" title="קבלות שהוגשו וממתינות לאישור">
+                        <Receipt size={10} className="inline" /> {r.pendingReceipts} {r.pendingReceipts === 1 ? 'קבלה ממתינה' : 'קבלות ממתינות'}
                       </span>
                     )}
                   </div>
@@ -322,6 +338,12 @@ function ReportsTab() {
         </table>
         {missing.length > 0 && (
           <p className="text-amber-700 text-sm mt-4">חסרים דוח: {missing.map((m) => m.name).join(', ')}</p>
+        )}
+        {pendingReceipts.length > 0 && (
+          <p className="text-sky-800 text-sm mt-2">
+            <Receipt size={14} className="inline ml-1" />
+            מחכות קבלות לאישור (בלשונית "קבלות"): {pendingReceipts.map((p) => `${p.name} (${p.count})`).join(', ')}
+          </p>
         )}
       </div>
     </div>

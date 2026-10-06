@@ -779,6 +779,7 @@ function ReceiptsCard() {
   useEffect(() => {
     load();
   }, []);
+  const pendingCount = receipts.filter((r) => r.status === 'ממתין').length;
 
   return (
     <div className="card mt-6">
@@ -790,6 +791,11 @@ function ReceiptsCard() {
           <Plus size={16} /> הגשת קבלה
         </button>
       </div>
+      {pendingCount > 0 && (
+        <p className="mb-3 text-sm font-semibold text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+          {pendingCount === 1 ? 'יש לך קבלה אחת שממתינה לאישור' : `יש לך ${pendingCount} קבלות שממתינות לאישור`}
+        </p>
+      )}
       <div className="space-y-2">
         {receipts.map((r) => (
           <div key={r.id} className="flex items-center justify-between text-sm border-b last:border-0 pb-2">
@@ -830,19 +836,26 @@ function AddReceiptModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  // לאיזה חודש הקבלה — לא תמיד החודש הנוכחי (קבלה על ספטמבר מוגשת לרוב בתחילת אוקטובר),
+  // וזה גם החודש שלפיו נבדק שהנוכחות מלאה לפני ההגשה.
+  const [month, setMonth] = useState(currentMonth());
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function submit() {
     setBusy(true);
+    setError(null);
     try {
       const fd = new FormData();
       fd.append('description', description);
       fd.append('amount', amount);
-      fd.append('month', currentMonth());
+      fd.append('month', month);
       fd.append('receiptDate', todayStr());
       if (file) fd.append('receiptFile', file);
       await api.postForm('/receipts/submitReceipt', fd);
       onSaved();
+    } catch (err: any) {
+      setError(err.message || 'שגיאה בהגשת הקבלה');
     } finally {
       setBusy(false);
     }
@@ -854,7 +867,12 @@ function AddReceiptModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         <h3 className="font-bold text-navy text-lg">הגשת קבלה</h3>
         <input className="input" placeholder="תיאור" value={description} onChange={(e) => setDescription(e.target.value)} />
         <input type="number" className="input" placeholder="סכום (₪)" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <div>
+          <label className="label">חודש הקבלה</label>
+          <input type="month" className="input" value={month} onChange={(e) => setMonth(e.target.value)} />
+        </div>
         <input type="file" className="input" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
         <div className="flex gap-2 justify-end pt-2">
           <button className="btn-outline" onClick={onClose}>ביטול</button>
           <button className="btn-primary" onClick={submit} disabled={busy || !description || !amount}>שליחה</button>

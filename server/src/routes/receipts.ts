@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requireAdmin } from '../middleware/auth';
+import { getReceiptBlocker } from '../lib/receiptRequirements';
 
 const router = Router();
 router.use(requireAuth);
@@ -24,14 +25,19 @@ const LIST_SELECT = {
 
 router.post('/submitReceipt', upload.single('receiptFile'), async (req, res) => {
   try {
-    const { description, month, receiptDate, amount } = req.body;
+    const { description, receiptDate, amount } = req.body;
     if (!description || !amount) return res.status(400).json({ error: 'חסר תיאור או סכום' });
+    const month: string = req.body.month || new Date().toISOString().slice(0, 7);
+
+    const employee = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+    const blocker = await getReceiptBlocker(employee, month);
+    if (blocker) return res.status(400).json({ error: blocker });
 
     const receipt = await prisma.receipt.create({
       data: {
         description,
         employeeId: req.user!.id,
-        month: month || new Date().toISOString().slice(0, 7),
+        month,
         receiptDate: receiptDate || new Date().toISOString().slice(0, 10),
         amount: Number(amount),
         fileData: req.file?.buffer,
