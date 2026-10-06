@@ -1,5 +1,11 @@
 const BASE = '/api';
 
+/**
+ * סינון אינטרנט (כמו נטפרי) מחזיר 418 כשהוא חוסם קובץ או מעכב אותו לבדיקה — לא השרת שלנו.
+ * בלי הסבר, המשתמשת רואה רק מספר ולא מבינה שהבעיה בסינון ולא במערכת.
+ */
+export const FILTER_BLOCKED_MESSAGE = 'נחסם על ידי סינון האינטרנט — יש לבקש מחברת הסינון לאשר את האתר';
+
 async function request<T>(method: string, path: string, body?: any, isFormData = false): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -16,6 +22,7 @@ async function request<T>(method: string, path: string, body?: any, isFormData =
   }
 
   if (!res.ok) {
+    if (res.status === 418) throw new Error(FILTER_BLOCKED_MESSAGE);
     throw new Error(data?.error || `שגיאה (${res.status})`);
   }
   return data as T;

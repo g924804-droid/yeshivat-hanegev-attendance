@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2, Printer } from 'lucide-react';
 import { Layout } from '../components/Layout';
-import { api } from '../lib/api';
+import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import { currentMonth, safeFixed } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
@@ -175,6 +175,7 @@ function ReportsTab() {
     try {
       const r = await api.get<{ url: string; filename: string }>(endpoint, { month });
       const res = await fetch(r.url, { credentials: 'include' });
+      if (res.status === 418) throw new Error(`הקובץ נוצר, אבל ההורדה ${FILTER_BLOCKED_MESSAGE}`);
       if (!res.ok) throw new Error(`הקובץ נוצר אבל ההורדה נכשלה (${res.status})`);
       const blobUrl = URL.createObjectURL(await res.blob());
       const a = document.createElement('a');
