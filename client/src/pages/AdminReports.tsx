@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2 } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2, Printer } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import { currentMonth, safeFixed } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
+import { printMonthlyReport } from '../lib/printReport';
 
 const WORK_AREAS = ['קודש', 'אדריכלות', 'עיצוב מדיה', 'מזכירות', 'הנהלת חשבונות', 'סולם'];
 
@@ -124,6 +125,19 @@ function ReportsTab() {
   const [summary, setSummary] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [printingId, setPrintingId] = useState<string | null>(null);
+
+  async function print(employeeId: string) {
+    setPrintingId(employeeId);
+    setExportError(null);
+    try {
+      await printMonthlyReport(month, employeeId);
+    } catch (err: any) {
+      setExportError(err.message || 'שגיאה בהכנת ההדפסה');
+    } finally {
+      setPrintingId(null);
+    }
+  }
 
   async function load() {
     const data = await api.get<{ reports: ReportRow[]; missingEmployees: any[]; summary: any }>(
@@ -278,6 +292,14 @@ function ReportsTab() {
                 <td className="flex gap-1 justify-center py-1">
                   <button className="btn-outline text-xs py-1 px-2" onClick={() => navigate(`/report/${month}?userId=${r.employee.id}`)}>
                     צפייה
+                  </button>
+                  <button
+                    className="btn-outline text-xs py-1 px-2"
+                    onClick={() => print(r.employee.id)}
+                    disabled={printingId === r.employee.id}
+                    title="הדפסה מיידית של הדוח של עובד/ת זו"
+                  >
+                    <Printer size={14} /> {printingId === r.employee.id ? 'מכין...' : 'הדפסה'}
                   </button>
                   {r.status === 'הוגש' && (
                     <button className="btn-gold text-xs py-1 px-2" onClick={() => approve(r.id)}>
