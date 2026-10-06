@@ -4,8 +4,11 @@ import { requireAuth, requireAdmin, requireAdminOrAttendanceManager } from '../m
 import { buildMonthDetail } from '../lib/monthlyReport';
 import { hasPendingContracts } from '../lib/contracts';
 import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
-import { renderHtmlToPdf } from '../lib/pdf';
-import { reportPdfHtml, summaryPdfHtml, combinedReportsPdfHtml } from '../lib/pdfTemplates';
+import { renderHtmlToPdf, htmlToPdfBuffer, mergePdfs, savePdf } from '../lib/pdf';
+import { reportPdfHtml, summaryPdfHtml } from '../lib/pdfTemplates';
+import { loadSickNotes } from '../lib/sickNotes';
+import { DayDetail } from '../lib/monthlyReport';
+import { MonthlyReport, User } from '@prisma/client';
 import { sendMonthlyReminders } from '../lib/monthlyReminder';
 
 const router = Router();
@@ -48,6 +51,42 @@ async function getNewEmployeeContractFlags(
     });
   }
   return flags;
+}
+
+/**
+ * דוח PDF של עובד/ת אחת, כולל אישורי המחלה שהעלתה: תמונות מוטמעות בדוח עצמו, ואישורים
+ * שהועלו כ-PDF מצורפים כעמודים נוספים מיד אחרי הדוח.
+ */
+async function buildReportPdf(
+  employee: User,
+  report: MonthlyReport,
+  days: DayDetail[],
+  signatureDataUrl?: string
+): Promise<Buffer> {
+  const sickNotes = await loadSickNotes(days);
+  const reportPdf = await htmlToPdfBuffer(reportPdfHtml(employee, report, days, signatureDataUrl, sickNotes));
+  const attachedPdfs = sickNotes.flatMap((n) => (n.kind === 'pdf' ? [n.data] : []));
+  return attachedPdfs.length ? mergePdfs([reportPdf, ...attachedPdfs]) : reportPdf;
+}
+
+/**
+ * כמה דוחות לקובץ אחד, כל דוח עם אישורי המחלה שלו מיד אחריו. מרנדרים כמה דוחות במקביל (לא
+ * כולם בבת אחת) כדי לא להעמיס על דפדפן ההדפסה בשרת.
+ */
+async function buildCombinedReportsPdf(
+  sections: { employee: User; report: MonthlyReport; days: DayDetail[] }[]
+): Promise<Buffer> {
+  const buffers: Buffer[] = [];
+  const BATCH = 4;
+  for (let i = 0; i < sections.length; i += BATCH) {
+    const batch = await Promise.all(
+      sections
+        .slice(i, i + BATCH)
+        .map(({ employee, report, days }) => buildReportPdf(employee, report, days, report.employeeSignature || undefined))
+    );
+    buffers.push(...batch);
+  }
+  return mergePdfs(buffers);
 }
 
 function targetUserId(req: any): string {
@@ -227,8 +266,8 @@ router.post('/exportReportPdf', async (req, res) => {
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: report.employeeId } });
     const { days } = await buildMonthDetail(employee, report.month);
 
-    const html = reportPdfHtml(employee, report, days, signatureDataUrl || report.employeeSignature || undefined);
-    const { url, filename } = await renderHtmlToPdf(html, {
+    const pdf = await buildReportPdf(employee, report, days, signatureDataUrl || report.employeeSignature || undefined);
+    const { url, filename } = savePdf(pdf, {
       subdir: 'reports',
       filename: `דוח-${employee.name}-${report.month}.pdf`,
     });
@@ -273,8 +312,7 @@ router.get('/exportAllTeacherReportsPdf', requireAdminOrAttendanceManager, async
         return { employee, report, days };
       })
     );
-    const html = combinedReportsPdfHtml(sections);
-    const { url, filename } = await renderHtmlToPdf(html, {
+    const { url, filename } = savePdf(await buildCombinedReportsPdf(sections), {
       subdir: 'summaries',
       filename: `דוחות-מורות-${month}.pdf`,
     });
@@ -305,8 +343,7 @@ router.get('/exportSubmittedReportsPdf', requireAdminOrAttendanceManager, async 
         return { employee, report, days };
       })
     );
-    const html = combinedReportsPdfHtml(sections);
-    const { url, filename } = await renderHtmlToPdf(html, {
+    const { url, filename } = savePdf(await buildCombinedReportsPdf(sections), {
       subdir: 'summaries',
       filename: `דוחות-שהוגשו-${month}.pdf`,
     });

@@ -1,5 +1,6 @@
 import { MonthlyReport, User } from '@prisma/client';
 import { DayDetail } from './monthlyReport';
+import { SickNote } from './sickNotes';
 
 const BASE_STYLE = `
   <style>
@@ -29,16 +30,45 @@ const BASE_STYLE = `
     }
     .stat.special-stat { border: 3px solid #000; background: #fef3c7; }
     .stat.special-stat .label { color: #000; font-weight: bold; }
+    .sick-note { page-break-before: always; text-align: center; }
+    .sick-note h2 { margin-top: 0; }
+    .sick-note img { max-width: 100%; max-height: 245mm; object-fit: contain; }
+    .sick-notes-list { margin-top: 8px; font-size: 11px; page-break-inside: avoid; }
   </style>
 `;
 
 const DOW_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
+/**
+ * אישורי המחלה בסוף הדוח: רשימה קצרה של כל האישורים מתחת לחתימה, ואחריה תמונה בעמוד נפרד לכל
+ * אישור שהועלה כתמונה. אישור שהועלה כ-PDF מצורף כעמודים נוספים בשלב חיבור הקבצים (ראה mergePdfs).
+ */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+}
+
+function sickNotesHtml(notes: SickNote[]): string {
+  if (!notes.length) return '';
+  const list = notes
+    .map((n) => {
+      const where =
+        n.kind === 'image' ? 'מצורף בעמוד נפרד' : n.kind === 'pdf' ? `מצורף בסוף הדוח (${escapeHtml(n.fileName)})` : escapeHtml(n.url);
+      return `<li>${n.date} — ${where}</li>`;
+    })
+    .join('');
+  const images = notes
+    .filter((n): n is Extract<SickNote, { kind: 'image' }> => n.kind === 'image')
+    .map((n) => `<div class="sick-note"><h2>אישור מחלה — ${n.date}</h2><img src="${n.dataUrl}" /></div>`)
+    .join('');
+  return `<div class="sick-notes-list"><strong>אישורי מחלה:</strong><ul>${list}</ul></div>${images}`;
+}
+
 function reportSectionHtml(
   employee: User,
   report: MonthlyReport,
   days: DayDetail[],
-  signatureDataUrl?: string
+  signatureDataUrl?: string,
+  sickNotes: SickNote[] = []
 ): string {
   const rows = days
     .map((d) => {
@@ -88,6 +118,7 @@ function reportSectionHtml(
       <tbody>${rows}</tbody>
     </table>
     ${signatureDataUrl ? `<div class="signature"><div>חתימת עובד/ת:</div><img src="${signatureDataUrl}" /></div>` : ''}
+    ${sickNotesHtml(sickNotes)}
   `;
 }
 
@@ -95,28 +126,12 @@ export function reportPdfHtml(
   employee: User,
   report: MonthlyReport,
   days: DayDetail[],
-  signatureDataUrl?: string
+  signatureDataUrl?: string,
+  sickNotes: SickNote[] = []
 ): string {
   return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>
-    ${reportSectionHtml(employee, report, days, signatureDataUrl)}
+    ${reportSectionHtml(employee, report, days, signatureDataUrl, sickNotes)}
   </body></html>`;
-}
-
-/**
- * כל הדוחות המלאים (פירוט יומי, לא רק סיכום) של כמה עובדות ביחד בקובץ אחד — כדי שלא יהיה
- * צורך לייצא ולהוריד כל דוח בנפרד, אחד-אחד, לכל מורה. כל דוח מתחיל בעמוד חדש.
- */
-export function combinedReportsPdfHtml(
-  sections: { employee: User; report: MonthlyReport; days: DayDetail[] }[]
-): string {
-  const body = sections
-    .map(
-      ({ employee, report, days }, idx) =>
-        `<div${idx > 0 ? ' style="page-break-before: always;"' : ''}>${reportSectionHtml(employee, report, days, report.employeeSignature || undefined)}</div>`
-    )
-    .join('');
-
-  return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>${body}</body></html>`;
 }
 
 export function summaryPdfHtml(

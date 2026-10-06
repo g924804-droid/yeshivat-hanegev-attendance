@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import puppeteer from 'puppeteer-core';
+import { PDFDocument } from 'pdf-lib';
 
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads');
 
@@ -55,29 +56,55 @@ export function warmUpBrowser(): void {
   });
 }
 
+/** מרנדר HTML ל-PDF ומחזיר את תוכן הקובץ, בלי לשמור. */
+export async function htmlToPdfBuffer(html: string, landscape = false): Promise<Buffer> {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
+    const pdf = await page.pdf({
+      format: 'A4',
+      landscape,
+      printBackground: true,
+      margin: { top: '12mm', bottom: '12mm', left: '10mm', right: '10mm' },
+    });
+    return Buffer.from(pdf);
+  } finally {
+    await page.close();
+  }
+}
+
+/**
+ * מחבר כמה קבצי PDF לקובץ אחד, לפי הסדר. קובץ שלא ניתן לקרוא (פגום/מוצפן בצורה שלא נתמכת)
+ * מדולג — עדיף דוח בלי צרופה אחת מאשר שכל ההורדה תיכשל.
+ */
+export async function mergePdfs(buffers: Buffer[]): Promise<Buffer> {
+  if (buffers.length === 1) return buffers[0];
+  const merged = await PDFDocument.create();
+  for (const buf of buffers) {
+    try {
+      const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+      const pages = await merged.copyPages(doc, doc.getPageIndices());
+      pages.forEach((p) => merged.addPage(p));
+    } catch (err: any) {
+      console.error('דילוג על PDF שלא ניתן לצרף:', err.message);
+    }
+  }
+  return Buffer.from(await merged.save());
+}
+
+/** שומר PDF תחת uploads/<subdir>/ ומחזיר URL יחסי + שם קובץ. */
+export function savePdf(buffer: Buffer, opts: { subdir: string; filename: string }): { url: string; filename: string } {
+  const dir = path.join(UPLOADS_DIR, opts.subdir);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, opts.filename), buffer);
+  return { url: `/uploads/${opts.subdir}/${opts.filename}`, filename: opts.filename };
+}
+
 /** מרנדר HTML ל-PDF (מחליף את ZitePdf.renderHtml), שומר תחת uploads/<subdir>/ ומחזיר URL יחסי + שם קובץ. */
 export async function renderHtmlToPdf(
   html: string,
   opts: { subdir: string; filename: string; landscape?: boolean }
 ): Promise<{ url: string; filename: string }> {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-  try {
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
-    const pdfBuffer = await page.pdf({
-      format: 'A4',
-      landscape: !!opts.landscape,
-      printBackground: true,
-      margin: { top: '12mm', bottom: '12mm', left: '10mm', right: '10mm' },
-    });
-
-    const dir = path.join(UPLOADS_DIR, opts.subdir);
-    fs.mkdirSync(dir, { recursive: true });
-    const filePath = path.join(dir, opts.filename);
-    fs.writeFileSync(filePath, pdfBuffer);
-
-    return { url: `/uploads/${opts.subdir}/${opts.filename}`, filename: opts.filename };
-  } finally {
-    await page.close();
-  }
+  return savePdf(await htmlToPdfBuffer(html, !!opts.landscape), opts);
 }
