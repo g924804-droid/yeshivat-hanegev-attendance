@@ -123,6 +123,7 @@ function ReportsTab() {
   const [missing, setMissing] = useState<{ id: string; name: string }[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   async function load() {
     const data = await api.get<{ reports: ReportRow[]; missingEmployees: any[]; summary: any }>(
@@ -150,18 +151,27 @@ function ReportsTab() {
     await load();
   }
 
+  /**
+   * מוריד את הקובץ ישירות למחשב (ולא פותח טאב ריק שמחכה לשרת) — קובץ של כל המורות יכול לקחת
+   * זמן, ובטאב ריק לא רואים אם זה עדיין בהכנה או שנכשל. כאן מוצגת הודעת "מכין..." ושגיאה ברורה.
+   */
   async function exportPdf(endpoint: string) {
-    // פותחים את הטאב מיד וסינכרונית בתוך ה-click handler, לפני ה-await — אחרת הדפדפן חוסם
-    // את זה כפופ-אפ בשקט ברגע שההדפסה לוקחת יותר מרגע (ראה גם exportPdf ב-MonthlyReport).
-    const pdfWindow = window.open('', '_blank');
     setBusy(true);
+    setExportError(null);
     try {
-      const r = await api.get<{ url: string }>(endpoint, { month });
-      if (pdfWindow) pdfWindow.location.href = r.url;
-      else window.open(r.url, '_blank');
-    } catch (err) {
-      pdfWindow?.close();
-      throw err;
+      const r = await api.get<{ url: string; filename: string }>(endpoint, { month });
+      const res = await fetch(r.url, { credentials: 'include' });
+      if (!res.ok) throw new Error(`הקובץ נוצר אבל ההורדה נכשלה (${res.status})`);
+      const blobUrl = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = r.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (err: any) {
+      setExportError(err.message || 'שגיאה בהורדת הקובץ');
     } finally {
       setBusy(false);
     }
@@ -187,6 +197,12 @@ function ReportsTab() {
           </button>
         </div>
       </div>
+      {busy && (
+        <p className="text-sm text-navy bg-slate-100 rounded-lg px-3 py-2 mb-4">
+          מכין את הקובץ... עם הרבה דוחות זה יכול לקחת עד דקה. ההורדה תתחיל לבד כשהקובץ מוכן.
+        </p>
+      )}
+      {exportError && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2 mb-4">{exportError}</p>}
 
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">

@@ -129,9 +129,20 @@ export function reportPdfHtml(
   signatureDataUrl?: string,
   sickNotes: SickNote[] = []
 ): string {
-  return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>
-    ${reportSectionHtml(employee, report, days, signatureDataUrl, sickNotes)}
-  </body></html>`;
+  return reportsPdfHtml([{ employee, report, days, signatureDataUrl, sickNotes }]);
+}
+
+/** כמה דוחות מלאים במסמך HTML אחד — כל דוח מתחיל בעמוד חדש. */
+export function reportsPdfHtml(
+  sections: { employee: User; report: MonthlyReport; days: DayDetail[]; signatureDataUrl?: string; sickNotes: SickNote[] }[]
+): string {
+  const body = sections
+    .map(
+      (s, idx) =>
+        `<div${idx > 0 ? ' style="page-break-before: always;"' : ''}>${reportSectionHtml(s.employee, s.report, s.days, s.signatureDataUrl, s.sickNotes)}</div>`
+    )
+    .join('');
+  return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>${body}</body></html>`;
 }
 
 export function summaryPdfHtml(

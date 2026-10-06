@@ -5,7 +5,7 @@ import { buildMonthDetail } from '../lib/monthlyReport';
 import { hasPendingContracts } from '../lib/contracts';
 import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
 import { renderHtmlToPdf, htmlToPdfBuffer, mergePdfs, savePdf } from '../lib/pdf';
-import { reportPdfHtml, summaryPdfHtml } from '../lib/pdfTemplates';
+import { reportPdfHtml, reportsPdfHtml, summaryPdfHtml } from '../lib/pdfTemplates';
 import { loadSickNotes } from '../lib/sickNotes';
 import { DayDetail } from '../lib/monthlyReport';
 import { MonthlyReport, User } from '@prisma/client';
@@ -70,22 +70,31 @@ async function buildReportPdf(
 }
 
 /**
- * כמה דוחות לקובץ אחד, כל דוח עם אישורי המחלה שלו מיד אחריו. מרנדרים כמה דוחות במקביל (לא
- * כולם בבת אחת) כדי לא להעמיס על דפדפן ההדפסה בשרת.
+ * כמה דוחות לקובץ אחד, כל דוח עם אישורי המחלה שלו מיד אחריו. רינדור לכל דוח בנפרד איטי מדי
+ * כשיש עשרות מורות (הבקשה נחתכת לפני שהקובץ מוכן), אז מרנדרים רצף דוחות כמסמך אחד, ומפצלים
+ * רק אחרי דוח שיש לו אישור מחלה בקובץ PDF — כדי לצרף את עמודי האישור מיד אחריו.
  */
 async function buildCombinedReportsPdf(
   sections: { employee: User; report: MonthlyReport; days: DayDetail[] }[]
 ): Promise<Buffer> {
   const buffers: Buffer[] = [];
-  const BATCH = 4;
-  for (let i = 0; i < sections.length; i += BATCH) {
-    const batch = await Promise.all(
-      sections
-        .slice(i, i + BATCH)
-        .map(({ employee, report, days }) => buildReportPdf(employee, report, days, report.employeeSignature || undefined))
-    );
-    buffers.push(...batch);
+  let pending: Parameters<typeof reportsPdfHtml>[0] = [];
+  const flush = async () => {
+    if (!pending.length) return;
+    buffers.push(await htmlToPdfBuffer(reportsPdfHtml(pending)));
+    pending = [];
+  };
+
+  for (const { employee, report, days } of sections) {
+    const sickNotes = await loadSickNotes(days);
+    pending.push({ employee, report, days, signatureDataUrl: report.employeeSignature || undefined, sickNotes });
+    const attachedPdfs = sickNotes.flatMap((n) => (n.kind === 'pdf' ? [n.data] : []));
+    if (attachedPdfs.length) {
+      await flush();
+      buffers.push(...attachedPdfs);
+    }
   }
+  await flush();
   return mergePdfs(buffers);
 }
 
