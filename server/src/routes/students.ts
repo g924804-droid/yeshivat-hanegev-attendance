@@ -11,6 +11,7 @@ import {
 } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
 import { getFullSchedule } from '../lib/scheduleData';
+import { lessonsForDate } from '../lib/scheduleRules';
 import { getHebrewDateLabel } from '../lib/holidays';
 import { getTeacherTrackIds, findTeacherIds, canSeeAllStudentTracks } from '../lib/teacherScope';
 import { getMissingAttendanceSlots } from '../lib/teacherAttendanceCheck';
@@ -18,8 +19,6 @@ import { requireAuth, requirePermission } from '../middleware/auth';
 
 const router = Router();
 router.use(requireAuth);
-
-const DOW_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
 /**
  * שדה "תאריך" ב-Airtable הוא מסוג date אמיתי (לא טקסט) — Airtable שומר אותו עם רכיב זמן/אזור
@@ -39,23 +38,17 @@ function parseStartMinutes(time?: string | null): number {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
-/** שיעורים ישנים בלי מתאריך/עד-תאריך נחשבים תקפים תמיד — התאריכים נוספו רק בהמשך. */
-function lessonAppliesOnDate(l: { fromDate?: string | null; toDate?: string | null }, date: string): boolean {
-  if (l.fromDate && date < l.fromDate) return false;
-  if (l.toDate && date > l.toDate) return false;
-  return true;
-}
-
 /**
  * מוצא את שיעורי המסלול ליום הנתון, ממקור האמת המשותף עם מסך הניהול ומסך התצוגה
  * (getFullSchedule) — לא formula ישירה מול Airtable שמשווה טקסט לשדה מקושר ונכשלת בשקט.
+ * קודם מחשבים את המערכת בפועל לתאריך (שינוי זמני כמו כנס מחליף את השיעורים הקבועים), ורק אז
+ * מסננים למסלול.
  */
 async function getTrackLessonsForDate(trackId: string, date: string) {
-  const dayOfWeek = DOW_HE[new Date(`${date}T00:00:00`).getDay()];
   const { lessons, teachers } = await getFullSchedule();
   const teacherNameById = new Map(teachers.map((t) => [t.id, t.name]));
-  return lessons
-    .filter((l) => (l.track || []).includes(trackId) && l.dayOfWeek === dayOfWeek && lessonAppliesOnDate(l, date))
+  return lessonsForDate(lessons, date)
+    .filter((l) => (l.track || []).includes(trackId))
     .map((l) => ({ ...l, teacherName: teacherNameById.get(l.teacher?.[0] || '') || '' }))
     .sort((a, b) => parseStartMinutes(a.time) - parseStartMinutes(b.time));
 }

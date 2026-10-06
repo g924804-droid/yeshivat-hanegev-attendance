@@ -1,18 +1,14 @@
 import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
-
-const DOW_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+import { getFullSchedule } from './scheduleData';
+import { lessonsForDate } from './scheduleRules';
 
 type RequiredSlot = { date: string; time: string; trackId: string; lessonId: string };
 
-/** שיעורים ישנים בלי מתאריך/עד-תאריך נחשבים תקפים תמיד — התאריכים נוספו רק בהמשך (כמו ב-students.ts). */
-function lessonAppliesOnDate(l: { fromDate?: string | null; toDate?: string | null }, date: string): boolean {
-  if (l.fromDate && date < l.fromDate) return false;
-  if (l.toDate && date > l.toDate) return false;
-  return true;
-}
-
-/** לפי מערכת השעות: לכל יום בחודש שהמורה לימדה בו (יום בשבוע תואם), את/ה המסלול והשיעור שלימדה בו. */
+/**
+ * לפי מערכת השעות: לכל יום בחודש שהמורה לימדה בו (יום בשבוע תואם), את/ה המסלול והשיעור שלימדה בו.
+ * לפי המערכת בפועל באותו תאריך — שיעור קבוע שהוחלף זמנית (למשל בכנס) לא דורש נוכחות תלמידות.
+ */
 async function getRequiredAttendanceSlots(teacherName: string, month: string): Promise<RequiredSlot[]> {
   const teacherRecords = await airtableFetch(TABLES.teachers, {
     filterByFormula: `{${FIELDS.teachers.name}} = "${teacherName}"`,
@@ -20,9 +16,8 @@ async function getRequiredAttendanceSlots(teacherName: string, month: string): P
   const teacherId = teacherRecords[0]?.id;
   if (!teacherId) return [];
 
-  const lessons = await airtableFetch(TABLES.lessons);
-  const myLessons = lessons.filter((l) => (l.fields[FIELDS.lessons.teacher] || []).includes(teacherId));
-  if (myLessons.length === 0) return [];
+  const { lessons } = await getFullSchedule();
+  if (!lessons.some((l) => (l.teacher || []).includes(teacherId))) return [];
 
   const [year, monthNum] = month.split('-').map(Number);
   const daysInMonth = new Date(year, monthNum, 0).getDate();
@@ -32,19 +27,10 @@ async function getRequiredAttendanceSlots(teacherName: string, month: string): P
   for (let d = 1; d <= daysInMonth; d++) {
     const date = `${month}-${String(d).padStart(2, '0')}`;
     if (date > today) continue; // לא דורשים נוכחות לימים עתידיים
-    const dow = DOW_HE[new Date(`${date}T00:00:00`).getDay()];
-    for (const lesson of myLessons) {
-      if (lesson.fields[FIELDS.lessons.dayOfWeek] !== dow) continue;
-      if (
-        !lessonAppliesOnDate(
-          { fromDate: lesson.fields[FIELDS.lessons.fromDate], toDate: lesson.fields[FIELDS.lessons.toDate] },
-          date
-        )
-      ) {
-        continue;
-      }
-      const trackIds: string[] = lesson.fields[FIELDS.lessons.track] || [];
-      const time = lesson.fields[FIELDS.lessons.time] || '';
+    for (const lesson of lessonsForDate(lessons, date)) {
+      if (!(lesson.teacher || []).includes(teacherId)) continue;
+      const trackIds = lesson.track || [];
+      const time = lesson.time || '';
       trackIds.forEach((trackId) => slots.push({ date, time, trackId, lessonId: lesson.id }));
     }
   }

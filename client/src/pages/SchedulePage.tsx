@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2 } from 'lucide-react';
+import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { lessonsForDate, currentWeekSunday, weekDates, addDays, localIsoDate } from '../lib/scheduleRules';
+import { useUrlState } from '../lib/useUrlState';
 import { Layout } from '../components/Layout';
 import { FitScale } from '../components/FitScale';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { api } from '../lib/api';
 import {
-  DOW_HE,
   startMinutes,
   todayStr,
   ALL_TIME_SLOTS,
@@ -47,6 +48,12 @@ const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי'];
 
 const CUSTOM_TIME = '__custom__';
 
+/** "2026-10-12" → "12/10" */
+function shortDate(date: string): string {
+  const [, m, d] = date.split('-');
+  return `${Number(d)}/${Number(m)}`;
+}
+
 
 export function SchedulePage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -76,11 +83,17 @@ export function SchedulePage() {
   }, []);
 
   const trackIds = useMemo(() => tracks.map((t) => t.id), [tracks]);
-  const todayDow = DOW_HE[new Date().getDay()];
+  const todayIso = localIsoDate(new Date());
+
+  // המערכת מוצגת לשבוע מסוים (ברירת מחדל: השבוע הנוכחי) — כך שינוי זמני עם "עד תאריך" (למשל כנס)
+  // מופיע רק בשבוע שלו במקום השיעורים הקבועים, ובשבוע שאחריו המערכת הקבועה חוזרת מעצמה.
+  const [weekStart, setWeekStart] = useUrlState('week', currentWeekSunday());
+  const dates = useMemo(() => weekDates(weekStart), [weekStart]);
+  const weekLessons = useMemo(() => DAYS.flatMap((day) => lessonsForDate(lessons, dates[day])), [lessons, dates]);
 
   const filtered = useMemo(
-    () => (trackFilter ? lessons.filter((l) => l.track?.includes(trackFilter)) : lessons),
-    [lessons, trackFilter]
+    () => (trackFilter ? weekLessons.filter((l) => l.track?.includes(trackFilter)) : weekLessons),
+    [weekLessons, trackFilter]
   );
 
   const rows = useMemo(() => {
@@ -119,11 +132,11 @@ export function SchedulePage() {
                 <th
                   key={day}
                   className={`border border-slate-200 text-navy ${compact ? 'p-1 min-w-[90px] text-[11px]' : 'p-2 min-w-[160px]'} ${
-                    day === todayDow ? 'bg-gold/15' : 'bg-slate-50'
+                    dates[day] === todayIso ? 'bg-gold/15' : 'bg-slate-50'
                   }`}
                 >
-                  {day}
-                  {day === todayDow && (
+                  {day} <span className="font-normal text-slate-400">{shortDate(dates[day])}</span>
+                  {dates[day] === todayIso && (
                     <span className={`block font-normal text-gold-dark ${compact ? 'text-[9px]' : 'text-xs'}`}>היום</span>
                   )}
                 </th>
@@ -139,11 +152,11 @@ export function SchedulePage() {
                 <th
                   key={day}
                   className={`border border-slate-200 text-navy ${compact ? 'p-1 min-w-[90px] text-[11px]' : 'p-2 min-w-[160px]'} ${
-                    day === todayDow ? 'bg-gold/15' : 'bg-slate-50'
+                    dates[day] === todayIso ? 'bg-gold/15' : 'bg-slate-50'
                   }`}
                 >
-                  {day}
-                  {day === todayDow && (
+                  {day} <span className="font-normal text-slate-400">{shortDate(dates[day])}</span>
+                  {dates[day] === todayIso && (
                     <span className={`block font-normal text-gold-dark ${compact ? 'text-[9px]' : 'text-xs'}`}>היום</span>
                   )}
                 </th>
@@ -237,6 +250,14 @@ export function SchedulePage() {
                           <div className="opacity-80 truncate">
                             {teacherName(l.teacher)} {!compact && l.room ? `· ${l.room}` : ''}
                           </div>
+                          {l.toDate && (
+                            <div
+                              className="mt-0.5 inline-flex items-center rounded-full bg-white/70 border border-current px-1.5 text-[9px] font-semibold"
+                              title="שינוי זמני — מחליף את השיעורים הקבועים באותה שעה, ואחרי התאריך המערכת הקבועה חוזרת"
+                            >
+                              זמני עד {shortDate(l.toDate)}
+                            </div>
+                          )}
                           {!compact && l.notes && (
                             <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 max-w-full">
                               <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
@@ -310,6 +331,23 @@ export function SchedulePage() {
             <Plus size={16} /> שיעור חדש
           </button>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <button className="btn-outline text-sm py-1.5 px-3" onClick={() => setWeekStart(addDays(weekStart, -7))}>
+          <ChevronRight size={16} /> שבוע קודם
+        </button>
+        <span className="font-semibold text-navy text-sm">
+          שבוע {shortDate(dates['ראשון'])}–{shortDate(dates['חמישי'])}
+        </span>
+        <button className="btn-outline text-sm py-1.5 px-3" onClick={() => setWeekStart(addDays(weekStart, 7))}>
+          שבוע הבא <ChevronLeft size={16} />
+        </button>
+        {weekStart !== currentWeekSunday() && (
+          <button className="text-sm text-navy underline" onClick={() => setWeekStart(currentWeekSunday())}>
+            חזרה לשבוע הנוכחי
+          </button>
+        )}
       </div>
 
       {compact ? (
@@ -721,7 +759,7 @@ function LessonModal({
             />
           </div>
           <div>
-            <label className="label">עד תאריך (לא חובה — ריק = בתוקף)</label>
+            <label className="label">עד תאריך (לא חובה — ריק = שיעור קבוע)</label>
             <input
               type="date"
               className="input"
@@ -730,6 +768,12 @@ function LessonModal({
             />
           </div>
         </div>
+        {form.toDate && (
+          <p className="text-xs text-navy bg-slate-100 rounded-lg px-2 py-1.5">
+            שינוי זמני: עד התאריך הזה השיעור יחליף את השיעורים הקבועים של אותם מסלולים באותן שעות.
+            אחרי התאריך המערכת הקבועה תחזור לבד — אין צורך למחוק או להחזיר כלום.
+          </p>
+        )}
 
         <div>
           <label className="label">הערה (לא חובה) — לשינוי/הוספה חד-פעמית, תופיע מודגשת במסך התצוגה</label>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CalendarDays, Megaphone } from 'lucide-react';
 import { FitScale } from '../components/FitScale';
+import { lessonsForDate, currentWeekSunday, weekDates, localIsoDate } from '../lib/scheduleRules';
 import {
   DOW_HE,
   startMinutes,
@@ -22,6 +23,8 @@ type Lesson = {
   teacher?: string[];
   room: string;
   notes?: string | null;
+  fromDate?: string | null;
+  toDate?: string | null;
 };
 type Ref = { id: string; name: string };
 type Announcement = { id: string; text: string | null; fileName: string | null; fileMime: string | null };
@@ -211,10 +214,18 @@ export function DisplayBoard() {
   const slide = slides[slideIdx % slides.length] || { kind: 'today' };
 
   const todayDow = DAYS[now.getDay()] ?? null;
+  // המערכת בפועל לפי תאריך: שינוי זמני עם "עד תאריך" (למשל כנס) מחליף את השיעורים הקבועים רק
+  // בימים שלו, ואחריהם המערכת הקבועה חוזרת לבד.
+  const todayIso = localIsoDate(now);
   const todayLessons = useMemo(
-    () => lessons.filter((l) => l.dayOfWeek === todayDow).sort((a, b) => startMinutes(a.time) - startMinutes(b.time)),
-    [lessons, todayDow]
+    () => lessonsForDate(lessons, todayIso).sort((a, b) => startMinutes(a.time) - startMinutes(b.time)),
+    [lessons, todayIso]
   );
+  const weekSunday = currentWeekSunday(now);
+  const weekLessons = useMemo(() => {
+    const dates = weekDates(weekSunday);
+    return DAYS.flatMap((day) => lessonsForDate(lessons, dates[day]));
+  }, [lessons, weekSunday]);
   /**
    * מסך "היום" מוצג כעמודה נפרדת לכל מגמה מקצועית (לא רשימה אחת משותפת לכולן), וכל עמודה כזו
    * גם "יורשת" את שיעור הקודש של אותה שנה — כל מגמות שנה א' מקבלות את קודש י"ג, וכל מגמות שנה ב'
@@ -402,7 +413,7 @@ export function DisplayBoard() {
             title="השבוע — שנה א'"
             days={DAYS}
             todayDow={todayDow}
-            lessons={lessons}
+            lessons={weekLessons}
             trackIds={yearATrackIds}
             tracks={tracks}
             teacherName={teacherName}
@@ -414,7 +425,7 @@ export function DisplayBoard() {
             title="השבוע — שנה ב'"
             days={DAYS}
             todayDow={todayDow}
-            lessons={lessons}
+            lessons={weekLessons}
             trackIds={yearBTrackIds}
             tracks={tracks}
             teacherName={teacherName}
