@@ -5,6 +5,7 @@ import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import { cn, currentMonth, safeFixed, todayStr, DOW_HE } from '../lib/utils';
+import { useUrlState } from '../lib/useUrlState';
 
 type AttendanceRecord = {
   id: string;
@@ -48,7 +49,7 @@ function draftAttendanceRecord(date: string): AttendanceRecord {
 export function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [month, setMonth] = useState(currentMonth());
+  const [month, setMonth] = useUrlState('month', currentMonth());
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +62,7 @@ export function Dashboard() {
   // שלא ממלאת בעצמה. בררת מחדל: הנוכחות של המשתמשת המחוברת עצמה.
   const canManageOthers = user?.role === 'מנהל' || !!user?.isAttendanceManager;
   const [employeeList, setEmployeeList] = useState<{ id: string; name: string }[]>([]);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useUrlState('employee', '');
   const targetUserId = canManageOthers && selectedEmployeeId ? selectedEmployeeId : undefined;
 
   useEffect(() => {
@@ -195,7 +196,7 @@ export function Dashboard() {
           </div>
         </div>
         <button
-          onClick={() => navigate(`/report/${month}`)}
+          onClick={() => navigate(`/report/${month}${targetUserId ? `?userId=${targetUserId}` : ''}`)}
           className="card flex flex-col items-center justify-center gap-2 hover:shadow-md transition-shadow"
         >
           <FileBarChart className="text-gold-dark" size={28} />

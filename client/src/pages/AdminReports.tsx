@@ -5,6 +5,7 @@ import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import { currentMonth, safeFixed } from '../lib/utils';
+import { useUrlState } from '../lib/useUrlState';
 
 const WORK_AREAS = ['קודש', 'אדריכלות', 'עיצוב מדיה', 'מזכירות', 'הנהלת חשבונות', 'סולם'];
 
@@ -86,7 +87,8 @@ const TAB_LABEL: Record<Tab, string> = {
 
 export function AdminReports() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<Tab>('reports');
+  const [tabParam, setTab] = useUrlState('tab', 'reports');
+  const tab = (TABS as readonly string[]).includes(tabParam) ? (tabParam as Tab) : 'reports';
   const isFullAdmin = user?.role === 'מנהל';
   const visibleTabs = isFullAdmin ? TABS : (['reports'] as const);
 
@@ -116,7 +118,7 @@ export function AdminReports() {
 
 function ReportsTab() {
   const navigate = useNavigate();
-  const [month, setMonth] = useState(currentMonth());
+  const [month, setMonth] = useUrlState('month', currentMonth());
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [missing, setMissing] = useState<{ id: string; name: string }[]>([]);
   const [summary, setSummary] = useState<any>(null);
