@@ -22,10 +22,12 @@ async function fetchFullSchedule() {
   ]);
 
   // סדר א'-ב' — ברשימת Airtable הגולמית המורות מופיעות בסדר הוספה, מה שמקשה למצוא מורה
-  // ברשימת הצ'קבוקסים הארוכה בטופס השיעור.
+  // ברשימת הצ'קבוקסים הארוכה בטופס השיעור. כמעט כל השמות מתחילים ב"המורה" — ממיינים לפי מה
+  // שאחריו, אחרת כולן נדחסות יחד תחת ה' והסדר לא עוזר למצוא.
+  const sortKey = (name: unknown) => String(name || '').replace(/^\s*ה?מורה\s*[:\-]?\s*/, '');
   const teacherList = teachers
     .map((t) => ({ id: t.id, name: t.fields[FIELDS.teachers.name] }))
-    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'he'));
+    .sort((a, b) => sortKey(a.name).localeCompare(sortKey(b.name), 'he'));
   const trackList = tracks.map((t) => ({ id: t.id, name: t.fields[FIELDS.tracks.name] }));
 
   return {
