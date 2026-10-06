@@ -611,6 +611,28 @@ function AbsenceModal({
   );
 }
 
+/**
+ * מקטין צילום מהטלפון (בדרך כלל 3-5MB) לפני ההעלאה — האישור מוטמע בדוח ה-PDF, ותמונה בגודל
+ * מלא הופכת את הורדת הדוחות לאיטית וכבדה. 1600 פיקסלים מספיקים לקריאת אישור בבירור.
+ * אם הדפדפן לא מצליח לפענח את התמונה (למשל HEIC באנדרואיד) — מעלים את המקור כמו שהוא.
+ */
+async function shrinkImage(file: File): Promise<File> {
+  if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.size < 500 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
 /** העלאת קובץ אישור מחלה (צילום/סריקה/PDF) — מחזיר את הקישור לקובץ שנשמר בשרת דרך onChange. */
 function SickNoteUpload({
   value,
@@ -632,7 +654,7 @@ function SickNoteUpload({
       const fd = new FormData();
       // userId לפני הקובץ — כדי שיהיה זמין בשרת כשהקובץ מעובד.
       if (employeeId) fd.append('userId', employeeId);
-      fd.append('file', file);
+      fd.append('file', await shrinkImage(file));
       const r = await api.postForm<{ url: string }>('/attendance/uploadSickNote', fd);
       onChange(r.url);
     } catch (err: any) {

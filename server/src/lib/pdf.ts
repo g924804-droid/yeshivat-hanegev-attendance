@@ -61,7 +61,9 @@ export async function htmlToPdfBuffer(html: string, landscape = false): Promise<
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
+    // 'load' ולא 'networkidle0' — כל התוכן (תמונות, חתימות, אישורי מחלה) מוטמע ישירות ב-HTML ואין מה
+    // לחכות לרשת; networkidle0 מוסיף לפחות חצי שנייה של המתנה סתמית לכל קובץ.
+    await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
     const pdf = await page.pdf({
       format: 'A4',
       landscape,
