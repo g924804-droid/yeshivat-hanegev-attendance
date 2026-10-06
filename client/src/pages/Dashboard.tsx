@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, LogOut as LogOutIcon, Plus, Trash2, Pencil, FileBarChart, Save, X, Receipt } from 'lucide-react';
+import { LogIn, LogOut as LogOutIcon, Plus, Trash2, Pencil, FileBarChart, Save, X, Receipt, Paperclip, Upload } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
@@ -281,7 +281,29 @@ export function Dashboard() {
                       <tr key={date} className="border-b last:border-0 hover:bg-slate-50">
                         <td className="py-2">{record.date}</td>
                         <td>{dow}</td>
-                        <td>{record.type}</td>
+                        <td>
+                          {record.type}
+                          {record.type === 'מחלה' &&
+                            (record.sickNoteUrl ? (
+                              <a
+                                href={record.sickNoteUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="צפייה באישור המחלה"
+                                className="inline-flex align-middle mr-1 text-green-700"
+                              >
+                                <Paperclip size={13} />
+                              </a>
+                            ) : (
+                              <button
+                                onClick={() => setEditingId(record.id)}
+                                className="badge bg-red-100 text-red-700 text-[10px] mr-1"
+                                title="לחצו כדי להעלות אישור מחלה"
+                              >
+                                חסר אישור
+                              </button>
+                            ))}
+                        </td>
                         <td>{record.clockIn || '—'}</td>
                         <td>{record.clockOut || '—'}</td>
                         <td>{record.clockIn2 || '—'}</td>
@@ -480,6 +502,16 @@ function EditRow({
       </tr>
       <tr className="bg-slate-50">
         <td colSpan={11} className="pb-2 px-2">
+          {form.type === 'מחלה' && (
+            <div className="mb-2 bg-white border rounded-lg px-2 py-1.5 w-fit">
+              <p className="text-xs font-semibold mb-1">אישור מחלה (חובה להגשת הדוח החודשי)</p>
+              <SickNoteUpload
+                value={form.sickNoteUrl || ''}
+                onChange={(url) => setForm({ ...form, sickNoteUrl: url })}
+                employeeId={employeeId}
+              />
+            </div>
+          )}
           <label className="flex items-center gap-2 text-xs cursor-pointer bg-amber-50 border border-amber-300 rounded-lg px-2 py-1.5 w-fit">
             <input
               type="checkbox"
@@ -556,13 +588,8 @@ function AbsenceModal({
         </div>
         {type === 'מחלה' && (
           <div>
-            <label className="label">קישור לאישור מחלה</label>
-            <input
-              className="input"
-              placeholder="https://..."
-              value={sickNoteUrl}
-              onChange={(e) => setSickNoteUrl(e.target.value)}
-            />
+            <label className="label">אישור מחלה (חובה)</label>
+            <SickNoteUpload value={sickNoteUrl} onChange={setSickNoteUrl} employeeId={employeeId} />
           </div>
         )}
         <div>
@@ -574,11 +601,68 @@ function AbsenceModal({
           <button className="btn-outline" onClick={onClose}>
             ביטול
           </button>
-          <button className="btn-primary" onClick={submit} disabled={busy}>
+          <button className="btn-primary" onClick={submit} disabled={busy || (type === 'מחלה' && !sickNoteUrl)}>
             שמירה
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** העלאת קובץ אישור מחלה (צילום/סריקה/PDF) — מחזיר את הקישור לקובץ שנשמר בשרת דרך onChange. */
+function SickNoteUpload({
+  value,
+  onChange,
+  employeeId,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+  employeeId?: string;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      // userId לפני הקובץ — כדי שיהיה זמין בשרת כשהקובץ מעובד.
+      if (employeeId) fd.append('userId', employeeId);
+      fd.append('file', file);
+      const r = await api.postForm<{ url: string }>('/attendance/uploadSickNote', fd);
+      onChange(r.url);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className={cn('btn-outline text-xs py-1 px-2 cursor-pointer', uploading && 'opacity-50 pointer-events-none')}>
+          <Upload size={14} /> {uploading ? 'מעלה...' : value ? 'החלפת קובץ' : 'העלאת אישור מחלה'}
+          <input
+            type="file"
+            accept="image/*,application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              upload(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+        </label>
+        {value && (
+          <a href={value} target="_blank" rel="noreferrer" className="text-xs text-green-700 underline inline-flex items-center gap-1">
+            <Paperclip size={12} /> אישור מצורף — צפייה
+          </a>
+        )}
+      </div>
+      {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
 }

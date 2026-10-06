@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { hasPendingContracts } from '../lib/contracts';
@@ -9,6 +10,15 @@ import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck'
 
 const router = Router();
 router.use(requireAuth);
+
+// אישורי מחלה נשמרים ב-DB (לא בדיסק) — בפרודקשן מערכת הקבצים לא קבועה בין פריסות.
+const sickNoteUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+/** Airtable לא יודע לפתוח קישור יחסי — משלימים את כתובת האתר כשהיא ידועה. */
+function absoluteUrl(url: string | null | undefined): string | null | undefined {
+  const base = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL;
+  return url && url.startsWith('/') && base ? `${base.replace(/\/$/, '')}${url}` : url;
+}
 
 /** מנהל, או "מזכירת נוכחות" (isAttendanceManager) — יכולים למלא/לערוך נוכחות של עובדות אחרות (למשל מורות מחליפות/מבוגרות שלא ממלאות בעצמן). */
 function isAttendanceManagerOrAdmin(req: any): boolean {
@@ -34,7 +44,7 @@ async function syncRecord(employee: { id: string; name: string; email: string | 
     lessonsCount: record.lessonsCount,
     type: record.type,
     notes: record.notes,
-    sickNoteUrl: record.sickNoteUrl,
+    sickNoteUrl: absoluteUrl(record.sickNoteUrl),
   }).catch((e) => console.error('Airtable sync failed:', e.message));
 }
 
@@ -160,6 +170,47 @@ router.post('/addSickDay', async (req, res) => {
     res.json({ success: true, recordId: record.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בהוספת יום היעדרות' });
+  }
+});
+
+/**
+ * העלאת קובץ אישור מחלה (תמונה/PDF). מחזיר קישור שנשמר אחר כך ב-sickNoteUrl של רשומת הנוכחות,
+ * דרך addSickDay / updateAttendance הרגילים — כך כל הבדיקות הקיימות (למשל בהגשת הדוח) ממשיכות לעבוד.
+ */
+router.post('/uploadSickNote', sickNoteUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'לא נבחר קובץ' });
+    if (!/^image\/|^application\/pdf$/.test(req.file.mimetype)) {
+      return res.status(400).json({ error: 'ניתן להעלות רק תמונה או PDF' });
+    }
+    const file = await prisma.sickNoteFile.create({
+      data: {
+        employeeId: targetUserId(req),
+        fileData: req.file.buffer,
+        fileMime: req.file.mimetype,
+        // multer מפענח שמות קבצים כ-latin1 — בלי ההמרה שם בעברית נשמר כג'יבריש.
+        fileName: Buffer.from(req.file.originalname, 'latin1').toString('utf8'),
+      },
+      select: { id: true },
+    });
+    res.json({ success: true, url: `/api/attendance/sickNote/${file.id}` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בהעלאת אישור המחלה' });
+  }
+});
+
+router.get('/sickNote/:id', async (req, res) => {
+  try {
+    const file = await prisma.sickNoteFile.findUnique({ where: { id: req.params.id } });
+    if (!file) return res.status(404).json({ error: 'קובץ לא נמצא' });
+    if (file.employeeId !== req.user!.id && !isAttendanceManagerOrAdmin(req)) {
+      return res.status(403).json({ error: 'אין הרשאה' });
+    }
+    res.set('Content-Type', file.fileMime);
+    res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+    res.send(file.fileData);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת הקובץ' });
   }
 });
 

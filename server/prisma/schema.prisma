@@ -48,6 +48,7 @@ model User {
   monthlyReports    MonthlyReport[]
   receipts          Receipt[]
   contracts         Contract[]
+  sickNoteFiles     SickNoteFile[]
 }
 
 model AttendanceRecord {
@@ -72,6 +73,18 @@ model AttendanceRecord {
   updatedAt      DateTime @updatedAt
 
   @@index([employeeId, date])
+}
+
+// קובץ אישור מחלה שהעובד/ת מעלה. בטבלה נפרדת (ולא עמודה ב-AttendanceRecord) כדי שטעינת הנוכחות
+// החודשית לא תמשוך את תוכן הקבצים — רשומת הנוכחות מחזיקה רק את הקישור אליו ב-sickNoteUrl.
+model SickNoteFile {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   User     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  fileData   Bytes
+  fileMime   String
+  fileName   String
+  createdAt  DateTime @default(now())
 }
 
 model MonthlyReport {
