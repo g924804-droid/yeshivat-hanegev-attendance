@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History, Monitor, Clock, Pencil, Trash2, Minimize2, Maximize2 } from 'lucide-react';
+import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { FitScale } from '../components/FitScale';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
@@ -55,6 +55,7 @@ export function SchedulePage() {
   const [trackFilter, setTrackFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
+  const [duplicatingLesson, setDuplicatingLesson] = useState<Lesson | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   // תצוגה קומפקטית: עמודות וכרטיסי שיעור צרים וקטנים יותר, כדי שכל השבוע ייכנס בלי גלילה
@@ -206,13 +207,18 @@ export function SchedulePage() {
                             compact ? 'px-1 py-1 text-[10px] min-w-[80px]' : 'px-2 py-1.5 text-xs min-w-[120px]'
                           }`}
                         >
-                          <button
-                            onClick={() => setEditingLesson(l)}
-                            title="עריכה"
-                            className="absolute top-1 left-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/10 transition-opacity"
-                          >
-                            <Pencil size={compact ? 9 : 11} />
-                          </button>
+                          <div className="absolute top-1 left-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => setDuplicatingLesson(l)}
+                              title="שכפול — אותו שיעור לימים/שעה אחרים, אפשר כמה ימים בבת אחת"
+                              className="p-0.5 rounded hover:bg-black/10"
+                            >
+                              <Copy size={compact ? 9 : 11} />
+                            </button>
+                            <button onClick={() => setEditingLesson(l)} title="עריכה" className="p-0.5 rounded hover:bg-black/10">
+                              <Pencil size={compact ? 9 : 11} />
+                            </button>
+                          </div>
                           {l.notes && (
                             <span
                               title={l.notes}
@@ -221,7 +227,7 @@ export function SchedulePage() {
                               !
                             </span>
                           )}
-                          <div className={`font-semibold truncate ${compact ? 'pl-3' : 'pl-4'}`}>{l.subject || l.className}</div>
+                          <div className={`font-semibold truncate ${compact ? 'pl-5' : 'pl-7'}`}>{l.subject || l.className}</div>
                           {!compact && l.subject && l.className !== l.subject && (
                             <div className="opacity-70 truncate">כיתה {l.className}</div>
                           )}
@@ -345,6 +351,21 @@ export function SchedulePage() {
         />
       )}
 
+      {duplicatingLesson && (
+        <LessonModal
+          lesson={duplicatingLesson}
+          duplicate
+          teachers={teachers}
+          tracks={tracks}
+          onTeacherAdded={(teacher) => setTeachers((prev) => [...prev, teacher])}
+          onClose={() => setDuplicatingLesson(null)}
+          onSaved={() => {
+            setDuplicatingLesson(null);
+            load();
+          }}
+        />
+      )}
+
       {showHistory && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto space-y-2">
@@ -365,6 +386,7 @@ export function SchedulePage() {
 
 function LessonModal({
   lesson,
+  duplicate = false,
   teachers,
   tracks,
   onTeacherAdded,
@@ -372,6 +394,9 @@ function LessonModal({
   onSaved,
 }: {
   lesson?: Lesson;
+  /** פותח טופס "שיעור חדש" ממולא עם פרטי lesson (מסלול/מורות/חדר/תאריכים) — כדי שבשיעור
+   * שחוזר כמה פעמים בשבוע אפשר רק לשנות יום/שעה, בלי למלא הכל מחדש. שומר כרשומה נפרדת. */
+  duplicate?: boolean;
   teachers: Ref[];
   tracks: Ref[];
   onTeacherAdded: (teacher: Ref) => void;
@@ -388,7 +413,28 @@ function LessonModal({
     fromDate: lesson?.fromDate || todayStr(),
     toDate: lesson?.toDate || '',
   });
+  // שיעור חדש/משוכפל — אפשר לסמן כמה ימים וכמה שעות בבת אחת, ונוצרת רשומה נפרדת לכל צירוף
+  // יום×שעה, כדי לא למלא את אותו שיעור שחוזר כמה פעמים בשבוע שוב ושוב. בשכפול מתחילים בלי
+  // ימים מסומנים, כדי לא ליצור בטעות עותק זהה באותו יום ושעה. בעריכה — יום ושעה אחד, כמו קודם.
+  const multiDay = !lesson || duplicate;
+  const [days, setDays] = useState<string[]>(duplicate ? [] : [form.dayOfWeek]);
+  const [times, setTimes] = useState<string[]>(duplicate && lesson ? [lesson.time] : []);
+  const [newCustomTime, setNewCustomTime] = useState('');
   const daySlots = getTimeSlotsForDay(form.dayOfWeek);
+  // השעות להצגה — כל השעות של הימים המסומנים (שלישי בנוי על שעות אחרות), ועוד שעות מותאמות שנוספו ידנית.
+  const multiSlots = ALL_TIME_SLOTS.filter((s) =>
+    (days.length ? days : ['ראשון']).some((d) => getTimeSlotsForDay(d).some((x) => x.time === s.time))
+  );
+  const isStandardTime = (t: string) => ALL_TIME_SLOTS.some((s) => s.time === t);
+  const customTimes = times.filter((t) => !isStandardTime(t));
+  // כל צירופי יום×שעה. שעה רגילה שלא קיימת במערכת של יום מסוים (למשל שעה של שלישי ביום ראשון)
+  // מדולגת באותו יום; שעה מותאמת אישית נוצרת בכל הימים.
+  const combos = days.flatMap((dayOfWeek) =>
+    times
+      .filter((t) => !isStandardTime(t) || getTimeSlotsForDay(dayOfWeek).some((s) => s.time === t))
+      .map((t) => ({ dayOfWeek, time: t }))
+  );
+  const skippedCount = days.length * times.length - combos.length;
   const knownTime = lesson && daySlots.some((s) => s.time === lesson.time);
   const [timeChoice, setTimeChoice] = useState(lesson ? (knownTime ? lesson.time : CUSTOM_TIME) : daySlots[0].time);
   const [customTime, setCustomTime] = useState(lesson && !knownTime ? lesson.time : '');
@@ -405,6 +451,30 @@ function LessonModal({
     if (timeChoice !== CUSTOM_TIME && !newSlots.some((s) => s.time === timeChoice)) {
       setTimeChoice(newSlots[0].time);
     }
+  }
+
+  function toggleDay(day: string) {
+    const next = days.includes(day) ? days.filter((d) => d !== day) : DAYS.filter((d) => d === day || days.includes(d));
+    setDays(next);
+    // שעה רגילה שאף יום מסומן כבר לא כולל — מורידים, כדי שלא תישאר מסומנת בלי שרואים אותה.
+    if (next.length) {
+      setTimes((prev) =>
+        prev.filter((t) => !isStandardTime(t) || next.some((d) => getTimeSlotsForDay(d).some((s) => s.time === t)))
+      );
+    }
+  }
+
+  function toggleTime(t: string) {
+    setTimes((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t].sort((a, b) => startMinutes(a) - startMinutes(b))
+    );
+  }
+
+  function addCustomTime() {
+    const t = newCustomTime.trim();
+    if (!t) return;
+    if (!times.includes(t)) toggleTime(t);
+    setNewCustomTime('');
   }
 
   function toggleTrack(id: string) {
@@ -436,7 +506,8 @@ function LessonModal({
 
   async function submit() {
     const time = timeChoice === CUSTOM_TIME ? customTime.trim() : timeChoice;
-    if (!time || !trackIds.length) return;
+    const slots = multiDay ? combos : [{ dayOfWeek: form.dayOfWeek, time }];
+    if (!trackIds.length || !slots.length || slots.some((s) => !s.time)) return;
     setBusy(true);
     try {
       // אין יותר שדה "כיתה" נפרד בטופס — שם/שמות המסלול הם ההזדהות של השיעור, אז זה מה
@@ -446,7 +517,18 @@ function LessonModal({
           .filter((t) => trackIds.includes(t.id))
           .map((t) => t.name)
           .join(' + ') || form.className;
-      await api.post('/schedule/updateScheduleLesson', { id: lesson?.id, ...form, className, time, trackIds, teacherIds });
+      // בזה אחר זה ולא במקביל — כדי לא לחרוג ממגבלת הבקשות לשנייה של Airtable.
+      for (const slot of slots) {
+        await api.post('/schedule/updateScheduleLesson', {
+          id: multiDay ? undefined : lesson?.id,
+          ...form,
+          dayOfWeek: slot.dayOfWeek,
+          className,
+          time: slot.time,
+          trackIds,
+          teacherIds,
+        });
+      }
       onSaved();
     } finally {
       setBusy(false);
@@ -454,7 +536,7 @@ function LessonModal({
   }
 
   async function handleDelete() {
-    if (!lesson) return;
+    if (!lesson || duplicate) return;
     if (!confirm(`למחוק את השיעור "${lesson.subject || lesson.className}" (${lesson.dayOfWeek} ${lesson.time})?`)) return;
     setBusy(true);
     try {
@@ -470,12 +552,91 @@ function LessonModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3 max-h-[85vh] overflow-y-auto">
-        <h3 className="font-bold text-navy text-lg">{lesson ? 'עריכת שיעור' : 'שיעור חדש'}</h3>
+        <h3 className="font-bold text-navy text-lg">
+          {duplicate ? 'שכפול שיעור — בחרו ימים ושעות' : lesson ? 'עריכת שיעור' : 'שיעור חדש'}
+        </h3>
         <input className="input" placeholder="נושא (למשל: חשבון)" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-        <select className="input" value={form.dayOfWeek} onChange={(e) => changeDay(e.target.value)}>
-          {DAYS.map((d) => <option key={d}>{d}</option>)}
-        </select>
+        {multiDay ? (
+          <div>
+            <label className="label">
+              ימים (אפשר לסמן כמה — נוצר שיעור נפרד לכל יום ושעה)
+              {duplicate && lesson && <span className="text-slate-400"> · המקורי: {lesson.dayOfWeek} {lesson.time}</span>}
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {DAYS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => toggleDay(d)}
+                  className={`px-3 py-1 rounded-full text-sm border ${
+                    days.includes(d) ? 'bg-navy text-white border-navy' : 'bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <select className="input" value={form.dayOfWeek} onChange={(e) => changeDay(e.target.value)}>
+            {DAYS.map((d) => <option key={d}>{d}</option>)}
+          </select>
+        )}
 
+        {multiDay ? (
+          <div>
+            <label className="label">שעות (אפשר לסמן כמה — למשל שיעור כפול)</label>
+            <div className="flex flex-wrap gap-1.5">
+              {multiSlots.map((s) => (
+                <button
+                  key={s.time}
+                  type="button"
+                  onClick={() => toggleTime(s.time)}
+                  title={s.label || undefined}
+                  className={`px-2 py-1 rounded-lg text-xs border ${
+                    times.includes(s.time) ? 'bg-navy text-white border-navy' : 'bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {s.time}
+                  {s.label && <span className="opacity-70"> · {s.label}</span>}
+                </button>
+              ))}
+              {customTimes.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => toggleTime(t)}
+                  title="לחצו להסרה"
+                  className="px-2 py-1 rounded-lg text-xs border bg-navy text-white border-navy"
+                >
+                  {t} ✕
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-2">
+              <input
+                className="input py-1.5 text-sm"
+                placeholder="שעה מותאמת, לדוגמה: 16:00-16:45"
+                value={newCustomTime}
+                onChange={(e) => setNewCustomTime(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomTime())}
+              />
+              <button
+                type="button"
+                className="btn-outline text-sm py-1.5 px-3 shrink-0"
+                onClick={addCustomTime}
+                disabled={!newCustomTime.trim()}
+              >
+                <Plus size={14} /> הוספה
+              </button>
+            </div>
+            {skippedCount > 0 && (
+              <p className="text-amber-700 text-xs mt-1">
+                שימו לב: {skippedCount} מהצירופים לא ייווצרו, כי השעה לא קיימת במערכת של אותו יום (למשל שלישי)
+              </p>
+            )}
+          </div>
+        ) : (
         <div>
           <label className="label">שעה</label>
           <select className="input" value={timeChoice} onChange={(e) => setTimeChoice(e.target.value)}>
@@ -495,6 +656,7 @@ function LessonModal({
             />
           )}
         </div>
+        )}
 
         <div>
           <label className="label">מסלול (חובה, אפשר לבחור כמה — למשל כנס משותף לכולם)</label>
@@ -580,7 +742,7 @@ function LessonModal({
         </div>
 
         <div className="flex gap-2 justify-between pt-2">
-          {lesson ? (
+          {lesson && !duplicate ? (
             <button className="btn-outline text-red-600 border-red-200 hover:bg-red-50" onClick={handleDelete} disabled={busy}>
               <Trash2 size={14} /> מחיקה
             </button>
@@ -589,8 +751,12 @@ function LessonModal({
           )}
           <div className="flex gap-2">
             <button className="btn-outline" onClick={onClose}>ביטול</button>
-            <button className="btn-primary" onClick={submit} disabled={busy || !trackIds.length || !form.fromDate || !time}>
-              שמירה
+            <button
+              className="btn-primary"
+              onClick={submit}
+              disabled={busy || !trackIds.length || !form.fromDate || (multiDay ? !combos.length : !time)}
+            >
+              {multiDay && combos.length > 1 ? `שמירה (${combos.length} שיעורים)` : duplicate ? 'שמירה כשיעור חדש' : 'שמירה'}
             </button>
           </div>
         </div>

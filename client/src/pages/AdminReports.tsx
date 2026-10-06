@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Download, RefreshCw, Users, FileText, Receipt, Trash2, Plus, Pencil, Mail, Undo2 } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
@@ -56,6 +56,23 @@ type ReceiptRow = {
   month: string;
   fileName: string | null;
   employee: { name: string };
+};
+
+type ContractRow = {
+  id: string;
+  title: string;
+  status: 'ממתין לחתימה' | 'נחתם' | 'בוטל';
+  fileName: string | null;
+  uploadedAt: string;
+  signedAt: string | null;
+  employeeSignature: string | null;
+  employee: { id: string; name: string };
+};
+
+const CONTRACT_STATUS_STYLE: Record<ContractRow['status'], string> = {
+  'ממתין לחתימה': 'bg-amber-100 text-amber-800',
+  נחתם: 'bg-green-100 text-green-800',
+  בוטל: 'bg-slate-100 text-slate-500',
 };
 
 const TABS = ['reports', 'employees', 'receipts', 'sync'] as const;
@@ -131,13 +148,13 @@ function ReportsTab() {
     await load();
   }
 
-  async function exportSummary() {
+  async function exportPdf(endpoint: string) {
     // פותחים את הטאב מיד וסינכרונית בתוך ה-click handler, לפני ה-await — אחרת הדפדפן חוסם
     // את זה כפופ-אפ בשקט ברגע שההדפסה לוקחת יותר מרגע (ראה גם exportPdf ב-MonthlyReport).
     const pdfWindow = window.open('', '_blank');
     setBusy(true);
     try {
-      const r = await api.get<{ url: string }>('/reports/exportSummaryPdf', { month });
+      const r = await api.get<{ url: string }>(endpoint, { month });
       if (pdfWindow) pdfWindow.location.href = r.url;
       else window.open(r.url, '_blank');
     } catch (err) {
@@ -152,9 +169,21 @@ function ReportsTab() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="input w-auto" />
-        <button className="btn-outline" onClick={exportSummary} disabled={busy}>
-          <Download size={16} /> ייצוא סיכום PDF
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="btn-outline"
+            onClick={() => exportPdf('/reports/exportSubmittedReportsPdf')}
+            disabled={busy || !summary || summary.submitted + summary.approved === 0}
+          >
+            <FileText size={16} /> הורדת כל הדוחות שהוגשו
+          </button>
+          <button className="btn-outline" onClick={() => exportPdf('/reports/exportAllTeacherReportsPdf')} disabled={busy}>
+            <Users size={16} /> הורדת דוחות כל המורות
+          </button>
+          <button className="btn-outline" onClick={() => exportPdf('/reports/exportSummaryPdf')} disabled={busy}>
+            <Download size={16} /> ייצוא סיכום PDF
+          </button>
+        </div>
       </div>
 
       {summary && (
@@ -260,8 +289,10 @@ function ReportsTab() {
 
 function EmployeesTab() {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [contracts, setContracts] = useState<ContractRow[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
+  const [viewingContractsFor, setViewingContractsFor] = useState<Employee | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const [reminderBusy, setReminderBusy] = useState(false);
@@ -270,12 +301,24 @@ function EmployeesTab() {
   const [workAreaFilter, setWorkAreaFilter] = useState('');
 
   async function load() {
-    const data = await api.get<{ employees: Employee[] }>('/employees/getEmployees');
-    setEmployees(data.employees);
+    const [employeesData, contractsData] = await Promise.all([
+      api.get<{ employees: Employee[] }>('/employees/getEmployees'),
+      api.get<{ contracts: ContractRow[] }>('/contracts/getContracts'),
+    ]);
+    setEmployees(employeesData.employees);
+    setContracts(contractsData.contracts);
   }
   useEffect(() => {
     load();
   }, []);
+
+  const contractsByEmployee = useMemo(() => {
+    const map: Record<string, ContractRow[]> = {};
+    for (const c of contracts) {
+      (map[c.employee.id] ||= []).push(c);
+    }
+    return map;
+  }, [contracts]);
 
   async function remove(id: string) {
     if (!confirm('למחוק עובד? פעולה זו תמחק גם את כל הנתונים המשויכים אליו.')) return;
@@ -371,29 +414,49 @@ function EmployeesTab() {
               <th>מחלקה</th>
               <th>תחום עיסוק</th>
               <th>פעיל</th>
+              <th>חוזה</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {filteredEmployees.map((e) => (
-              <tr key={e.id} className="border-b last:border-0 hover:bg-slate-50">
-                <td className="py-2">{e.name}</td>
-                <td>{e.role}</td>
-                <td>{e.department || '—'}</td>
-                <td>{e.workArea || '—'}</td>
-                <td>{e.isActive ? 'כן' : 'לא'}</td>
-                <td>
-                  <div className="flex gap-1 justify-center">
-                    <button onClick={() => setEditing(e)} className="p-1.5 rounded-lg hover:bg-slate-200">
-                      <Pencil size={14} />
-                    </button>
-                    <button onClick={() => remove(e.id)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {filteredEmployees.map((e) => {
+              const employeeContracts = contractsByEmployee[e.id] || [];
+              const hasPending = employeeContracts.some((c) => c.status === 'ממתין לחתימה');
+              return (
+                <tr key={e.id} className="border-b last:border-0 hover:bg-slate-50">
+                  <td className="py-2">{e.name}</td>
+                  <td>{e.role}</td>
+                  <td>{e.department || '—'}</td>
+                  <td>{e.workArea || '—'}</td>
+                  <td>{e.isActive ? 'כן' : 'לא'}</td>
+                  <td>
+                    {employeeContracts.length > 0 ? (
+                      <button
+                        onClick={() => setViewingContractsFor(e)}
+                        className={`badge inline-flex items-center gap-1 ${
+                          hasPending ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
+                        }`}
+                        title="צפייה בחוזה"
+                      >
+                        <FileSignature size={12} /> {hasPending ? 'ממתין לחתימה' : 'צפייה'}
+                      </button>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>
+                    <div className="flex gap-1 justify-center">
+                      <button onClick={() => setEditing(e)} className="p-1.5 rounded-lg hover:bg-slate-200">
+                        <Pencil size={14} />
+                      </button>
+                      <button onClick={() => remove(e.id)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -416,6 +479,63 @@ function EmployeesTab() {
           }}
         />
       )}
+      {viewingContractsFor && (
+        <EmployeeContractsModal
+          employee={viewingContractsFor}
+          contracts={contractsByEmployee[viewingContractsFor.id] || []}
+          onClose={() => setViewingContractsFor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function EmployeeContractsModal({
+  employee,
+  contracts,
+  onClose,
+}: {
+  employee: Employee;
+  contracts: ContractRow[];
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-3 max-h-[85vh] overflow-y-auto">
+        <h3 className="font-bold text-navy text-lg">חוזים — {employee.name}</h3>
+        {contracts.map((c) => (
+          <div key={c.id} className="card">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-bold text-navy flex items-center gap-2">
+                <FileSignature size={16} className="text-gold-dark" /> {c.title}
+              </span>
+              <span className={`badge ${CONTRACT_STATUS_STYLE[c.status]}`}>{c.status}</span>
+            </div>
+            {c.fileName && (
+              <a href={`/api/contracts/${c.id}/file`} target="_blank" rel="noreferrer" className="text-sm text-navy underline">
+                צפייה בקובץ החוזה
+              </a>
+            )}
+            {c.status === 'נחתם' && c.signedAt && (
+              <div className="mt-2">
+                <p className="text-green-700 text-xs flex items-center gap-1">
+                  <CheckCircle2 size={14} /> נחתם ב-{new Date(c.signedAt).toLocaleDateString('he-IL')}
+                </p>
+                {c.employeeSignature && (
+                  <div className="mt-2 border rounded-lg p-2 bg-slate-50">
+                    <p className="text-[10px] text-slate-400 mb-1">חתימת העובד/ת:</p>
+                    <img src={c.employeeSignature} alt="חתימה" className="max-h-16 bg-white rounded border" />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        {contracts.length === 0 && <p className="text-slate-400 text-center py-6">אין חוזים</p>}
+        <div className="flex justify-end pt-2">
+          <button className="btn-outline" onClick={onClose}>סגירה</button>
+        </div>
+      </div>
     </div>
   );
 }

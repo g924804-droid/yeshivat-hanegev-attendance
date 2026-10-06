@@ -34,7 +34,7 @@ const BASE_STYLE = `
 
 const DOW_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
-export function reportPdfHtml(
+function reportSectionHtml(
   employee: User,
   report: MonthlyReport,
   days: DayDetail[],
@@ -62,7 +62,7 @@ export function reportPdfHtml(
     })
     .join('');
 
-  return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>
+  return `
     <h1>דוח נוכחות חודשי — ישיבת הנגב</h1>
     <div class="meta">עובד/ת: ${employee.name} &nbsp;|&nbsp; חודש: ${report.month} &nbsp;|&nbsp; סטטוס: ${report.status}</div>
     <div class="summary">
@@ -88,7 +88,35 @@ export function reportPdfHtml(
       <tbody>${rows}</tbody>
     </table>
     ${signatureDataUrl ? `<div class="signature"><div>חתימת עובד/ת:</div><img src="${signatureDataUrl}" /></div>` : ''}
+  `;
+}
+
+export function reportPdfHtml(
+  employee: User,
+  report: MonthlyReport,
+  days: DayDetail[],
+  signatureDataUrl?: string
+): string {
+  return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>
+    ${reportSectionHtml(employee, report, days, signatureDataUrl)}
   </body></html>`;
+}
+
+/**
+ * כל הדוחות המלאים (פירוט יומי, לא רק סיכום) של כמה עובדות ביחד בקובץ אחד — כדי שלא יהיה
+ * צורך לייצא ולהוריד כל דוח בנפרד, אחד-אחד, לכל מורה. כל דוח מתחיל בעמוד חדש.
+ */
+export function combinedReportsPdfHtml(
+  sections: { employee: User; report: MonthlyReport; days: DayDetail[] }[]
+): string {
+  const body = sections
+    .map(
+      ({ employee, report, days }, idx) =>
+        `<div${idx > 0 ? ' style="page-break-before: always;"' : ''}>${reportSectionHtml(employee, report, days, report.employeeSignature || undefined)}</div>`
+    )
+    .join('');
+
+  return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>${body}</body></html>`;
 }
 
 export function summaryPdfHtml(

@@ -5,7 +5,7 @@ import { buildMonthDetail } from '../lib/monthlyReport';
 import { hasPendingContracts } from '../lib/contracts';
 import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
 import { renderHtmlToPdf } from '../lib/pdf';
-import { reportPdfHtml, summaryPdfHtml } from '../lib/pdfTemplates';
+import { reportPdfHtml, summaryPdfHtml, combinedReportsPdfHtml } from '../lib/pdfTemplates';
 import { sendMonthlyReminders } from '../lib/monthlyReminder';
 
 const router = Router();
@@ -249,6 +249,66 @@ router.get('/exportSummaryPdf', requireAdminOrAttendanceManager, async (req, res
       subdir: 'summaries',
       filename: `סיכום-${month}.pdf`,
       landscape: true,
+    });
+    res.json({ url, filename });
+  } catch (err: any) {
+    res.status(500).json({ error: pdfErrorMessage(err) });
+  }
+});
+
+/**
+ * דוח מלא (פירוט יומי) של כל המורות הפעילות ביחד, בקובץ אחד — כדי שלא יהיה צורך להוציא את
+ * הדוח המלא של כל מורה בנפרד אחת-אחת. מורה בלי דוח מחושב לחודש הזה — מחושב ונוצר כטיוטה כאן.
+ */
+router.get('/exportAllTeacherReportsPdf', requireAdminOrAttendanceManager, async (req, res) => {
+  try {
+    const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+    const teachers = await prisma.user.findMany({
+      where: { role: 'מורה', isActive: true },
+      orderBy: { name: 'asc' },
+    });
+    const sections = await Promise.all(
+      teachers.map(async (employee) => {
+        const { report, days } = await calculateAndUpsert(employee.id, month);
+        return { employee, report, days };
+      })
+    );
+    const html = combinedReportsPdfHtml(sections);
+    const { url, filename } = await renderHtmlToPdf(html, {
+      subdir: 'summaries',
+      filename: `דוחות-מורות-${month}.pdf`,
+    });
+    res.json({ url, filename });
+  } catch (err: any) {
+    res.status(500).json({ error: pdfErrorMessage(err) });
+  }
+});
+
+/**
+ * כל הדוחות המלאים של מי שהגישה (הוגש/אושר) לחודש מסוים, בקובץ PDF אחד — כל דוח בעמוד חדש,
+ * עם החתימה שלה. טיוטות וחסרות לא נכללות.
+ */
+router.get('/exportSubmittedReportsPdf', requireAdminOrAttendanceManager, async (req, res) => {
+  try {
+    const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+    const reports = await prisma.monthlyReport.findMany({
+      where: { month, status: { in: ['הוגש', 'אושר'] } },
+      include: { employee: true },
+      orderBy: { employee: { name: 'asc' } },
+    });
+    if (reports.length === 0) {
+      return res.status(400).json({ error: 'אין דוחות שהוגשו לחודש הזה' });
+    }
+    const sections = await Promise.all(
+      reports.map(async ({ employee, ...report }) => {
+        const { days } = await buildMonthDetail(employee, month);
+        return { employee, report, days };
+      })
+    );
+    const html = combinedReportsPdfHtml(sections);
+    const { url, filename } = await renderHtmlToPdf(html, {
+      subdir: 'summaries',
+      filename: `דוחות-שהוגשו-${month}.pdf`,
     });
     res.json({ url, filename });
   } catch (err: any) {

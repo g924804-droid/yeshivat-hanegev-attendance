@@ -21,7 +21,11 @@ async function fetchFullSchedule() {
     airtableFetch(TABLES.tracks),
   ]);
 
-  const teacherList = teachers.map((t) => ({ id: t.id, name: t.fields[FIELDS.teachers.name] }));
+  // סדר א'-ב' — ברשימת Airtable הגולמית המורות מופיעות בסדר הוספה, מה שמקשה למצוא מורה
+  // ברשימת הצ'קבוקסים הארוכה בטופס השיעור.
+  const teacherList = teachers
+    .map((t) => ({ id: t.id, name: t.fields[FIELDS.teachers.name] }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'he'));
   const trackList = tracks.map((t) => ({ id: t.id, name: t.fields[FIELDS.tracks.name] }));
 
   return {
