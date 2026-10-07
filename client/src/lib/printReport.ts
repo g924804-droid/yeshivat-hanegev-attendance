@@ -1,4 +1,5 @@
 import { api } from './api';
+import { formatHours } from './utils';
 
 type DayDetail = {
   date: string;
@@ -124,7 +125,7 @@ function buildHtml(employeeName: string, report: Report, days: DayDetail[]): str
       ${stat('שיעורים', report.totalLessons)}
       ${
         report.specialRateHours > 0
-          ? `<div class="stat special-stat"><div class="label">⚠ שעות בשכר שונה — לתשומת לב חשבת שכר</div><div class="value">${report.specialRateHours.toFixed(2)}</div></div>`
+          ? `<div class="stat special-stat"><div class="label">⚠ שעות בשכר שונה — לתשומת לב חשבת שכר (הפירוט בעמודת ההערות)</div><div class="value">${formatHours(report.specialRateHours)}</div></div>`
           : ''
       }
     </div>

@@ -219,3 +219,8 @@ export function toHebrewDateString(date: Date): string {
 
   return `${dayStr} ב${month} ${yearStr}`;
 }
+
+/** 5 → "5 שעות", 2.5 → "2.5 שעות" — במפורש "שעות", כדי שלא ייקרא כסכום בשקלים. */
+export function formatHours(hours: number): string {
+  return `${Number((hours || 0).toFixed(2))} שעות`;
+}

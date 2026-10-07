@@ -106,7 +106,7 @@ function reportSectionHtml(
       <div class="stat"><div class="label">שיעורים</div><div class="value">${report.totalLessons}</div></div>
       ${
         report.specialRateHours > 0
-          ? `<div class="stat special-stat"><div class="label">⚠ שעות בשכר שונה — לתשומת לב חשבת שכר</div><div class="value">${report.specialRateHours.toFixed(2)}</div></div>`
+          ? `<div class="stat special-stat"><div class="label">⚠ שעות בשכר שונה — לתשומת לב חשבת שכר (הפירוט בעמודת ההערות)</div><div class="value">${formatHours(report.specialRateHours)}</div></div>`
           : ''
       }
     </div>
@@ -145,10 +145,30 @@ export function reportsPdfHtml(
   return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>${body}</body></html>`;
 }
 
+/** 5 → "5 שעות", 2.5 → "2.5 שעות" — במפורש "שעות", כדי שלא ייקרא כסכום בשקלים. */
+export function formatHours(hours: number): string {
+  return `${Number(hours.toFixed(2))} שעות`;
+}
+
+export type SpecialRateDetail = { date: string; hours: number; notes: string | null };
+
+/** "4/10: 5 שעות ב-120 ש״ח" — הפירוט שהמורה רשמה לכל יום בשכר שונה, לחשבת השכר. */
+function specialRateDetailsHtml(details: SpecialRateDetail[] = []): string {
+  return details
+    .map(
+      (d) =>
+        `<div style="font-size:8.5px;font-weight:normal">${Number(d.date.slice(8, 10))}/${Number(d.date.slice(5, 7))}: ${
+          d.notes ? escapeHtml(d.notes) : formatHours(d.hours)
+        }</div>`
+    )
+    .join('');
+}
+
 export function summaryPdfHtml(
   month: string,
   reports: (MonthlyReport & { employee: User })[],
-  newFlags?: Map<string, { isNewEmployee: boolean; hasNewContract: boolean }>
+  newFlags?: Map<string, { isNewEmployee: boolean; hasNewContract: boolean }>,
+  specialRateDetails?: Map<string, SpecialRateDetail[]>
 ): string {
   const byDept = new Map<string, (MonthlyReport & { employee: User })[]>();
   for (const r of reports) {
@@ -173,7 +193,11 @@ export function summaryPdfHtml(
         <td>${r.employee.name}</td><td>${r.status}</td><td>${r.totalWorkDays}</td>
         <td>${r.totalHours.toFixed(2)}</td><td>${r.totalOvertime.toFixed(2)}</td>
         <td>${r.sickDays}</td><td>${r.vacationDays}</td><td>${r.absenceDays}</td>
-        <td>${r.specialRateHours > 0 ? `<span class="special-badge">₪</span> ${r.specialRateHours.toFixed(2)}` : '—'}</td>
+        <td>${
+          r.specialRateHours > 0
+            ? `<span class="special-badge">₪</span> ${formatHours(r.specialRateHours)}${specialRateDetailsHtml(specialRateDetails?.get(r.employeeId))}`
+            : '—'
+        }</td>
         <td>${noteBadges || '—'}</td>
       </tr>`;
         })

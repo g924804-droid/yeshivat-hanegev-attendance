@@ -4,7 +4,7 @@ import { Download, Send, CheckCircle2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { SignaturePad, SignaturePadHandle } from '../components/SignaturePad';
 import { api } from '../lib/api';
-import { safeFixed, DOW_HE, currentMonth } from '../lib/utils';
+import { safeFixed, DOW_HE, currentMonth, formatHours } from '../lib/utils';
 
 type Report = {
   id: string;
@@ -164,7 +164,14 @@ export function MonthlyReport() {
         {report.specialRateHours > 0 && (
           <div className="card text-center py-4 border-2 border-black bg-amber-50 col-span-2">
             <p className="text-black text-xs mb-1 font-bold">⚠ שעות בשכר שונה מהרגיל — לתשומת לב חשבת השכר</p>
-            <p className="text-xl font-black text-black">{safeFixed(report.specialRateHours)}</p>
+            <p className="text-xl font-black text-black">{formatHours(report.specialRateHours)}</p>
+            {days
+              .filter((d) => d.record?.hasSpecialRate)
+              .map((d) => (
+                <p key={d.date} className="text-xs text-slate-700">
+                  {Number(d.date.slice(8, 10))}/{Number(d.date.slice(5, 7))}: {d.record!.notes || formatHours(d.record!.totalHours)}
+                </p>
+              ))}
           </div>
         )}
       </div>

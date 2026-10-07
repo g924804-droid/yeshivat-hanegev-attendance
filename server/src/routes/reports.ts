@@ -5,7 +5,7 @@ import { buildMonthDetail } from '../lib/monthlyReport';
 import { hasPendingContracts } from '../lib/contracts';
 import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
 import { renderHtmlToPdf, htmlToPdfBuffer, mergePdfs, savePdf } from '../lib/pdf';
-import { reportPdfHtml, reportsPdfHtml, summaryPdfHtml } from '../lib/pdfTemplates';
+import { reportPdfHtml, reportsPdfHtml, summaryPdfHtml, SpecialRateDetail } from '../lib/pdfTemplates';
 import { loadSickNotes } from '../lib/sickNotes';
 import { DayDetail } from '../lib/monthlyReport';
 import { MonthlyReport, User } from '@prisma/client';
@@ -96,6 +96,24 @@ async function buildCombinedReportsPdf(
   }
   await flush();
   return mergePdfs(buffers);
+}
+
+/**
+ * לכל עובד/ת — הימים בחודש שסומנו "שכר שונה", עם השעות והפירוט שנרשם (למשל "5 שעות ב-120 ש״ח"),
+ * כדי שחשבת השכר תראה בסיכום מה בדיוק התעריף ולא רק כמה שעות. אותם סוגי ימים שנספרים בסיכום.
+ */
+async function getSpecialRateDetails(month: string): Promise<Map<string, SpecialRateDetail[]>> {
+  const records = await prisma.attendanceRecord.findMany({
+    where: { date: { startsWith: month }, hasSpecialRate: true, type: { in: ['רגיל', 'חצי יום'] } },
+    select: { employeeId: true, date: true, totalHours: true, notes: true },
+    orderBy: { date: 'asc' },
+  });
+  const byEmployee = new Map<string, SpecialRateDetail[]>();
+  for (const r of records) {
+    if (!byEmployee.has(r.employeeId)) byEmployee.set(r.employeeId, []);
+    byEmployee.get(r.employeeId)!.push({ date: r.date, hours: r.totalHours, notes: r.notes });
+  }
+  return byEmployee;
 }
 
 function targetUserId(req: any): string {
@@ -272,10 +290,12 @@ router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) =
     });
     const pendingReceipts = pendingEmployees.map((e) => ({ id: e.id, name: e.name, count: pendingByEmployee.get(e.id)! }));
 
+    const specialRateDetails = await getSpecialRateDetails(month);
     const reportsWithFlags = reports.map((r) => ({
       ...r,
       ...(flags.get(r.employeeId) || { isNewEmployee: false, hasNewContract: false }),
       pendingReceipts: pendingByEmployee.get(r.employeeId) || 0,
+      specialRateDetails: specialRateDetails.get(r.employeeId) || [],
     }));
 
     res.json({
@@ -317,7 +337,7 @@ router.get('/exportSummaryPdf', requireAdminOrAttendanceManager, async (req, res
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
     const reports = await prisma.monthlyReport.findMany({ where: { month }, include: { employee: true } });
     const flags = await getNewEmployeeContractFlags(month);
-    const html = summaryPdfHtml(month, reports, flags);
+    const html = summaryPdfHtml(month, reports, flags, await getSpecialRateDetails(month));
     const { url, filename } = await renderHtmlToPdf(html, {
       subdir: 'summaries',
       filename: `סיכום-${month}.pdf`,

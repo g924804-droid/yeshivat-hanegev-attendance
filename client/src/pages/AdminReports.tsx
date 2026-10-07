@@ -4,7 +4,7 @@ import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Rece
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useAuth } from '../lib/permissions';
-import { currentMonth, safeFixed } from '../lib/utils';
+import { currentMonth, safeFixed, formatHours } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
 import { printMonthlyReport } from '../lib/printReport';
 
@@ -23,6 +23,7 @@ type ReportRow = {
   isNewEmployee: boolean;
   hasNewContract: boolean;
   pendingReceipts: number;
+  specialRateDetails: { date: string; hours: number; notes: string | null }[];
   employee: { id: string; name: string; department: string | null };
 };
 
@@ -299,9 +300,16 @@ function ReportsTab() {
                 <td>{r.absenceDays}</td>
                 <td>
                   {r.specialRateHours > 0 ? (
-                    <span className="inline-flex items-center gap-1 font-bold border-2 border-black rounded-full px-2 py-0.5 bg-amber-200">
-                      ₪ {safeFixed(r.specialRateHours)}
-                    </span>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="inline-flex items-center gap-1 font-bold border-2 border-black rounded-full px-2 py-0.5 bg-amber-200">
+                        {formatHours(r.specialRateHours)}
+                      </span>
+                      {r.specialRateDetails.map((d) => (
+                        <span key={d.date} className="text-[11px] text-slate-700 max-w-[220px]" title={d.notes || ''}>
+                          {Number(d.date.slice(8, 10))}/{Number(d.date.slice(5, 7))}: {d.notes || formatHours(d.hours)}
+                        </span>
+                      ))}
+                    </div>
                   ) : (
                     '—'
                   )}
