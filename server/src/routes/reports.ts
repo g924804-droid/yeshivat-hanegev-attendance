@@ -121,10 +121,14 @@ function targetUserId(req: any): string {
   return canManage && (req.body?.userId || req.query?.userId) ? req.body?.userId || req.query?.userId : req.user.id;
 }
 
-async function calculateAndUpsert(employeeId: string, month: string) {
+/**
+ * דוח שהוגש/אושר "קפוא" — הסכומים לא מתעדכנים מעצמם, כדי שיתאימו למה שהעובדת חתמה עליו.
+ * force = ההנהלה ערכה ימים בתוך הדוח, ואז מחשבים מחדש את הסכומים (הסטטוס והחתימה נשארים).
+ */
+async function calculateAndUpsert(employeeId: string, month: string, force = false) {
   const employee = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } });
   const existing = await prisma.monthlyReport.findUnique({ where: { employeeId_month: { employeeId, month } } });
-  if (existing && existing.status !== 'טיוטה') {
+  if (existing && existing.status !== 'טיוטה' && !force) {
     return { report: existing, days: (await buildMonthDetail(employee, month)).days };
   }
 
@@ -153,7 +157,8 @@ router.get('/getMonthlyReport', async (req, res) => {
   try {
     const employeeId = targetUserId(req);
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
-    const { report, days } = await calculateAndUpsert(employeeId, month);
+    const canManage = req.user!.role === 'מנהל' || !!req.user!.isAttendanceManager;
+    const { report, days } = await calculateAndUpsert(employeeId, month, canManage && req.query.recalc === '1');
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } });
 
     let missingReceipt = false;

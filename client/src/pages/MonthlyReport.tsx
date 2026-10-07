@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Download, Send, CheckCircle2 } from 'lucide-react';
+import { Download, Send, CheckCircle2, Pencil } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { SignaturePad, SignaturePadHandle } from '../components/SignaturePad';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/permissions';
+import { DayEditModal, DayRecord } from '../components/DayEditModal';
 import { safeFixed, DOW_HE, currentMonth, formatHours } from '../lib/utils';
 
 type Report = {
@@ -30,14 +32,7 @@ type Day = {
   isFuture: boolean;
   holiday?: { name: string; type: 'full' | 'half' };
   isAbsence: boolean;
-  record: {
-    type: string;
-    totalHours: number;
-    overtimeHours: number;
-    lessonsCount: number;
-    notes: string | null;
-    hasSpecialRate: boolean;
-  } | null;
+  record: (DayRecord & { totalHours: number; overtimeHours: number }) | null;
 };
 
 const STATUS_STYLE: Record<Report['status'], string> = {
@@ -62,11 +57,15 @@ export function MonthlyReport() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sigRef = useRef<SignaturePadHandle>(null);
+  const { user } = useAuth();
+  // הנהלה ומזכירת נוכחות יכולות לתקן ימים ישירות מתוך הדוח של עובדת
+  const canEdit = !!targetUserId && (user?.role === 'מנהל' || !!user?.isAttendanceManager);
+  const [editingDay, setEditingDay] = useState<Day | null>(null);
 
-  async function load() {
+  async function load(recalc = false) {
     const data = await api.get<{ report: Report; days: Day[]; employeeName: string; missingReceipt: boolean }>(
       '/reports/getMonthlyReport',
-      { month, ...(targetUserId ? { userId: targetUserId } : {}) }
+      { month, ...(targetUserId ? { userId: targetUserId } : {}), ...(recalc ? { recalc: '1' } : {}) }
     );
     setReport(data.report);
     setDays(data.days);
@@ -137,6 +136,12 @@ export function MonthlyReport() {
       {targetUserId && (
         <div className="mb-4 text-sm bg-blue-50 text-blue-800 rounded-xl px-4 py-2">
           צפייה בדוח של {employeeName} — חתימה והגשה זמינות רק לעובדת עצמה
+          {canEdit && (
+            <div className="mt-1">
+              אפשר לתקן כל יום בלחיצה על <Pencil size={12} className="inline" /> בטבלה.
+              {report.status !== 'טיוטה' && ' הדוח כבר הוגש — אחרי תיקון הסכומים יתעדכנו, והחתימה של העובדת נשארת.'}
+            </div>
+          )}
         </div>
       )}
       {missingReceipt && !targetUserId && (
@@ -186,6 +191,7 @@ export function MonthlyReport() {
               <th>שעות</th>
               <th>עודפות</th>
               <th>שיעורים</th>
+              {canEdit && <th></th>}
             </tr>
           </thead>
           <tbody>
@@ -226,6 +232,19 @@ export function MonthlyReport() {
                   </td>
                   <td>{d.record ? safeFixed(d.record.overtimeHours) : '—'}</td>
                   <td>{d.record?.lessonsCount || '—'}</td>
+                  {canEdit && (
+                    <td>
+                      {!d.isSaturday && (
+                        <button
+                          onClick={() => setEditingDay(d)}
+                          title="עריכת היום"
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
           </tbody>
@@ -259,6 +278,18 @@ export function MonthlyReport() {
             <Download size={16} /> ייצוא PDF
           </button>
         </div>
+      )}
+      {editingDay && targetUserId && (
+        <DayEditModal
+          date={editingDay.date}
+          record={editingDay.record}
+          employeeId={targetUserId}
+          onClose={() => setEditingDay(null)}
+          onSaved={() => {
+            setEditingDay(null);
+            load(true);
+          }}
+        />
       )}
     </Layout>
   );

@@ -25,7 +25,7 @@ type AttendanceRecord = {
 
 type Holiday = { date: string; name: string; type: 'full' | 'half' };
 
-const TYPE_OPTIONS = ['רגיל', 'מחלה', 'חופשה שנתית', 'חופשה אישית', 'חג', 'חצי יום'];
+export const TYPE_OPTIONS = ['רגיל', 'מחלה', 'חופשה שנתית', 'חופשה אישית', 'חג', 'חצי יום'];
 
 /** רשומת "טיוטה" ליום שעדיין אין לו רשומה בכלל — id ריק מסמן ל-EditRow וליצירה בשרת שמדובר ביצירה, לא עדכון. */
 function draftAttendanceRecord(date: string): AttendanceRecord {
@@ -634,7 +634,7 @@ async function shrinkImage(file: File): Promise<File> {
 }
 
 /** העלאת קובץ אישור מחלה (צילום/סריקה/PDF) — מחזיר את הקישור לקובץ שנשמר בשרת דרך onChange. */
-function SickNoteUpload({
+export function SickNoteUpload({
   value,
   onChange,
   employeeId,

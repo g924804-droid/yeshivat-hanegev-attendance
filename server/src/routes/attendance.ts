@@ -296,15 +296,19 @@ router.put('/updateAttendance', async (req, res) => {
     }
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: record.employeeId } });
 
+    // לא נשלח = להשאיר כמו שהיה. נשלח ריק ('') = לנקות — נשמר כ-null, כדי שבדיקות כמו
+    // "חסר אישור מחלה" (sickNoteUrl: null) ימשיכו לתפוס גם שדה שנוקה.
+    const text = (value: string | null | undefined, previous: string | null) =>
+      value === undefined || value === null ? previous : value || null;
     const merged = {
-      clockIn: clockIn ?? record.clockIn,
-      clockOut: clockOut ?? record.clockOut,
-      clockIn2: clockIn2 ?? record.clockIn2,
-      clockOut2: clockOut2 ?? record.clockOut2,
+      clockIn: text(clockIn, record.clockIn),
+      clockOut: text(clockOut, record.clockOut),
+      clockIn2: text(clockIn2, record.clockIn2),
+      clockOut2: text(clockOut2, record.clockOut2),
       lessonsCount: lessonsCount ?? record.lessonsCount,
       type: type ?? record.type,
-      notes: notes ?? record.notes,
-      sickNoteUrl: sickNoteUrl ?? record.sickNoteUrl,
+      notes: text(notes, record.notes),
+      sickNoteUrl: text(sickNoteUrl, record.sickNoteUrl),
       hasSpecialRate: hasSpecialRate ?? record.hasSpecialRate,
     };
     const totalHours = calcTotalHours(merged.clockIn, merged.clockOut, merged.clockIn2, merged.clockOut2);
