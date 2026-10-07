@@ -1,6 +1,25 @@
 import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
 
+/** שדות שיעור גולמיים מ-Airtable → אובייקט שיעור. משמש גם לגרסאות ישנות שנשמרו בהיסטוריה (previousData). */
+export function parseLessonFields(id: string, f: Record<string, any>) {
+  return {
+    id,
+    className: f[FIELDS.lessons.className] as string | undefined,
+    subject: f[FIELDS.lessons.subject] as string | undefined,
+    dayOfWeek: f[FIELDS.lessons.dayOfWeek] as string,
+    time: f[FIELDS.lessons.time] as string,
+    track: f[FIELDS.lessons.track] as string[] | undefined,
+    teacher: f[FIELDS.lessons.teacher] as string[] | undefined,
+    room: f[FIELDS.lessons.room] as string | undefined,
+    year: f[FIELDS.lessons.year] as string | undefined,
+    notes: f[FIELDS.lessons.notes] as string | undefined,
+    fromDate: f[FIELDS.lessons.fromDate] as string | undefined,
+    toDate: f[FIELDS.lessons.toDate] as string | undefined,
+  };
+}
+export type ParsedLesson = ReturnType<typeof parseLessonFields>;
+
 type ScheduleData = Awaited<ReturnType<typeof fetchFullSchedule>>;
 
 /**
@@ -31,20 +50,7 @@ async function fetchFullSchedule() {
   const trackList = tracks.map((t) => ({ id: t.id, name: t.fields[FIELDS.tracks.name] }));
 
   return {
-    lessons: lessons.map((l) => ({
-      id: l.id,
-      className: l.fields[FIELDS.lessons.className],
-      subject: l.fields[FIELDS.lessons.subject],
-      dayOfWeek: l.fields[FIELDS.lessons.dayOfWeek],
-      time: l.fields[FIELDS.lessons.time],
-      track: l.fields[FIELDS.lessons.track] as string[] | undefined,
-      teacher: l.fields[FIELDS.lessons.teacher] as string[] | undefined,
-      room: l.fields[FIELDS.lessons.room],
-      year: l.fields[FIELDS.lessons.year],
-      notes: l.fields[FIELDS.lessons.notes],
-      fromDate: l.fields[FIELDS.lessons.fromDate],
-      toDate: l.fields[FIELDS.lessons.toDate],
-    })),
+    lessons: lessons.map((l) => parseLessonFields(l.id, l.fields)),
     teachers: teacherList,
     tracks: trackList,
   };

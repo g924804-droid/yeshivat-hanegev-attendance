@@ -5,6 +5,7 @@ import { useUrlState } from '../lib/useUrlState';
 import { Layout } from '../components/Layout';
 import { FitScale } from '../components/FitScale';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
+import { ScheduleHistoryModal } from '../components/ScheduleHistoryModal';
 import { api } from '../lib/api';
 import {
   startMinutes,
@@ -35,14 +36,6 @@ type Lesson = {
   toDate?: string | null;
 };
 type Ref = { id: string; name: string };
-type HistoryRow = {
-  id: string;
-  description: string;
-  changedAt: string;
-  changedBy: string | null;
-  fromDate?: string | null;
-  toDate?: string | null;
-};
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי']; // אין לימודים בימי שישי כרגע
 
@@ -64,7 +57,6 @@ export function SchedulePage() {
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [duplicatingLesson, setDuplicatingLesson] = useState<Lesson | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState<HistoryRow[]>([]);
   // תצוגה קומפקטית: עמודות וכרטיסי שיעור צרים וקטנים יותר, כדי שכל השבוע ייכנס בלי גלילה
   // אופקית במסכים רגילים. נשמר ב-localStorage כדי שהבחירה תישאר גם ברענון/כניסה הבאה.
   const [compact, setCompact] = useState(() => localStorage.getItem('scheduleCompact') === '1');
@@ -109,12 +101,6 @@ export function SchedulePage() {
 
   function trackName(ids: string[] | undefined) {
     return ids?.map((id) => tracks.find((t) => t.id === id)?.name).filter(Boolean).join(', ') || '';
-  }
-
-  async function openHistory() {
-    const data = await api.get<{ history: HistoryRow[] }>('/schedule/getScheduleHistory');
-    setHistory(data.history);
-    setShowHistory(true);
   }
 
   const tableNode = (
@@ -324,8 +310,8 @@ export function SchedulePage() {
           <a href="/display" target="_blank" rel="noreferrer" className="btn-outline">
             <Monitor size={16} /> מסך תצוגה
           </a>
-          <button className="btn-outline" onClick={openHistory}>
-            <History size={16} /> היסטוריה
+          <button className="btn-outline" onClick={() => setShowHistory(true)}>
+            <History size={16} /> היסטוריה וייצוא לאקסל
           </button>
           <button className="btn-primary" onClick={() => setShowModal(true)}>
             <Plus size={16} /> שיעור חדש
@@ -405,18 +391,7 @@ export function SchedulePage() {
       )}
 
       {showHistory && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto space-y-2">
-            <h3 className="font-bold text-navy text-lg mb-2">היסטוריית שינויים</h3>
-            {history.map((h) => (
-              <div key={h.id} className="text-sm border-b pb-2">
-                <p>{h.description}</p>
-                <p className="text-slate-400 text-xs">{h.changedBy} · {new Date(h.changedAt).toLocaleString('he-IL')}</p>
-              </div>
-            ))}
-            <button className="btn-outline mt-3" onClick={() => setShowHistory(false)}>סגירה</button>
-          </div>
-        </div>
+        <ScheduleHistoryModal tracks={tracks} trackFilter={trackFilter} onClose={() => setShowHistory(false)} />
       )}
     </Layout>
   );

@@ -3,6 +3,7 @@ import { airtableFetch, airtableCreate, airtableUpdate, airtableDelete, TABLES }
 import { FIELDS } from '../lib/airtableFields';
 import { getFullSchedule, invalidateScheduleCache } from '../lib/scheduleData';
 import { prisma } from '../lib/prisma';
+import { getReadableHistory, buildScheduleExcel } from '../lib/scheduleHistory';
 import { requireAuth, requirePermission } from '../middleware/auth';
 
 const router = Router();
@@ -141,12 +142,27 @@ router.post('/deleteScheduleLesson', async (req, res) => {
 
 router.get('/getScheduleHistory', async (req, res) => {
   try {
-    // שנה שלמה של שינויים לא אמורה לחצות את המספר הזה בפועל — לא רוצים לחתוך היסטוריה בטעות
-    // כשמישהי רוצה לבדוק אחורה בסוף שנה.
-    const history = await prisma.scheduleHistory.findMany({ orderBy: { changedAt: 'desc' }, take: 5000 });
-    res.json({ history });
+    res.json({ history: await getReadableHistory() });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת היסטוריה' });
+  }
+});
+
+router.get('/exportScheduleExcel', async (req, res) => {
+  try {
+    const { from, to, trackId } = req.query as { from?: string; to?: string; trackId?: string };
+    const isDate = (d?: string) => !!d && /^d{4}-d{2}-d{2}$/.test(d);
+    if (!isDate(from) || !isDate(to)) return res.status(400).json({ error: 'יש לבחור מתאריך ועד תאריך' });
+    if (from! > to!) return res.status(400).json({ error: 'תאריך ההתחלה אחרי תאריך הסיום' });
+    const days = (Date.parse(to!) - Date.parse(from!)) / 86_400_000;
+    if (days > 400) return res.status(400).json({ error: 'אפשר לייצא עד שנה אחת בכל פעם' });
+
+    const buffer = await buildScheduleExcel(from!, to!, trackId || undefined);
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`מערכת שעות ${from} עד ${to}.xlsx`)}`);
+    res.send(buffer);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בייצוא לאקסל' });
   }
 });
 
