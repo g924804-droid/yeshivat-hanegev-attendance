@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileSignature, Upload, CheckCircle2, Clock, LogOut } from 'lucide-react';
+import { FileSignature, Upload, CheckCircle2, Clock, LogOut, Trash2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { SignaturePad, SignaturePadHandle } from '../components/SignaturePad';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
+import { confirmAndDeleteContract } from '../lib/deleteContract';
 
 type Contract = {
   id: string;
@@ -63,7 +64,20 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
               <span className="font-bold text-navy flex items-center gap-2">
                 <FileSignature size={16} className="text-gold-dark" /> {c.title}
               </span>
-              <span className={`badge ${STATUS_STYLE[c.status]}`}>{c.status}</span>
+              <span className="flex items-center gap-1">
+                <span className={`badge ${STATUS_STYLE[c.status]}`}>{c.status}</span>
+                {isAdmin && !forced && (
+                  <button
+                    title="מחיקת החוזה"
+                    className="p-1.5 rounded-lg text-red-600 hover:bg-red-50"
+                    onClick={async () => {
+                      if (await confirmAndDeleteContract(c)) load();
+                    }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              </span>
             </div>
             {isAdmin && <p className="text-slate-500 text-sm mb-2">עובד: {c.employee.name}</p>}
             {c.fileName && (

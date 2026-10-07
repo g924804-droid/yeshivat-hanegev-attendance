@@ -90,4 +90,16 @@ router.post('/signContract', async (req, res) => {
   }
 });
 
+/** מחיקת חוזה (מנהל) — למשל חוזה שהועלה עם טעות והוחלף בחוזה מתוקן. */
+router.delete('/:id', requireAdmin, async (req, res) => {
+  try {
+    const contract = await prisma.contract.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!contract) return res.status(404).json({ error: 'חוזה לא נמצא' });
+    await prisma.contract.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה במחיקת חוזה' });
+  }
+});
+
 export default router;

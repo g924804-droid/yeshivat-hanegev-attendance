@@ -7,6 +7,7 @@ import { useAuth } from '../lib/permissions';
 import { currentMonth, safeFixed, formatHours } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
 import { printMonthlyReport } from '../lib/printReport';
+import { confirmAndDeleteContract } from '../lib/deleteContract';
 
 const WORK_AREAS = ['קודש', 'אדריכלות', 'עיצוב מדיה', 'מזכירות', 'הנהלת חשבונות', 'סולם'];
 
@@ -130,6 +131,8 @@ function ReportsTab() {
   const [summary, setSummary] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [recalcNotice, setRecalcNotice] = useState<string | null>(null);
+  const [recalcId, setRecalcId] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
 
   async function print(employeeId: string) {
@@ -165,6 +168,26 @@ function ReportsTab() {
   async function approve(id: string) {
     await api.post('/reports/approveReport', { reportId: id });
     await load();
+  }
+
+  /** דוח שהוגש "קופא" — אם המורה תיקנה ימים אחרי ההגשה, הסכום מתעדכן רק בחישוב מחדש. */
+  async function recalculate(id: string, name: string) {
+    setRecalcId(id);
+    setRecalcNotice(null);
+    setExportError(null);
+    try {
+      const r = await api.post<{ before: number; after: number }>('/reports/recalculateReport', { reportId: id });
+      setRecalcNotice(
+        r.before === r.after
+          ? `הדוח של ${name} חושב מחדש — הסכום לא השתנה (${safeFixed(r.after)} שעות)`
+          : `הדוח של ${name} חושב מחדש: ${safeFixed(r.before)} ← ${safeFixed(r.after)} שעות`
+      );
+      await load();
+    } catch (err: any) {
+      setExportError(err.message || 'שגיאה בחישוב מחדש');
+    } finally {
+      setRecalcId(null);
+    }
   }
 
   async function revertToDraft(id: string) {
@@ -226,6 +249,7 @@ function ReportsTab() {
         </p>
       )}
       {exportError && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2 mb-4">{exportError}</p>}
+      {recalcNotice && <p className="text-sm text-green-800 bg-green-50 rounded-lg px-3 py-2 mb-4">{recalcNotice}</p>}
 
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
@@ -329,6 +353,16 @@ function ReportsTab() {
                   {r.status === 'הוגש' && (
                     <button className="btn-gold text-xs py-1 px-2" onClick={() => approve(r.id)}>
                       <CheckCircle2 size={14} /> אשר
+                    </button>
+                  )}
+                  {(r.status === 'הוגש' || r.status === 'אושר') && (
+                    <button
+                      className="btn-outline text-xs py-1 px-2"
+                      onClick={() => recalculate(r.id, r.employee.name)}
+                      disabled={recalcId === r.id}
+                      title="עדכון הסכומים לפי הימים כמו שהם עכשיו (למשל אחרי שהמורה תיקנה ימים). הסטטוס והחתימה נשארים."
+                    >
+                      <RefreshCw size={14} className={recalcId === r.id ? 'animate-spin' : ''} /> חישוב מחדש
                     </button>
                   )}
                   {(r.status === 'הוגש' || r.status === 'אושר') && (
@@ -555,6 +589,7 @@ function EmployeesTab() {
           employee={viewingContractsFor}
           contracts={contractsByEmployee[viewingContractsFor.id] || []}
           onClose={() => setViewingContractsFor(null)}
+          onDeleted={load}
         />
       )}
     </div>
@@ -565,10 +600,12 @@ function EmployeeContractsModal({
   employee,
   contracts,
   onClose,
+  onDeleted,
 }: {
   employee: Employee;
   contracts: ContractRow[];
   onClose: () => void;
+  onDeleted: () => void;
 }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
@@ -580,7 +617,18 @@ function EmployeeContractsModal({
               <span className="font-bold text-navy flex items-center gap-2">
                 <FileSignature size={16} className="text-gold-dark" /> {c.title}
               </span>
-              <span className={`badge ${CONTRACT_STATUS_STYLE[c.status]}`}>{c.status}</span>
+              <span className="flex items-center gap-1">
+                <span className={`badge ${CONTRACT_STATUS_STYLE[c.status]}`}>{c.status}</span>
+                <button
+                  title="מחיקת החוזה"
+                  className="p-1.5 rounded-lg text-red-600 hover:bg-red-50"
+                  onClick={async () => {
+                    if (await confirmAndDeleteContract(c)) onDeleted();
+                  }}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </span>
             </div>
             {c.fileName && (
               <a href={`/api/contracts/${c.id}/file`} target="_blank" rel="noreferrer" className="text-sm text-navy underline">

@@ -242,6 +242,22 @@ router.post('/approveReport', requireAdminOrAttendanceManager, async (req, res) 
   }
 });
 
+/**
+ * חישוב מחדש של דוח שכבר הוגש/אושר — למשל אחרי שהמורה תיקנה ימים בבקשת ההנהלה. הסכומים
+ * מתעדכנים לפי הימים כמו שהם עכשיו; הסטטוס והחתימה נשארים.
+ */
+router.post('/recalculateReport', requireAdminOrAttendanceManager, async (req, res) => {
+  try {
+    const { reportId } = req.body as { reportId: string };
+    const before = await prisma.monthlyReport.findUnique({ where: { id: reportId } });
+    if (!before) return res.status(404).json({ error: 'דוח לא נמצא' });
+    const { report } = await calculateAndUpsert(before.employeeId, before.month, true);
+    res.json({ success: true, before: before.totalHours, after: report.totalHours });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בחישוב מחדש' });
+  }
+});
+
 /** ביטול הגשה/אישור — מחזיר דוח לטיוטה, כדי שאפשר יהיה לתקן ולהגיש מחדש (או פשוט לבטל הגשת בדיקה). */
 router.post('/revertReportToDraft', requireAdminOrAttendanceManager, async (req, res) => {
   try {
