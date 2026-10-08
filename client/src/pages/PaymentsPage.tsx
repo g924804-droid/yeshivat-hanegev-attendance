@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, CalendarPlus, FileSpreadsheet, Mail, Settings2, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Search, Plus, CalendarPlus, FileSpreadsheet, Mail, Settings2, ChevronRight, ChevronLeft, Tags, CheckCheck } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useUrlState } from '../lib/useUrlState';
@@ -15,7 +15,7 @@ import {
   STATUS_HE,
 } from '../lib/payments';
 import { PaymentModal } from '../components/payments/PaymentModal';
-import { BillingModal, GenerateMonthModal, NewChargeModal } from '../components/payments/BillingModals';
+import { BillingModal, GenerateMonthModal, NewChargeModal, TrackPricesModal, MarkMonthPaidModal } from '../components/payments/BillingModals';
 import { LettersModal } from '../components/payments/LettersModal';
 
 const CELL_STYLE: Record<Payment['status'], string> = {
@@ -40,6 +40,8 @@ export function PaymentsPage() {
   const [billingFor, setBillingFor] = useState<StudentRow | 'new' | null>(null);
   const [showGenerate, setShowGenerate] = useState(false);
   const [letters, setLetters] = useState<{ student?: StudentRow } | null>(null);
+  const [showTrackPrices, setShowTrackPrices] = useState(false);
+  const [markColumn, setMarkColumn] = useState<MonthColumn | null>(null);
 
   async function load() {
     try {
@@ -103,6 +105,10 @@ export function PaymentsPage() {
     const fromAirtable = (data?.payments || []).filter((p) => p.fullName === name && p.paymentMethod).sort((a, b) => b.monthKey - a.monthKey)[0]
       ?.paymentMethod;
     return [last, fromAirtable].find((m) => m && methods.includes(m)) || methods[0];
+  }
+
+  function openInColumn(c: MonthColumn): number {
+    return (data?.payments || []).filter((p) => p.monthKey === c.key && p.balance > 0).length;
   }
 
   async function exportExcel() {
@@ -175,6 +181,9 @@ export function PaymentsPage() {
           <button className="btn-primary py-2" onClick={() => setShowGenerate(true)}>
             <CalendarPlus size={16} /> פתיחת חודש
           </button>
+          <button className="btn-outline py-2" onClick={() => setShowTrackPrices(true)}>
+            <Tags size={16} /> מחירים לפי מגמה
+          </button>
           <button className="btn-outline py-2" onClick={() => setLetters({})}>
             <Mail size={16} /> מכתבים להורים
           </button>
@@ -199,6 +208,15 @@ export function PaymentsPage() {
                 <th key={c.key} className={`px-1 py-2 font-medium min-w-[72px] ${c.key === nowColumn.key ? 'text-navy font-bold' : ''}`}>
                   {c.month}
                   <span className="block text-[10px] text-slate-400 font-normal">{c.year}</span>
+                  {openInColumn(c) > 0 && (
+                    <button
+                      className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-normal text-green-700 hover:underline"
+                      title="סימון כל מי שעוד לא שילמה בחודש הזה כשילמה"
+                      onClick={() => setMarkColumn(c)}
+                    >
+                      <CheckCheck size={11} /> הכל שולם
+                    </button>
+                  )}
                 </th>
               ))}
               <th className="px-3 py-2 min-w-[90px]">יתרת חוב</th>
@@ -308,6 +326,29 @@ export function PaymentsPage() {
           onClose={() => setShowGenerate(false)}
           onDone={(message) => {
             setShowGenerate(false);
+            setNotice(message);
+            load();
+          }}
+        />
+      )}
+      {showTrackPrices && (
+        <TrackPricesModal
+          prices={data.trackPrices}
+          onClose={() => setShowTrackPrices(false)}
+          onSaved={() => {
+            setShowTrackPrices(false);
+            load();
+          }}
+        />
+      )}
+      {markColumn && (
+        <MarkMonthPaidModal
+          column={markColumn}
+          openCount={openInColumn(markColumn)}
+          methods={data.methods}
+          onClose={() => setMarkColumn(null)}
+          onDone={(message) => {
+            setMarkColumn(null);
             setNotice(message);
             load();
           }}

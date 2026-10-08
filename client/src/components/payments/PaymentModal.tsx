@@ -62,6 +62,18 @@ export function PaymentModal({
     }
   }
 
+  async function clearMonth() {
+    if (!confirm(`לסמן ש${payment.fullName} לא שילמה את ${payment.month}? כל התשלומים שנרשמו לחודש הזה יימחקו.`)) return;
+    setBusy(true);
+    try {
+      await api.post('/payments/clearPayment', { paymentId: payment.id });
+      onSaved();
+    } catch (err: any) {
+      setError(err.message || 'שגיאה באיפוס');
+      setBusy(false);
+    }
+  }
+
   async function removeEntry(id: string) {
     if (!confirm('לבטל את התשלום הזה? הסכום יורד מהסכום ששולם.')) return;
     setBusy(true);
@@ -221,6 +233,11 @@ export function PaymentModal({
           <button className="btn-outline" onClick={onClose} disabled={busy}>
             ביטול
           </button>
+          {payment.amountPaid > 0 && (
+            <button className="mr-auto text-sm text-red-600 hover:underline" onClick={clearMonth} disabled={busy}>
+              לא שילמה — איפוס החודש
+            </button>
+          )}
         </div>
       </div>
     </div>

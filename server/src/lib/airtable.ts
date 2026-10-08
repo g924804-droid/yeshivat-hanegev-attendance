@@ -144,6 +144,18 @@ export async function airtableBatchCreate(
   return results;
 }
 
+/** עדכון מספר רשומות בבת אחת — Airtable מקבל עד 10 רשומות בבקשה אחת. */
+export async function airtableBatchUpdate(
+  tableId: string,
+  records: { id: string; fields: Record<string, any> }[]
+): Promise<void> {
+  assertConfigured();
+  for (let i = 0; i < records.length; i += 10) {
+    const chunk = records.slice(i, i + 10);
+    await requestWithRetry(() => client.patch(`/${tableId}`, { records: chunk }));
+  }
+}
+
 /** upsert רשומת נוכחות עובד ב-Airtable, לפי מזהה מערכת (systemId = מזהה הרשומה ב-DB המקומי). */
 export async function syncAttendanceToAirtable(opts: {
   systemId: string;

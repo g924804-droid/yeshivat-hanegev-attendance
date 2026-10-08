@@ -34,15 +34,20 @@ export type StudentRow = {
   address: string;
   city: string;
   matched: boolean;
-  monthlyAmount: number;
+  monthlyAmount: number; // מה שבפועל יחויב: אישי אם הוגדר, אחרת לפי המגמה
+  personalAmount: number; // 0 = אין סכום אישי
+  trackAmount: number;
   monthlyScholarship: number;
   active: boolean;
   billingNotes: string;
 };
 
+export type TrackPrice = { trackId: string; trackName: string; monthlyAmount: number };
+
 export type Overview = {
   payments: Payment[];
   students: StudentRow[];
+  trackPrices: TrackPrice[];
   tracks: { id: string; name: string }[];
   allStudentNames: string[];
   methods: string[];

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
-import { airtableFetch, airtableCreate, airtableUpdate, TABLES } from '../lib/airtable';
+import { airtableFetch, airtableCreate, airtableUpdate, airtableBatchCreate, airtableBatchUpdate, TABLES } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requirePermission } from '../middleware/auth';
@@ -105,12 +105,69 @@ async function loadStudentsByName() {
       if (key && !byName.has(key)) byName.set(key, info);
     }
   }
+  // התלמידות הנוכחיות — מי ששייכת למסלול כלשהו
+  const tracked = new Map<string, string[]>();
+  for (const s of richest) {
+    const name = norm(s.fields[FIELDS.students.name]);
+    const trackIds = (s.fields[FIELDS.students.track] as string[] | undefined) || [];
+    if (name && trackIds.length && !tracked.has(name)) tracked.set(name, trackIds);
+  }
   return {
     byName,
+    tracked,
     tracks: tracks.map((t) => ({ id: t.id, name: norm(t.fields[FIELDS.tracks.name]) })),
     allStudentNames: [...new Set(students.map((s) => norm(s.fields[FIELDS.students.name])).filter(Boolean))].sort((a, b) =>
       a.localeCompare(b, 'he')
     ),
+  };
+}
+
+// המחירים הראשונים שנקבעו לכל מגמה (לפי חלק משם המסלול ב-Airtable). נשמרים פעם אחת, ומשם
+// משנים אותם במסך "מחירים לפי מגמה".
+const INITIAL_TRACK_PRICES: [string, number][] = [
+  ['סולם', 1950],
+  ['אדריכלות', 1850],
+  ['עיצוב מדיה', 1950],
+  ['חשבות שכר', 1950],
+];
+
+async function getTrackPrices(tracks: { id: string; name: string }[]) {
+  if ((await prisma.trackPrice.count()) === 0) {
+    const initial = tracks
+      .map((t) => ({ t, price: INITIAL_TRACK_PRICES.find(([key]) => t.name.includes(key))?.[1] }))
+      .filter((x) => x.price)
+      .map(({ t, price }) => ({ trackId: t.id, trackName: t.name, monthlyAmount: price! }));
+    if (initial.length) await prisma.trackPrice.createMany({ data: initial, skipDuplicates: true });
+  }
+  const saved = await prisma.trackPrice.findMany();
+  return new Map(saved.map((p) => [p.trackId, p.monthlyAmount]));
+}
+
+/** הסכום לפי המגמה — אם תלמידה בכמה מסלולים עם מחיר, הגבוה מביניהם (קודש בלי מחיר לא משפיע). */
+function trackAmount(trackIds: string[], prices: Map<string, number>): number {
+  return Math.max(0, ...trackIds.map((id) => prices.get(id) || 0));
+}
+
+/**
+ * כמה לחייב תלמידה בכל חודש: סכום אישי אם הוגדר, אחרת לפי המגמה שלה. תלמידה בלי מגמה ובלי
+ * סכום אישי (למשל מהשנה שעברה) לא מחויבת אוטומטית.
+ */
+function chargeFor(
+  name: string,
+  billing: { studentName: string; monthlyAmount: number; monthlyScholarship: number; active: boolean }[],
+  tracked: Map<string, string[]>,
+  prices: Map<string, number>
+) {
+  const b = billing.find((x) => x.studentName === name);
+  const fromTrack = trackAmount(tracked.get(name) || [], prices);
+  const personal = b?.monthlyAmount || 0;
+  const amount = personal || fromTrack;
+  return {
+    amount,
+    personal,
+    trackAmount: fromTrack,
+    scholarship: b?.monthlyScholarship || 0,
+    active: (b ? b.active : true) && amount > 0,
   };
 }
 
@@ -123,6 +180,7 @@ router.get('/overview', async (req, res) => {
       prisma.paymentEntry.findMany({ orderBy: { date: 'asc' } }),
       prisma.studentBilling.findMany(),
     ]);
+    const prices = await getTrackPrices(studentsData.tracks);
     // רשומות בלי שם/חודש/שנה (שורות ריקות ב-Airtable) לא נכנסות לטבלה
     const payments = records.map(mapPayment).filter((p) => p.fullName && p.monthKey % 100 > 0 && Number(p.year) > 2000);
     const entriesByPayment = new Map<string, typeof entries>();
@@ -130,13 +188,14 @@ router.get('/overview', async (req, res) => {
       if (!entriesByPayment.has(e.paymentId)) entriesByPayment.set(e.paymentId, []);
       entriesByPayment.get(e.paymentId)!.push(e);
     }
-    const names = [...new Set([...payments.map((p) => p.fullName), ...billing.map((b) => b.studentName)])];
+    // תלמידות במגמה עם מחיר נכנסות לטבלה גם לפני שנפתח להן חיוב ראשון
+    const pricedStudents = [...studentsData.tracked.entries()].filter(([, ids]) => trackAmount(ids, prices) > 0).map(([n]) => n);
+    const names = [...new Set([...payments.map((p) => p.fullName), ...billing.map((b) => b.studentName), ...pricedStudents])];
     res.json({
       payments: payments.map((p) => ({ ...p, entries: entriesByPayment.get(p.id) || [] })),
       students: names.map((name) => {
         const info = studentsData.byName.get(name);
-        const b = billing.find((x) => x.studentName === name);
-        const last = payments.filter((p) => p.fullName === name).sort((a, z) => z.monthKey - a.monthKey)[0];
+        const charge = chargeFor(name, billing, studentsData.tracked, prices);
         return {
           name,
           tracks: info?.tracks || [],
@@ -146,12 +205,15 @@ router.get('/overview', async (req, res) => {
           address: info?.address || '',
           city: info?.city || '',
           matched: !!info,
-          monthlyAmount: b?.monthlyAmount ?? last?.amountDue ?? 0,
-          monthlyScholarship: b?.monthlyScholarship ?? last?.scholarship ?? 0,
-          active: b?.active ?? true,
-          billingNotes: b?.notes || '',
+          monthlyAmount: charge.amount,
+          personalAmount: charge.personal,
+          trackAmount: charge.trackAmount,
+          monthlyScholarship: charge.scholarship,
+          active: charge.active,
+          billingNotes: billing.find((x) => x.studentName === name)?.notes || '',
         };
       }),
+      trackPrices: studentsData.tracks.map((t) => ({ trackId: t.id, trackName: t.name, monthlyAmount: prices.get(t.id) || 0 })),
       tracks: studentsData.tracks,
       allStudentNames: studentsData.allStudentNames,
       methods: PAYMENT_METHODS,
@@ -274,45 +336,118 @@ router.post('/saveBilling', async (req, res) => {
   }
 });
 
+/** שמירת המחירים לפי מגמה. */
+router.post('/saveTrackPrices', async (req, res) => {
+  try {
+    const { prices } = req.body as { prices: { trackId: string; trackName: string; monthlyAmount: number }[] };
+    for (const p of prices || []) {
+      const data = { trackName: norm(p.trackName), monthlyAmount: Math.max(0, num(p.monthlyAmount)) };
+      await prisma.trackPrice.upsert({ where: { trackId: p.trackId }, create: { trackId: p.trackId, ...data }, update: data });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירת המחירים' });
+  }
+});
+
 /**
- * פתיחת חודש: חיוב לכל תלמידה פעילה שעוד אין לה חיוב לחודש הזה — לפי הסכום והמלגה הקבועים שלה
- * (ואם לא הוגדרו — כמו בחודש האחרון שלה).
+ * פתיחת חודש: חיוב לכל תלמידה פעילה שעוד אין לה חיוב לחודש הזה — לפי הסכום האישי שלה, או
+ * לפי המגמה שלה, פחות המלגה הקבועה.
  */
 router.post('/generateMonthlyPayments', async (req, res) => {
   try {
     const { month, year } = req.body as { month: string; year: string | number };
     if (!MONTH_INDEX[month] || !Number(year)) return res.status(400).json({ error: 'יש לבחור חודש ושנה' });
-    const [records, billing] = await Promise.all([airtableFetch(TABLES.payments), prisma.studentBilling.findMany()]);
+    const [records, billing, studentsData] = await Promise.all([
+      airtableFetch(TABLES.payments),
+      prisma.studentBilling.findMany(),
+      loadStudentsByName(),
+    ]);
+    const prices = await getTrackPrices(studentsData.tracks);
     const payments = records.map(mapPayment).filter((p) => p.fullName);
 
-    const names = [...new Set([...payments.map((p) => p.fullName), ...billing.map((b) => b.studentName)])];
-    let created = 0;
-    const skipped: string[] = [];
+    const names = [...new Set([...studentsData.tracked.keys(), ...billing.map((b) => b.studentName)])];
+    const toCreate: Record<string, any>[] = [];
     for (const name of names) {
-      const b = billing.find((x) => x.studentName === name);
-      if (b && !b.active) continue;
+      const charge = chargeFor(name, billing, studentsData.tracked, prices);
+      if (!charge.active) continue;
       if (payments.some((p) => p.fullName === name && p.month === month && p.year === String(year))) continue;
-      const last = payments.filter((p) => p.fullName === name && p.monthKey % 100 > 0).sort((a, z) => z.monthKey - a.monthKey)[0];
-      const amountDue = b?.monthlyAmount || last?.amountDue || 0;
-      if (!amountDue) {
-        skipped.push(name);
-        continue;
-      }
-      const scholarship = b ? b.monthlyScholarship : last?.scholarship || 0;
-      await airtableCreate(TABLES.payments, {
+      toCreate.push({
         [F.fullName]: name,
         [F.month]: month,
         [F.year]: String(year),
-        [F.amountDue]: amountDue,
-        [F.scholarship]: scholarship,
+        [F.amountDue]: charge.amount,
+        [F.scholarship]: charge.scholarship,
         [F.amountPaid]: 0,
-        [F.status]: computeStatus(Math.max(0, amountDue - scholarship), 0),
+        [F.status]: computeStatus(Math.max(0, charge.amount - charge.scholarship), 0),
       });
-      created += 1;
     }
-    res.json({ success: true, created, skipped });
+    await airtableBatchCreate(TABLES.payments, toCreate);
+    res.json({ success: true, created: toCreate.length, skipped: [] });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה ביצירת תשלומים חודשיים' });
+  }
+});
+
+/**
+ * סימון כל החודש כשולם: לכל חיוב של החודש שעוד לא שולם במלואו — נרשם תשלום על היתרה. אחר כך
+ * מסמנים ידנית את הבודדות שלא שילמו ("איפוס החודש" בחלון התשלום).
+ */
+router.post('/markMonthPaid', async (req, res) => {
+  try {
+    const { month, year, method } = req.body as { month: string; year: string; method: string };
+    if (!MONTH_INDEX[month] || !Number(year)) return res.status(400).json({ error: 'יש לבחור חודש ושנה' });
+    if (!PAYMENT_METHODS.includes(method)) return res.status(400).json({ error: 'יש לבחור אמצעי תשלום' });
+    const records = await airtableFetch(TABLES.payments);
+    const open = records.map(mapPayment).filter((p) => p.month === month && p.year === String(year) && p.balance > 0);
+    const date = new Date().toISOString().slice(0, 10);
+
+    await prisma.paymentEntry.createMany({
+      data: open.map((p) => ({
+        paymentId: p.id,
+        studentName: p.fullName,
+        month: p.month,
+        year: p.year,
+        method,
+        amount: p.balance,
+        date,
+        notes: 'סימון כל החודש כשולם',
+        createdBy: req.user!.name,
+      })),
+    });
+    await airtableBatchUpdate(
+      TABLES.payments,
+      open.map((p) => ({
+        id: p.id,
+        fields: {
+          [F.amountPaid]: p.owed,
+          [F.status]: 'Paid',
+          [F.paymentDate]: date,
+          [F.paymentMethod]: METHOD_TO_AIRTABLE[method],
+        },
+      }))
+    );
+    res.json({ success: true, marked: open.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בסימון החודש' });
+  }
+});
+
+/** איפוס חודש של תלמידה ל"לא שולם" — מוחק את התשלומים שנרשמו לו. */
+router.post('/clearPayment', async (req, res) => {
+  try {
+    const { paymentId } = req.body as { paymentId: string };
+    const p = await fetchPayment(paymentId);
+    if (!p) return res.status(404).json({ error: 'רשומת התשלום לא נמצאה' });
+    await prisma.paymentEntry.deleteMany({ where: { paymentId } });
+    await airtableUpdate(TABLES.payments, paymentId, {
+      [F.amountPaid]: 0,
+      [F.status]: computeStatus(p.owed, 0),
+      [F.paymentDate]: null,
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה באיפוס' });
   }
 });
 

@@ -210,3 +210,10 @@ model StudentBilling {
   active             Boolean @default(true) // false = לא ליצור לה יותר חיובים חודשיים (למשל סיימה)
   notes              String?
 }
+
+// סכום חודשי לפי מגמה (מסלול ב-Airtable) — כל תלמידה במגמה מחויבת בו, אלא אם הוגדר לה סכום אישי.
+model TrackPrice {
+  trackId       String @id
+  trackName     String
+  monthlyAmount Float  @default(0)
+}

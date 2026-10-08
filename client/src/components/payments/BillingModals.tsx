@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { api } from '../../lib/api';
-import { MonthColumn, SCHOOL_MONTHS, StudentRow, shekel } from '../../lib/payments';
+import { MonthColumn, SCHOOL_MONTHS, StudentRow, TrackPrice, shekel } from '../../lib/payments';
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -34,7 +34,7 @@ export function BillingModal({
   onSaved: () => void;
 }) {
   const [name, setName] = useState(student?.name || '');
-  const [amount, setAmount] = useState(String(student?.monthlyAmount || ''));
+  const [amount, setAmount] = useState(String(student?.personalAmount || ''));
   const [scholarship, setScholarship] = useState(String(student?.monthlyScholarship || ''));
   const [active, setActive] = useState(student?.active ?? true);
   const [notes, setNotes] = useState(student?.billingNotes || '');
@@ -60,7 +60,7 @@ export function BillingModal({
     }
   }
 
-  const owed = Math.max(0, (Number(amount) || 0) - (Number(scholarship) || 0));
+  const owed = Math.max(0, (Number(amount) || student?.trackAmount || 0) - (Number(scholarship) || 0));
   return (
     <ModalShell title={student ? `הגדרות תשלום — ${student.name}` : 'הוספת תלמידה לתשלומים'} onClose={onClose}>
       {!student && (
@@ -75,8 +75,20 @@ export function BillingModal({
         </label>
       )}
       <label className="block text-sm">
-        סכום חודשי קבוע
-        <input type="number" min={0} className="input mt-1" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        סכום חודשי אישי
+        <input
+          type="number"
+          min={0}
+          className="input mt-1"
+          placeholder={student?.trackAmount ? `ריק = לפי המגמה (${shekel(student.trackAmount)})` : ''}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+        {!!student?.trackAmount && (
+          <span className="text-xs text-slate-500">
+            לפי המגמה ({student.tracks.join(', ')}): {shekel(student.trackAmount)}. ממלאים רק אם לתלמידה הזו יש סכום אחר.
+          </span>
+        )}
       </label>
       <label className="block text-sm">
         מלגה חודשית קבועה
@@ -209,6 +221,114 @@ export function NewChargeModal({
       <div className="flex gap-2">
         <button className="btn-primary" onClick={save} disabled={busy || !Number(amount)}>
           {busy ? 'שומר...' : 'יצירת חיוב'}
+        </button>
+        <button className="btn-outline" onClick={onClose}>ביטול</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+/** מחיר חודשי לכל מגמה — כל תלמידה במגמה מחויבת בו, אלא אם הוגדר לה סכום אישי. */
+export function TrackPricesModal({ prices, onClose, onSaved }: { prices: TrackPrice[]; onClose: () => void; onSaved: () => void }) {
+  const [values, setValues] = useState<Record<string, string>>(
+    Object.fromEntries(prices.map((p) => [p.trackId, p.monthlyAmount ? String(p.monthlyAmount) : '']))
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post('/payments/saveTrackPrices', {
+        prices: prices.map((p) => ({ trackId: p.trackId, trackName: p.trackName, monthlyAmount: Number(values[p.trackId]) || 0 })),
+      });
+      onSaved();
+    } catch (err: any) {
+      setError(err.message || 'שגיאה בשמירה');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalShell title="מחירים לפי מגמה" onClose={onClose}>
+      <p className="text-sm text-slate-600">
+        הסכום החודשי לכל מגמה. מסלול בלי סכום (למשל קודש) לא מחייב. תלמידה עם סכום אישי (בגלגל השיניים ליד השם) מחויבת בסכום שלה.
+      </p>
+      <div className="space-y-2">
+        {prices.map((p) => (
+          <label key={p.trackId} className="flex items-center justify-between gap-3 text-sm">
+            <span>{p.trackName}</span>
+            <input
+              type="number"
+              min={0}
+              className="input py-1.5 w-32"
+              placeholder="ללא חיוב"
+              value={values[p.trackId]}
+              onChange={(e) => setValues({ ...values, [p.trackId]: e.target.value })}
+            />
+          </label>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500">המחירים חלים על חודשים שייפתחו מעכשיו.</p>
+      {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+      <div className="flex gap-2">
+        <button className="btn-primary" onClick={save} disabled={busy}>
+          {busy ? 'שומר...' : 'שמירה'}
+        </button>
+        <button className="btn-outline" onClick={onClose}>ביטול</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+/** סימון כל החודש כשולם — אחר כך מאפסים ידנית את מי שלא שילמה. */
+export function MarkMonthPaidModal({
+  column,
+  openCount,
+  methods,
+  onClose,
+  onDone,
+}: {
+  column: MonthColumn;
+  openCount: number;
+  methods: string[];
+  onClose: () => void;
+  onDone: (message: string) => void;
+}) {
+  const [method, setMethod] = useState(methods.includes('הוראת קבע') ? 'הוראת קבע' : methods[0]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ marked: number }>('/payments/markMonthPaid', { month: column.month, year: column.year, method });
+      onDone(`${column.month} ${column.year}: ${r.marked} תלמידות סומנו כשילמו. מי שלא שילמה — לחיצה על החודש שלה ואז "לא שילמה".`);
+    } catch (err: any) {
+      setError(err.message || 'שגיאה בסימון');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalShell title={`סימון ${column.month} ${column.year} כשולם`} onClose={onClose}>
+      <p className="text-sm text-slate-600">
+        <strong>{openCount} תלמידות</strong> שעוד לא שילמו את {column.month} יסומנו כשילמו את כל היתרה. אחר כך מסמנים ידנית את הבודדות שלא שילמו.
+      </p>
+      <label className="block text-sm">
+        אמצעי תשלום
+        <select className="input mt-1" value={method} onChange={(e) => setMethod(e.target.value)}>
+          {methods.map((m) => (
+            <option key={m}>{m}</option>
+          ))}
+        </select>
+      </label>
+      {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+      <div className="flex gap-2">
+        <button className="btn-primary" onClick={run} disabled={busy}>
+          {busy ? 'מסמן...' : `סימון ${openCount} כשילמו`}
         </button>
         <button className="btn-outline" onClick={onClose}>ביטול</button>
       </div>
