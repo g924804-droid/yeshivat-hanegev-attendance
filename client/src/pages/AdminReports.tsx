@@ -4,7 +4,7 @@ import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Rece
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useAuth } from '../lib/permissions';
-import { currentMonth, safeFixed, formatHours } from '../lib/utils';
+import { currentMonth, safeFixed, formatHours, compareHebrewNames } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
 import { printMonthlyReport } from '../lib/printReport';
 import { confirmAndDeleteContract } from '../lib/deleteContract';
@@ -154,8 +154,8 @@ function ReportsTab() {
       pendingReceipts: PendingReceipts[];
       summary: any;
     }>('/reports/getAllReports', { month });
-    setReports(data.reports);
-    setMissing(data.missingEmployees);
+    setReports([...data.reports].sort((a, b) => compareHebrewNames(a.employee.name, b.employee.name)));
+    setMissing([...data.missingEmployees].sort((a, b) => compareHebrewNames(a.name, b.name)));
     setPendingReceipts(data.pendingReceipts || []);
     setSummary(data.summary);
   }
@@ -439,7 +439,8 @@ function EmployeesTab() {
     () =>
       employees
         .filter((e) => !departmentFilter || e.department === departmentFilter)
-        .filter((e) => !workAreaFilter || e.workArea === workAreaFilter),
+        .filter((e) => !workAreaFilter || e.workArea === workAreaFilter)
+        .sort((a, b) => compareHebrewNames(a.name, b.name)),
     [employees, departmentFilter, workAreaFilter]
   );
 

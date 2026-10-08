@@ -224,3 +224,15 @@ export function toHebrewDateString(date: Date): string {
 export function formatHours(hours: number): string {
   return `${Number((hours || 0).toFixed(2))} שעות`;
 }
+
+/**
+ * מיון שמות לפי א'-ב' בעברית, בלי התחשבות בתואר בתחילת השם ("המורה", "מורה", "הרב", "גב'") —
+ * אחרת כל מי ששמה מתחיל ב"המורה" נדחסת יחד תחת ה'.
+ */
+export function compareHebrewNames(a: string | null | undefined, b: string | null | undefined): number {
+  const key = (name: string | null | undefined) =>
+    String(name || '')
+      .replace(/^\s*(ה?מורה|הרב|הגב'|גב'|גברת)\s*[:\-]?\s*/, '')
+      .trim();
+  return key(a).localeCompare(key(b), 'he');
+}
