@@ -183,3 +183,30 @@ model SiteSettings {
   // פעמים ביום האחרון של החודש (למשל אחרי דיפלוי).
   lastReminderMonth String?
 }
+
+// תשלום בפועל על חודש של תלמידה (רשומה בטבלת התשלומים ב-Airtable). כמה תשלומים לאותו חודש =
+// פיצול בין אמצעי תשלום (למשל חצי מזומן וחצי צ'ק) או תשלום בכמה פעמים. הסכום הכולל נכתב ל-Airtable.
+model PaymentEntry {
+  id          String   @id @default(cuid())
+  paymentId   String // מזהה הרשומה ב-Airtable
+  studentName String
+  month       String // שם החודש בעברית, כמו ב-Airtable
+  year        String
+  method      String
+  amount      Float
+  date        String // YYYY-MM-DD
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  @@index([paymentId])
+}
+
+// הגדרות חיוב קבועות לתלמידה — לפי שם, כי טבלת התשלומים ב-Airtable מקושרת לתלמידות רק לפי שם.
+model StudentBilling {
+  studentName        String  @id
+  monthlyAmount      Float   @default(0)
+  monthlyScholarship Float   @default(0)
+  active             Boolean @default(true) // false = לא ליצור לה יותר חיובים חודשיים (למשל סיימה)
+  notes              String?
+}
