@@ -551,7 +551,7 @@ function EmployeesTab() {
             </span>
           ) : (
             <span>
-              <strong>שליחת מיילים עוד לא מוגדרת</strong> — התזכורת האוטומטית לא תצא עד שיוגדרו ב-Render כתובת ה-Gmail (EMAIL_USER) וסיסמת האפליקציה (EMAIL_PASSWORD)
+              <strong>שליחת מיילים עוד לא מוגדרת</strong> — התזכורת האוטומטית לא תצא עד שיוגדר ב-Render סקריפט השליחה של Google (EMAIL_SCRIPT_URL ו-EMAIL_SCRIPT_SECRET)
             </span>
           )}
           {reminderStatus.emailConfigured && (
