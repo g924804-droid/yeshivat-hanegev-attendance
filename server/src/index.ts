@@ -50,6 +50,12 @@ app.use('/api/settings', settingsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
+// "דופק" יומי מבחוץ (GitHub Actions) — מעיר את השרת אם נרדם ומריץ את בדיקת התזכורת החודשית.
+// בלי הרשאה: הבדיקה עצמה שולחת רק ביום השליחה ורק פעם אחת בחודש, כך שקריאה מיותרת לא עושה כלום.
+app.get('/api/cron/tick', async (req, res) => {
+  res.json({ ok: true, reminder: await checkAndSendMonthlyReminder() });
+});
+
 // בפרודקשן (למשל Railway) שרת אחד מגיש גם את קבצי ה-React הבנויים — אין צורך בשרת סטטי נפרד.
 // בפיתוח מקומי התיקייה הזו לא קיימת (הקליינט רץ דרך Vite על פורט נפרד), אז פשוט מדלגים.
 const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');

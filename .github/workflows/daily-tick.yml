@@ -1,0 +1,23 @@
+# מעיר את השרת ב-Render פעמיים ביום ומריץ את בדיקת התזכורת החודשית (נשלחת ב-30 לחודש).
+# בשכבה החינמית של Render השרת נרדם כשאין כניסות, ובלי זה התזכורת לא הייתה יוצאת
+# ביום שאף אחד לא נכנס לאתר.
+name: Daily tick
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 10:00 שעון ישראל (קיץ) / 09:00 (חורף)
+    - cron: '0 15 * * *'  # 18:00 / 17:00 — ניסיון נוסף אם הראשון נכשל
+  workflow_dispatch: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake server and run monthly reminder check
+        run: |
+          # השרת יכול לקחת עד דקה להתעורר — כמה ניסיונות
+          for i in 1 2 3 4; do
+            if curl -fsS --max-time 90 https://yeshivaanegev.onrender.com/api/cron/tick; then exit 0; fi
+            sleep 20
+          done
+          exit 1

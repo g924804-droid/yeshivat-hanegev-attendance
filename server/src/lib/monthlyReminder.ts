@@ -1,5 +1,5 @@
 import { prisma } from './prisma';
-import { sendEmail } from './email';
+import { sendEmail, isEmailConfigured } from './email';
 
 /**
  * נוסח שאושר עם המשתמשת — לא לשנות בלי לתאם, זה בדיוק מה שהיא אישרה שיישלח בפועל
@@ -17,12 +17,37 @@ function buildReminderHtml(name: string, needsReceipt: boolean): string {
   `;
 }
 
-/** עובדת "חודשי" (משכורת גלובלית) לא נדרשת בדוח שעות בכלל — לא מקבלת את התזכורת הזו. */
-export async function sendMonthlyReminders(): Promise<{ sent: number; errors: string[] }> {
+const SUBJECT = 'תזכורת חודשית — דוח שעות ונוכחות';
+
+/** התאריך לפי שעון ישראל (השרת רץ ב-UTC, ובחצות זה כבר יום אחר). */
+function israelToday(): { year: number; month: number; day: number; monthStr: string } {
+  const [year, month, day] = new Date()
+    .toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' })
+    .split('-')
+    .map(Number);
+  return { year, month, day, monthStr: `${year}-${String(month).padStart(2, '0')}` };
+}
+
+/** יום השליחה בחודש: ה-30, ובחודש קצר יותר (פברואר) — היום האחרון שלו. */
+function reminderDay(year: number, month: number): number {
+  return Math.min(30, new Date(year, month, 0).getDate());
+}
+
+/**
+ * מי צריכה לקבל תזכורת: עובדות פעילות שנדרשות בדוח שעות (לא "חודשי"), ושעוד לא הגישו את
+ * הדוח של החודש — מי שכבר הגישה לא צריכה תזכורת.
+ */
+async function reminderRecipients(month: string) {
   const employees = await prisma.user.findMany({
     where: { isActive: true, employmentType: { not: 'חודשי' } },
+    include: { monthlyReports: { where: { month }, select: { status: true } } },
+    orderBy: { name: 'asc' },
   });
+  return employees.filter((e) => !e.monthlyReports.some((r) => r.status === 'הוגש' || r.status === 'אושר'));
+}
 
+export async function sendMonthlyReminders(month = israelToday().monthStr): Promise<{ sent: number; errors: string[] }> {
+  const employees = await reminderRecipients(month);
   let sent = 0;
   const errors: string[] = [];
   for (const emp of employees) {
@@ -31,11 +56,7 @@ export async function sendMonthlyReminders(): Promise<{ sent: number; errors: st
       continue;
     }
     try {
-      await sendEmail(
-        emp.email,
-        'תזכורת חודשית — דוח שעות ונוכחות',
-        buildReminderHtml(emp.name, emp.employmentType === 'נגד קבלה')
-      );
+      await sendEmail(emp.email, SUBJECT, buildReminderHtml(emp.name, emp.employmentType === 'נגד קבלה'));
       sent++;
     } catch (err: any) {
       errors.push(`${emp.name}: ${err.message}`);
@@ -44,25 +65,61 @@ export async function sendMonthlyReminders(): Promise<{ sent: number; errors: st
   return { sent, errors };
 }
 
-/** נבדק פעם בשעה מהשרת — אם היום הוא היום האחרון בחודש הלועזי ועוד לא נשלחה תזכורת החודש, שולח. */
-export async function checkAndSendMonthlyReminder(): Promise<void> {
-  const now = new Date();
-  const isLastDayOfMonth = now.getDate() === new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  if (!isLastDayOfMonth) return;
+/** מייל בדיקה עם אותו נוסח — כדי לוודא שהשליחה עובדת לפני ה-30. */
+export async function sendTestReminder(to: string, name: string): Promise<void> {
+  await sendEmail(to, `[בדיקה] ${SUBJECT}`, buildReminderHtml(name, true));
+}
 
-  const currentMonth = now.toISOString().slice(0, 7);
+/** מצב התזכורות — למסך הניהול. */
+export async function getReminderStatus() {
+  const today = israelToday();
   const settings = await prisma.siteSettings.findUnique({ where: { id: 'singleton' } });
-  if (settings?.lastReminderMonth === currentMonth) return;
+  const sentThisMonth = settings?.lastReminderMonth === today.monthStr;
+  // אם כבר נשלח החודש — השליחה הבאה בחודש הבא
+  const [y, m] = sentThisMonth ? (today.month === 12 ? [today.year + 1, 1] : [today.year, today.month + 1]) : [today.year, today.month];
+  const recipients = await reminderRecipients(today.monthStr);
+  return {
+    emailConfigured: isEmailConfigured(),
+    lastReminderMonth: settings?.lastReminderMonth || null,
+    nextSendDate: `${y}-${String(m).padStart(2, '0')}-${String(reminderDay(y, m)).padStart(2, '0')}`,
+    recipients: recipients.length,
+    missingEmail: recipients.filter((e) => !e.email).map((e) => e.name),
+  };
+}
+
+/**
+ * נבדק כל שעה מהשרת, וגם מבחוץ (GitHub Actions מעיר את השרת כל יום — בשכבה החינמית של Render
+ * השרת נרדם כשאין כניסות, ואז הבדיקה הפנימית לא רצה). שולח פעם אחת בחודש, החל מיום השליחה —
+ * אם השרת היה רדום בדיוק ב-30, השליחה תתבצע ב-31.
+ */
+export async function checkAndSendMonthlyReminder(): Promise<string> {
+  const today = israelToday();
+  if (today.day < reminderDay(today.year, today.month)) return 'עוד לא הגיע יום השליחה';
+
+  const settings = await prisma.siteSettings.findUnique({ where: { id: 'singleton' } });
+  if (settings?.lastReminderMonth === today.monthStr) return 'כבר נשלח החודש';
+  if (!isEmailConfigured()) return 'שליחת מייל לא מוגדרת';
 
   try {
-    const result = await sendMonthlyReminders();
-    console.log(`תזכורת חודשית ${currentMonth}: נשלחו ${result.sent} מיילים${result.errors.length ? `, שגיאות: ${result.errors.join('; ')}` : ''}`);
+    // מסמנים לפני השליחה, כדי ששתי בדיקות שרצות בו-זמנית (פנימית וחיצונית) לא ישלחו פעמיים
     await prisma.siteSettings.upsert({
       where: { id: 'singleton' },
-      create: { id: 'singleton', lastReminderMonth: currentMonth },
-      update: { lastReminderMonth: currentMonth },
+      create: { id: 'singleton', lastReminderMonth: today.monthStr },
+      update: { lastReminderMonth: today.monthStr },
     });
+    const result = await sendMonthlyReminders(today.monthStr);
+    if (result.sent === 0 && result.errors.length > 0) {
+      // שום מייל לא יצא (למשל סיסמה שגויה) — מבטלים את הסימון כדי שהבדיקה הבאה תנסה שוב
+      await prisma.siteSettings.update({
+        where: { id: 'singleton' },
+        data: { lastReminderMonth: settings?.lastReminderMonth || null },
+      });
+    }
+    const message = `תזכורת חודשית ${today.monthStr}: נשלחו ${result.sent} מיילים${result.errors.length ? `, שגיאות: ${result.errors.join('; ')}` : ''}`;
+    console.log(message);
+    return message;
   } catch (err: any) {
     console.error('שגיאה בשליחת תזכורת חודשית אוטומטית:', err.message);
+    return `שגיאה: ${err.message}`;
   }
 }

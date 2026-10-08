@@ -65,6 +65,14 @@ type ReceiptRow = {
   employee: { name: string };
 };
 
+type ReminderStatus = {
+  emailConfigured: boolean;
+  lastReminderMonth: string | null;
+  nextSendDate: string;
+  recipients: number;
+  missingEmail: string[];
+};
+
 type ContractRow = {
   id: string;
   title: string;
@@ -402,6 +410,7 @@ function EmployeesTab() {
   const [importResult, setImportResult] = useState<string | null>(null);
   const [reminderBusy, setReminderBusy] = useState(false);
   const [reminderResult, setReminderResult] = useState<string | null>(null);
+  const [reminderStatus, setReminderStatus] = useState<ReminderStatus | null>(null);
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [workAreaFilter, setWorkAreaFilter] = useState('');
 
@@ -412,6 +421,8 @@ function EmployeesTab() {
     ]);
     setEmployees(employeesData.employees);
     setContracts(contractsData.contracts);
+    // מצב התזכורת החודשית — רק למנהלת (למזכירת נוכחות אין הרשאה, ואז פשוט לא מוצג)
+    api.get<ReminderStatus>('/reports/reminderStatus').then(setReminderStatus).catch(() => setReminderStatus(null));
   }
   useEffect(() => {
     load();
@@ -464,8 +475,23 @@ function EmployeesTab() {
     }
   }
 
+  async function sendTestEmail() {
+    const to = prompt('לאיזו כתובת לשלוח מייל בדיקה? (ריק = המייל שלך במערכת)', '');
+    if (to === null) return;
+    setReminderBusy(true);
+    setReminderResult(null);
+    try {
+      const r = await api.post<{ to: string }>('/reports/sendTestReminder', { to });
+      setReminderResult(`מייל בדיקה נשלח אל ${r.to} — כדאי לבדוק שהגיע (גם בתיקיית הספאם)`);
+    } catch (err: any) {
+      setReminderResult(`מייל הבדיקה לא נשלח: ${err.message}`);
+    } finally {
+      setReminderBusy(false);
+    }
+  }
+
   async function sendReminders() {
-    if (!confirm('לשלוח עכשיו תזכורת חודשית במייל לכל העובדים (חוץ מ"חודשי")?')) return;
+    if (!confirm('לשלוח עכשיו תזכורת חודשית במייל לכל העובדים שעוד לא הגישו דוח החודש (חוץ מ"חודשי")?')) return;
     setReminderBusy(true);
     setReminderResult(null);
     try {
@@ -510,6 +536,36 @@ function EmployeesTab() {
         </div>
       </div>
       {importResult && <p className="text-sm text-slate-600 mb-4 text-left">{importResult}</p>}
+      {reminderStatus && (
+        <div
+          className={`text-sm rounded-xl px-4 py-2 mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 ${
+            reminderStatus.emailConfigured ? 'bg-blue-50 text-blue-900' : 'bg-amber-50 text-amber-900'
+          }`}
+        >
+          <Mail size={15} />
+          {reminderStatus.emailConfigured ? (
+            <span>
+              תזכורת אוטומטית במייל תישלח ב-<strong>{reminderStatus.nextSendDate.split('-').reverse().join('/')}</strong> ל-
+              {reminderStatus.recipients} עובדות שעוד לא הגישו דוח
+              {reminderStatus.lastReminderMonth && ` · נשלחה לאחרונה: ${reminderStatus.lastReminderMonth.split('-').reverse().join('/')}`}
+            </span>
+          ) : (
+            <span>
+              <strong>שליחת מיילים עוד לא מוגדרת</strong> — התזכורת האוטומטית לא תצא עד שיוגדרו ב-Render כתובת ה-Gmail (EMAIL_USER) וסיסמת האפליקציה (EMAIL_PASSWORD)
+            </span>
+          )}
+          {reminderStatus.emailConfigured && (
+            <button className="underline" onClick={sendTestEmail} disabled={reminderBusy}>
+              שליחת מייל בדיקה
+            </button>
+          )}
+          {reminderStatus.missingEmail.length > 0 && (
+            <span className="basis-full text-amber-800">
+              אין כתובת מייל ל: {reminderStatus.missingEmail.join(', ')}
+            </span>
+          )}
+        </div>
+      )}
       {reminderResult && <p className="text-sm text-slate-600 mb-4 text-left">{reminderResult}</p>}
       <div className="card overflow-x-auto">
         <table className="w-full text-sm text-center">

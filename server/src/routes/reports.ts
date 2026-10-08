@@ -9,10 +9,32 @@ import { reportPdfHtml, reportsPdfHtml, summaryPdfHtml, SpecialRateDetail } from
 import { loadSickNotes } from '../lib/sickNotes';
 import { DayDetail } from '../lib/monthlyReport';
 import { MonthlyReport, User } from '@prisma/client';
-import { sendMonthlyReminders } from '../lib/monthlyReminder';
+import { sendMonthlyReminders, getReminderStatus, sendTestReminder } from '../lib/monthlyReminder';
 
 const router = Router();
 router.use(requireAuth);
+
+/** מצב התזכורת האוטומטית: האם המייל מוגדר, מתי נשלח לאחרונה, מתי השליחה הבאה ולכמה עובדות. */
+router.get('/reminderStatus', requireAdmin, async (req, res) => {
+  try {
+    res.json(await getReminderStatus());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה' });
+  }
+});
+
+/** מייל בדיקה עם נוסח התזכורת — לכתובת שנבחרה (ברירת מחדל: המייל של המנהלת המחוברת). */
+router.post('/sendTestReminder', requireAdmin, async (req, res) => {
+  try {
+    const me = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    const to = (req.body?.to as string)?.trim() || me?.email;
+    if (!to) return res.status(400).json({ error: 'יש לרשום כתובת מייל לבדיקה' });
+    await sendTestReminder(to, me?.name || req.user!.name);
+    res.json({ success: true, to });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שליחת מייל הבדיקה נכשלה' });
+  }
+});
 
 /** שליחה ידנית (בדיקה, או תזכורת חד-פעמית מחוץ ללוח הזמנים האוטומטי). */
 router.post('/sendMonthlyReminders', requireAdmin, async (req, res) => {
