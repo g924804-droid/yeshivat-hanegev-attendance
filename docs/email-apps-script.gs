@@ -22,7 +22,7 @@ function doPost(e) {
     if (data.secret !== SECRET) return reply({ ok: false, error: 'unauthorized' });
     GmailApp.sendEmail(data.to, data.subject, 'יש לפתוח את המייל בתצוגת HTML', {
       htmlBody: data.html,
-      name: data.fromName || 'ישיבת הנגב',
+      name: data.fromName || 'סמינר מאיר שכר',
     });
     return reply({ ok: true, remainingToday: MailApp.getRemainingDailyQuota() });
   } catch (err) {

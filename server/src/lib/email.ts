@@ -14,17 +14,34 @@ import fetch from 'node-fetch';
  */
 let transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
 
-const FROM_NAME = 'ישיבת הנגב';
+const FROM_NAME = 'סמינר מאיר שכר';
 
 export function isEmailConfigured(): boolean {
   return !!(process.env.EMAIL_SCRIPT_URL || (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD));
 }
 
+/**
+ * הכתובת כפי שהודבקה ב-Render — מנקים רווחים ומירכאות, ומשלימים https:// אם הועתק בלעדיו.
+ * אם זה בכלל לא כתובת של Web app (למשל הודבק מזהה הפריסה או הקוד הסודי) — שגיאה ברורה.
+ */
+function scriptUrl(): string {
+  let url = (process.env.EMAIL_SCRIPT_URL || '').trim().replace(/^["']|["']$/g, '').trim();
+  if (/^script\.google\.com\//i.test(url)) url = `https://${url}`;
+  if (!/^https:\/\/script\.google\.com\/.+\/exec$/i.test(url)) {
+    throw new Error(
+      `הערך של EMAIL_SCRIPT_URL ב-Render אינו כתובת Web app תקינה (התקבל: "${url.slice(0, 40)}${url.length > 40 ? '…' : ''}"). ` +
+        'צריך להדביק את הכתובת המלאה שמתחילה ב-https://script.google.com/macros/s/ ומסתיימת ב-/exec'
+    );
+  }
+  return url;
+}
+
 async function sendViaScript(to: string, subject: string, html: string): Promise<void> {
+  const url = scriptUrl();
   let res;
   try {
     // הסקריפט מחזיר הפניה (302) לכתובת התשובה — fetch עוקב אחריה אוטומטית
-    res = await fetch(process.env.EMAIL_SCRIPT_URL!.trim(), {
+    res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ secret: process.env.EMAIL_SCRIPT_SECRET || '', to, subject, html, fromName: FROM_NAME }),
