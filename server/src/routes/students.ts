@@ -313,10 +313,10 @@ router.get('/attendanceSummary', requirePermission('studentAttendance'), async (
 
 router.get('/exportAttendanceExcel', requirePermission('studentAttendance'), async (req, res) => {
   try {
-    const params = reportParams(req);
-    const buffer = await buildAttendanceExcel(await buildAttendanceSummary(params));
+    const summary = await buildAttendanceSummary(reportParams(req));
+    const buffer = await buildAttendanceExcel(summary);
     res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`נוכחות תלמידות ${params.from} עד ${params.to}.xlsx`)}`);
+    res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`נוכחות תלמידות ${summary.fromHeb} עד ${summary.toHeb}.xlsx`)}`);
     res.send(buffer);
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'שגיאה בייצוא לאקסל' });

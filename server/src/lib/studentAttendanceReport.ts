@@ -1,36 +1,41 @@
 import ExcelJS from 'exceljs';
-import { airtableFetch, TABLES, AirtableRecord } from './airtable';
+import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
-import { getFullSchedule } from './scheduleData';
+import { getFullSchedule, ParsedLesson } from './scheduleData';
+import { hebrewDate } from './hebrewDate';
 
-/** אחוז ההיעדרויות המקסימלי המותר בשנה (חיסורים, ואיחורים אם נספרים). */
+/** אחוז ההיעדרויות המקסימלי המותר בכל שיעור (חיסורים, ואיחורים אם נספרים). */
 export const ABSENCE_LIMIT_PCT = 20;
-
-const UNKNOWN_CATEGORY = 'לא ידוע';
 
 type Counts = { total: number; present: number; absent: number; late: number; missed: number; pct: number };
 
-/** קטגוריה = המסלול שבו התקיים השיעור: קודש (י"ג/י"ד) או המסלול המקצועי של התלמידה. */
-export type CategoryRow = Counts & { category: string };
-export type AbsenceEvent = { date: string; category: string; subject: string; status: 'חסרה' | 'איחור'; notes: string };
+/**
+ * שיעור = קטגוריה (קודש י"ג / סולם שנה ב וכו') + שם השיעור. שיעור שחוזר כל שבוע נספר כשורה
+ * אחת לאורך כל התקופה, וה-20% נבדק לכל שיעור בנפרד.
+ */
+export type LessonRow = Counts & { category: string; lesson: string; teacher: string; over: boolean };
+export type AbsenceEvent = { date: string; hebDate: string; category: string; lesson: string; status: 'חסרה' | 'איחור'; notes: string };
 export type StudentSummary = Counts & {
   id: string;
   name: string;
-  className: string;
   tracks: string[];
+  lessons: LessonRow[];
   overLimit: boolean;
-  categories: CategoryRow[];
+  /** ימים עם רישומים ישנים שלא שויכו לשיעור — לא נכללים בחישוב */
+  unidentifiedDays: number;
   events: AbsenceEvent[];
 };
 
 export type AttendanceSummary = {
   from: string;
   to: string;
+  fromHeb: string;
+  toHeb: string;
   trackName: string | null;
   lateCounts: boolean;
   limitPct: number;
   students: StudentSummary[];
-  records: { date: string; student: string; category: string; subject: string; teacher: string; status: string; notes: string }[];
+  records: { hebDate: string; date: string; student: string; category: string; lesson: string; teacher: string; status: string; notes: string }[];
 };
 
 function count(statuses: string[], lateCounts: boolean): Counts {
@@ -42,94 +47,13 @@ function count(statuses: string[], lateCounts: boolean): Counts {
   return { total, present, absent, late, missed, pct: total ? Math.round((missed / total) * 1000) / 10 : 0 };
 }
 
-/** הרישומים שנוצרו ברצף אחד (עד 2 דקות בין רישום לרישום) — כך מסמנים מסלול שלם. */
-const BATCH_GAP_MS = 2 * 60 * 1000;
-
 /**
- * לכל רישום נוכחות — באיזה מסלול (קטגוריה) הוא היה.
+ * סיכום נוכחות לכל תלמידה בטווח תאריכים, לפי שיעור.
  *
- * רישום שמקושר לשיעור: המסלול של השיעור.
- *
- * רישומים ישנים (בעיקר מספטמבר) נשמרו בלי קישור לשיעור, ומערכת השעות של אז כבר הוחלפה. אבל
- * נוכחות תמיד מסומנת מתוך מסך של מסלול אחד, תלמידה אחרי תלמידה (או "סמן הכל") — אז רישומים
- * שנוצרו ברצף באותו תאריך שייכים לאותו מסלול: המסלול היחיד שמשותף לכל התלמידות ברצף. למשל
- * רצף של בנות מסולם, אדריכלות ועיצוב שכולן ב"קודש י"ד" — שייך לקודש י"ד.
- * רצף קצר שלא מכריע (תלמידה בודדת) — לפי סוג המסלול (קודש/מקצועי) שאותה מורה סימנה באותו יום.
- */
-function resolveCategories(
-  records: AirtableRecord[],
-  studentTracks: (id: string) => string[],
-  lessonTracks: Map<string, string[]>,
-  isKodesh: (trackId: string) => boolean
-): Map<string, string | null> {
-  const result = new Map<string, string | null>();
-  const studentOf = (r: AirtableRecord): string => (r.fields[FIELDS.attendance.student] || [])[0];
-  const teacherKey = (r: AirtableRecord) => [...(r.fields[FIELDS.attendance.teacher] || [])].sort().join(',');
-
-  const unlinked: AirtableRecord[] = [];
-  for (const r of records) {
-    const lessonId = (r.fields[FIELDS.attendance.lesson] || [])[0];
-    const tracks = lessonId ? lessonTracks.get(lessonId) || [] : [];
-    if (!tracks.length) {
-      unlinked.push(r);
-      continue;
-    }
-    const mine = studentTracks(studentOf(r));
-    result.set(r.id, tracks.find((t) => mine.includes(t)) || tracks[0]);
-  }
-
-  // רצפים: אותו תאריך, אותה מורה, פער קטן בזמן היצירה, ובלי אותה תלמידה פעמיים
-  unlinked.sort((a, b) => (a.createdTime || '').localeCompare(b.createdTime || ''));
-  const batches: AirtableRecord[][] = [];
-  let batch: AirtableRecord[] = [];
-  for (const r of unlinked) {
-    const prev = batch[batch.length - 1];
-    const breaks =
-      prev &&
-      (prev.fields[FIELDS.attendance.date] !== r.fields[FIELDS.attendance.date] ||
-        teacherKey(prev) !== teacherKey(r) ||
-        Date.parse(r.createdTime || '') - Date.parse(prev.createdTime || '') > BATCH_GAP_MS ||
-        batch.some((x) => studentOf(x) === studentOf(r)));
-    if (breaks) {
-      batches.push(batch);
-      batch = [];
-    }
-    batch.push(r);
-  }
-  if (batch.length) batches.push(batch);
-
-  // סוג המסלול (קודש/מקצועי) שהוכרע לכל מורה בכל יום — לרצפים שלא הוכרעו
-  const kindByTeacherDay = new Map<string, Set<boolean>>();
-  const undecided: AirtableRecord[][] = [];
-  for (const b of batches) {
-    const common = b.reduce<string[]>((acc, r, i) => {
-      const tracks = studentTracks(studentOf(r));
-      return i === 0 ? tracks : acc.filter((t) => tracks.includes(t));
-    }, []);
-    if (common.length === 1) {
-      b.forEach((r) => result.set(r.id, common[0]));
-      const key = `${b[0].fields[FIELDS.attendance.date]}|${teacherKey(b[0])}`;
-      kindByTeacherDay.set(key, (kindByTeacherDay.get(key) || new Set()).add(isKodesh(common[0])));
-    } else {
-      undecided.push(b);
-    }
-  }
-  for (const b of undecided) {
-    const kinds = kindByTeacherDay.get(`${b[0].fields[FIELDS.attendance.date]}|${teacherKey(b[0])}`);
-    for (const r of b) {
-      const tracks = studentTracks(studentOf(r));
-      const match = kinds?.size === 1 ? tracks.filter((t) => isKodesh(t) === [...kinds][0]) : [];
-      result.set(r.id, match.length === 1 ? match[0] : null);
-    }
-  }
-  return result;
-}
-
-/**
- * סיכום נוכחות לכל תלמידה בטווח תאריכים, כולל חלוקה לקודש ולמסלול המקצועי.
- *
- * הבסיס הוא השיעורים שבהם נרשמה נוכחות בפועל (לא מה שהיה אמור להתקיים לפי המערכת) — כך שיעור
- * שבוטל או שהמורה לא סימנה בו לא נספר כחיסור של התלמידה.
+ * - הבסיס הוא השיעורים שבהם נרשמה נוכחות בפועל, כך ששיעור שבוטל או לא סומן לא נספר כחיסור.
+ * - רישום כפול לאותה תלמידה באותו שיעור באותו יום (סימון חוזר) נספר פעם אחת — האחרון קובע.
+ * - רישומים ישנים בלי קישור לשיעור (בעיקר מתחילת ספטמבר, כשהסימון נשמר בלי שיעור ולעיתים
+ *   כמה פעמים לאותו יום) לא נכללים — אי אפשר לדעת על איזה שיעור הם.
  */
 export async function buildAttendanceSummary(opts: {
   from: string;
@@ -152,82 +76,119 @@ export async function buildAttendanceSummary(opts: {
   const studentById = new Map(studentsRaw.map((s) => [s.id, s]));
   const studentTracks = (id: string): string[] => studentById.get(id)?.fields[FIELDS.students.track] || [];
   const isKodesh = (id: string) => (trackNameById.get(id) || '').startsWith('קודש');
+  const teacherNames = (l: ParsedLesson) => (l.teacher || []).map((id) => teacherNameById.get(id) || '').filter(Boolean).join(', ');
 
-  const valid = attendanceRaw.filter(
-    (r) => (r.fields[FIELDS.attendance.student] || [])[0] && r.fields[FIELDS.attendance.status]
-  );
-  const categoryOf = resolveCategories(
-    valid,
-    studentTracks,
-    new Map(schedule.lessons.map((l) => [l.id, l.track || []])),
-    isKodesh
-  );
+  // בחלק מהשיעורים השם נמצא ב"נושא", ובחלק ב"שם הכיתה" (למשל "תפילה") — אבל לרוב "שם הכיתה"
+  // הוא פשוט שם המסלול ("קודש י"ג"), שלא אומר לתלמידה על איזה שיעור מדובר.
+  const trackNames = new Set(Array.from(trackNameById.values()));
+  const ownName = (l: ParsedLesson): string => {
+    if (l.subject?.trim()) return l.subject.trim();
+    const cls = l.className?.trim() || '';
+    return cls && !trackNames.has(cls) && !/^(קודש\s*)?י["״]?[גד]['׳]?$/.test(cls) ? cls : '';
+  };
+  // שם לפי משבצת (מסלול+יום+שעה) — לשיעורים בלי שם, כשבאותה משבצת יש שיעור אחר עם שם
+  const nameBySlot = new Map<string, string>();
+  for (const l of schedule.lessons) {
+    const name = ownName(l);
+    if (name) for (const t of l.track || []) nameBySlot.set(`${t}|${l.dayOfWeek}|${l.time}`, name);
+  }
+
+  /** שם השיעור: הנושא/שם הכיתה; אחרת השם של אותה משבצת, ואז לפי המורה, ואז יום ושעה. */
+  const lessonName = (l: ParsedLesson) =>
+    ownName(l) ||
+    (l.track || []).map((t) => nameBySlot.get(`${t}|${l.dayOfWeek}|${l.time}`)).find(Boolean) ||
+    (teacherNames(l) ? `שיעור של ${teacherNames(l)}` : l.dayOfWeek ? `יום ${l.dayOfWeek} ${l.time || ''}`.trim() : 'שיעור');
 
   type Rec = {
     date: string;
+    created: string;
     studentId: string;
-    categoryId: string | null;
-    subject: string;
+    categoryId: string;
+    lesson: string;
     teacher: string;
     status: string;
     notes: string;
   };
-  const records: Rec[] = [];
-  for (const rec of valid) {
-    const categoryId = categoryOf.get(rec.id) || null;
-    if (trackId && categoryId !== trackId) continue;
+  const byKey = new Map<string, Rec>();
+  const unidentified = new Map<string, Set<string>>(); // תלמידה → ימים
+  for (const rec of attendanceRaw) {
+    const studentId: string | undefined = (rec.fields[FIELDS.attendance.student] || [])[0];
+    const status = rec.fields[FIELDS.attendance.status];
+    if (!studentId || !status) continue;
+    const date: string = rec.fields[FIELDS.attendance.date];
     const lesson = lessonById.get((rec.fields[FIELDS.attendance.lesson] || [])[0]);
-    const teacherIds: string[] = lesson?.teacher?.length ? lesson.teacher : rec.fields[FIELDS.attendance.teacher] || [];
-    records.push({
-      date: rec.fields[FIELDS.attendance.date],
-      studentId: rec.fields[FIELDS.attendance.student][0],
+    if (!lesson) {
+      if (!trackId) unidentified.set(studentId, (unidentified.get(studentId) || new Set()).add(date));
+      continue;
+    }
+    const lessonTracks = lesson.track || [];
+    if (trackId && !lessonTracks.includes(trackId)) continue;
+    const mine = studentTracks(studentId);
+    const categoryId = lessonTracks.find((t) => mine.includes(t)) || lessonTracks[0] || '';
+    const r: Rec = {
+      date,
+      created: rec.createdTime || '',
+      studentId,
       categoryId,
-      subject: lesson ? lesson.subject?.trim() || '' : '',
-      // "ה"/"דוגמא" הם חשבונות כלליים ולא שמות מורות — לא מציגים אותם
-      teacher: teacherIds
-        .map((id) => teacherNameById.get(id) || '')
-        .filter((n) => n.length > 1 && n !== 'דוגמא')
-        .join(', '),
-      status: rec.fields[FIELDS.attendance.status],
+      lesson: lessonName(lesson),
+      teacher: teacherNames(lesson),
+      status,
       notes: [rec.fields[FIELDS.attendance.notes], rec.fields['סיבת העדרות']].filter(Boolean).join(' · '),
-    });
+    };
+    const key = `${studentId}|${lesson.id}|${date}`;
+    const prev = byKey.get(key);
+    if (!prev || prev.created < r.created) byKey.set(key, r);
   }
-  records.sort((a, b) => a.date.localeCompare(b.date));
+  const records = Array.from(byKey.values()).sort((a, b) => a.date.localeCompare(b.date));
 
-  const categoryName = (id: string | null) => (id ? trackNameById.get(id) || UNKNOWN_CATEGORY : UNKNOWN_CATEGORY);
-  // קודש קודם, אחריו המסלול המקצועי, ו"לא ידוע" בסוף
-  const categoryRank = (id: string | null) => (!id ? 2 : isKodesh(id) ? 0 : 1);
+  const categoryName = (id: string) => trackNameById.get(id) || 'כללי';
+  // קודש קודם, אחריו המסלול המקצועי
+  const categoryRank = (id: string) => (isKodesh(id) ? 0 : 1);
 
   // התלמידות בדוח: מי שיש לה רישומים בטווח, וגם תלמידות המסלול שנבחר (כדי שגם בלי רישומים יופיעו)
-  const ids = new Set(records.map((r) => r.studentId));
+  const ids = new Set([...records.map((r) => r.studentId), ...unidentified.keys()]);
   if (trackId) studentsRaw.filter((s) => studentTracks(s.id).includes(trackId)).forEach((s) => ids.add(s.id));
 
   const students: StudentSummary[] = Array.from(ids).map((id) => {
     const s = studentById.get(id);
     const mine = records.filter((r) => r.studentId === id);
-    const byCategory = new Map<string | null, Rec[]>();
-    for (const r of mine) byCategory.set(r.categoryId, [...(byCategory.get(r.categoryId) || []), r]);
-    const categories = Array.from(byCategory.entries())
-      .sort(([a], [b]) => categoryRank(a) - categoryRank(b))
-      .map(([cid, rs]) => ({ category: categoryName(cid), ...count(rs.map((r) => r.status), lateCounts) }));
-    const totals = count(mine.map((r) => r.status), lateCounts);
+    const byLesson = new Map<string, Rec[]>();
+    for (const r of mine) {
+      const key = `${r.categoryId}|${r.lesson}`;
+      byLesson.set(key, [...(byLesson.get(key) || []), r]);
+    }
+    const lessons = Array.from(byLesson.values())
+      .map((rs) => {
+        const c = count(rs.map((r) => r.status), lateCounts);
+        return {
+          category: categoryName(rs[0].categoryId),
+          lesson: rs[0].lesson,
+          teacher: Array.from(new Set(rs.map((r) => r.teacher).filter(Boolean))).join(', '),
+          ...c,
+          over: c.pct > ABSENCE_LIMIT_PCT,
+          rank: categoryRank(rs[0].categoryId),
+        };
+      })
+      .sort((a, b) => a.rank - b.rank || a.category.localeCompare(b.category, 'he') || a.lesson.localeCompare(b.lesson, 'he'))
+      .map(({ rank, ...row }) => row);
     return {
       id,
       name: String(s?.fields[FIELDS.students.name] || 'תלמידה לא ידועה').trim(),
-      className: String(s?.fields[FIELDS.students.className] || ''),
       tracks: [...studentTracks(id)]
         .sort((a, b) => categoryRank(a) - categoryRank(b))
         .map((t) => trackNameById.get(t) || '')
         .filter(Boolean),
-      ...totals,
-      overLimit: totals.pct > ABSENCE_LIMIT_PCT,
-      categories,
+      ...count(mine.map((r) => r.status), lateCounts),
+      lessons,
+      overLimit: lessons.some((l) => l.over),
+      unidentifiedDays: unidentified.get(id)?.size || 0,
       events: mine
         .filter((r) => r.status === 'Absent' || r.status === 'Late')
         .map((r) => ({
           date: r.date,
+          hebDate: hebrewDate(r.date),
           category: categoryName(r.categoryId),
-          subject: r.subject,
+          lesson: r.lesson,
           status: r.status === 'Absent' ? 'חסרה' : 'איחור',
           notes: r.notes,
         })),
@@ -240,25 +201,23 @@ export async function buildAttendanceSummary(opts: {
   return {
     from,
     to,
+    fromHeb: hebrewDate(from),
+    toHeb: hebrewDate(to),
     trackName: trackId ? trackNameById.get(trackId) || null : null,
     lateCounts,
     limitPct: ABSENCE_LIMIT_PCT,
     students,
     records: records.map((r) => ({
+      hebDate: hebrewDate(r.date),
       date: r.date,
       student: nameById.get(r.studentId) || '',
       category: categoryName(r.categoryId),
-      subject: r.subject,
+      lesson: r.lesson,
       teacher: r.teacher,
       status: statusHe[r.status] || r.status,
       notes: r.notes,
     })),
   };
-}
-
-function heDate(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
 }
 
 function styleSheet(ws: ExcelJS.Worksheet) {
@@ -273,17 +232,16 @@ function styleSheet(ws: ExcelJS.Worksheet) {
 
 const RED_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
 
-/** אקסל: סיכום לכל תלמידה, פירוט לפי קודש/מסלול, וכל הרישומים בטווח. */
+/** אקסל: סיכום לכל תלמידה, פירוט לפי שיעור, וכל הרישומים בטווח. */
 export async function buildAttendanceExcel(summary: AttendanceSummary): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  const missedHeader = summary.lateCounts ? 'סה"כ היעדרויות (חיסור+איחור)' : 'סה"כ היעדרויות (חיסורים)';
+  const missedHeader = summary.lateCounts ? 'היעדרויות (חיסור+איחור)' : 'היעדרויות (חיסורים)';
   const countColumns = [
     { header: 'שיעורים שנרשמו', key: 'total', width: 12 },
     { header: 'נוכחת', key: 'present', width: 9 },
     { header: 'חסרה', key: 'absent', width: 9 },
     { header: 'איחור', key: 'late', width: 9 },
-    { header: missedHeader, key: 'missed', width: 16 },
-    { header: 'אחוז היעדרות', key: 'pct', width: 12 },
+    { header: missedHeader, key: 'missed', width: 14 },
   ];
 
   const ws = wb.addWorksheet('סיכום לפי תלמידה');
@@ -291,45 +249,48 @@ export async function buildAttendanceExcel(summary: AttendanceSummary): Promise<
     { header: 'שם התלמידה', key: 'name', width: 22 },
     { header: 'מסלולים', key: 'tracks', width: 34 },
     ...countColumns,
-    { header: `מעל ${summary.limitPct}%`, key: 'over', width: 10 },
+    { header: `שיעורים מעל ${summary.limitPct}%`, key: 'overLessons', width: 40 },
   ];
   for (const s of summary.students) {
-    const row = ws.addRow({ ...s, tracks: s.tracks.join(', '), pct: s.pct / 100, over: s.overLimit ? 'כן' : '' });
-    row.getCell('pct').numFmt = '0.0%';
+    const overLessons = s.lessons.filter((l) => l.over).map((l) => `${l.lesson} (${l.pct}%)`).join(', ');
+    const row = ws.addRow({ ...s, tracks: s.tracks.join(', '), overLessons });
     if (s.overLimit) {
       row.fill = RED_FILL;
-      row.getCell('over').font = { bold: true, color: { argb: 'FFB91C1C' } };
+      row.getCell('overLessons').font = { bold: true, color: { argb: 'FFB91C1C' } };
     }
   }
   styleSheet(ws);
 
-  const cs = wb.addWorksheet('קודש ומסלול');
-  cs.columns = [
+  const ls = wb.addWorksheet('לפי שיעור');
+  ls.columns = [
     { header: 'שם התלמידה', key: 'name', width: 22 },
-    { header: 'קטגוריה', key: 'category', width: 26 },
+    { header: 'קטגוריה', key: 'category', width: 22 },
+    { header: 'שם השיעור', key: 'lesson', width: 28 },
+    { header: 'מורה', key: 'teacher', width: 20 },
     ...countColumns,
+    { header: 'אחוז היעדרות', key: 'pct', width: 12 },
   ];
   for (const s of summary.students) {
-    for (const c of s.categories) {
-      const row = cs.addRow({ name: s.name, ...c, pct: c.pct / 100 });
+    for (const l of s.lessons) {
+      const row = ls.addRow({ name: s.name, ...l, pct: l.pct / 100 });
       row.getCell('pct').numFmt = '0.0%';
-      if (c.pct > summary.limitPct) row.fill = RED_FILL;
+      if (l.over) row.fill = RED_FILL;
     }
   }
-  styleSheet(cs);
+  styleSheet(ls);
 
   const rs = wb.addWorksheet('כל הרישומים');
   rs.columns = [
-    { header: 'תאריך', key: 'date', width: 12 },
+    { header: 'תאריך', key: 'hebDate', width: 18 },
     { header: 'שם התלמידה', key: 'student', width: 22 },
-    { header: 'קטגוריה', key: 'category', width: 24 },
-    { header: 'מקצוע', key: 'subject', width: 24 },
+    { header: 'קטגוריה', key: 'category', width: 22 },
+    { header: 'שם השיעור', key: 'lesson', width: 28 },
     { header: 'מורה', key: 'teacher', width: 20 },
     { header: 'סטטוס', key: 'status', width: 10 },
     { header: 'הערות', key: 'notes', width: 30 },
   ];
   for (const r of summary.records) {
-    const row = rs.addRow({ ...r, date: heDate(r.date) });
+    const row = rs.addRow(r);
     if (r.status === 'חסרה') row.getCell('status').font = { bold: true, color: { argb: 'FFB91C1C' } };
     if (r.status === 'איחור') row.getCell('status').font = { bold: true, color: { argb: 'FFB45309' } };
   }
