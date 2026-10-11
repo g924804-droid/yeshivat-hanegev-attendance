@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2, ChevronLeft, ChevronRight } from 'lucide-react';
-import { lessonsForDate, currentWeekSunday, weekDates, addDays, localIsoDate } from '../lib/scheduleRules';
+import { lessonsForDate, currentWeekSunday, weekDates, addDays, localIsoDate, timesOverlap } from '../lib/scheduleRules';
 import { useUrlState } from '../lib/useUrlState';
 import { Layout } from '../components/Layout';
 import { FitScale } from '../components/FitScale';
@@ -351,6 +351,7 @@ export function SchedulePage() {
       {showModal && (
         <LessonModal
           teachers={teachers}
+          allLessons={lessons}
           tracks={tracks}
           onTeacherAdded={(teacher) => setTeachers((prev) => [...prev, teacher])}
           onClose={() => setShowModal(false)}
@@ -365,6 +366,7 @@ export function SchedulePage() {
         <LessonModal
           lesson={editingLesson}
           teachers={teachers}
+          allLessons={lessons}
           tracks={tracks}
           onTeacherAdded={(teacher) => setTeachers((prev) => [...prev, teacher])}
           onClose={() => setEditingLesson(null)}
@@ -380,6 +382,7 @@ export function SchedulePage() {
           lesson={duplicatingLesson}
           duplicate
           teachers={teachers}
+          allLessons={lessons}
           tracks={tracks}
           onTeacherAdded={(teacher) => setTeachers((prev) => [...prev, teacher])}
           onClose={() => setDuplicatingLesson(null)}
@@ -401,6 +404,7 @@ function LessonModal({
   lesson,
   duplicate = false,
   teachers,
+  allLessons,
   tracks,
   onTeacherAdded,
   onClose,
@@ -411,6 +415,8 @@ function LessonModal({
    * שחוזר כמה פעמים בשבוע אפשר רק לשנות יום/שעה, בלי למלא הכל מחדש. שומר כרשומה נפרדת. */
   duplicate?: boolean;
   teachers: Ref[];
+  /** כל השיעורים במערכת — לבדיקה אם החדר כבר תפוס באותה שעה */
+  allLessons: Lesson[];
   tracks: Ref[];
   onTeacherAdded: (teacher: Ref) => void;
   onClose: () => void;
@@ -433,18 +439,25 @@ function LessonModal({
   const [days, setDays] = useState<string[]>(duplicate ? [] : [form.dayOfWeek]);
   const [times, setTimes] = useState<string[]>(duplicate && lesson ? [lesson.time] : []);
   const [newCustomTime, setNewCustomTime] = useState('');
+  const [customTimeError, setCustomTimeError] = useState('');
   const daySlots = getTimeSlotsForDay(form.dayOfWeek);
   // השעות להצגה — כל השעות של הימים המסומנים (שלישי בנוי על שעות אחרות), ועוד שעות מותאמות שנוספו ידנית.
   const multiSlots = ALL_TIME_SLOTS.filter((s) =>
     (days.length ? days : ['ראשון']).some((d) => getTimeSlotsForDay(d).some((x) => x.time === s.time))
   );
   const isStandardTime = (t: string) => ALL_TIME_SLOTS.some((s) => s.time === t);
-  const customTimes = times.filter((t) => !isStandardTime(t));
+  // שעות שהוקלדו ידנית. נשמרות בנפרד, כי שעה מוקלדת יכולה להיות זהה במקרה לשעה רגילה של יום אחר
+  // (למשל 10:15-10:45 היא הפסקה בשלישי) — ואז היא דולגה בשאר הימים, ושיעור בשעה הזו לא נוצר.
+  const [customAdded, setCustomAdded] = useState<string[]>(
+    duplicate && lesson && !isStandardTime(lesson.time) ? [lesson.time] : []
+  );
+  const isCustom = (t: string) => !isStandardTime(t) || customAdded.includes(t);
+  const customTimes = times.filter((t) => isCustom(t) && !multiSlots.some((s) => s.time === t));
   // כל צירופי יום×שעה. שעה רגילה שלא קיימת במערכת של יום מסוים (למשל שעה של שלישי ביום ראשון)
   // מדולגת באותו יום; שעה מותאמת אישית נוצרת בכל הימים.
   const combos = days.flatMap((dayOfWeek) =>
     times
-      .filter((t) => !isStandardTime(t) || getTimeSlotsForDay(dayOfWeek).some((s) => s.time === t))
+      .filter((t) => isCustom(t) || getTimeSlotsForDay(dayOfWeek).some((s) => s.time === t))
       .map((t) => ({ dayOfWeek, time: t }))
   );
   const skippedCount = days.length * times.length - combos.length;
@@ -472,23 +485,52 @@ function LessonModal({
     // שעה רגילה שאף יום מסומן כבר לא כולל — מורידים, כדי שלא תישאר מסומנת בלי שרואים אותה.
     if (next.length) {
       setTimes((prev) =>
-        prev.filter((t) => !isStandardTime(t) || next.some((d) => getTimeSlotsForDay(d).some((s) => s.time === t)))
+        prev.filter((t) => isCustom(t) || next.some((d) => getTimeSlotsForDay(d).some((s) => s.time === t)))
       );
     }
   }
 
   function toggleTime(t: string) {
+    if (times.includes(t)) setCustomAdded((prev) => prev.filter((x) => x !== t));
     setTimes((prev) =>
       prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t].sort((a, b) => startMinutes(a) - startMinutes(b))
     );
   }
 
   function addCustomTime() {
-    const t = newCustomTime.trim();
+    // "10:15 - 10:45" / "10.15-10.45" → "10:15-10:45"
+    const t = newCustomTime.trim().replace(/\s+/g, '').replace(/\./g, ':').replace(/[–—]/g, '-');
     if (!t) return;
-    if (!times.includes(t)) toggleTime(t);
+    if (!/^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/.test(t) || startMinutes(t) >= startMinutes(t.split('-')[1])) {
+      setCustomTimeError('יש לכתוב שעת התחלה וסיום, לדוגמה: 10:15-10:45');
+      return;
+    }
+    setCustomTimeError('');
+    setCustomAdded((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    if (!times.includes(t)) setTimes((prev) => [...prev, t].sort((a, b) => startMinutes(a) - startMinutes(b)));
     setNewCustomTime('');
   }
+
+  // החדר תפוס: שיעור אחר באותו חדר, באותו יום, בשעה חופפת ובתקופה חופפת
+  const normRoom = (r?: string | null) => (r || '').trim().replace(/\s+/g, ' ');
+  const roomSlots = multiDay
+    ? combos
+    : [{ dayOfWeek: form.dayOfWeek, time: timeChoice === CUSTOM_TIME ? customTime.trim() : timeChoice }];
+  const roomConflicts = normRoom(form.room)
+    ? allLessons.filter(
+        (l) =>
+          !(lesson && !duplicate && l.id === lesson.id) &&
+          normRoom(l.room) === normRoom(form.room) &&
+          roomSlots.some((s) => s.time && s.dayOfWeek === l.dayOfWeek && timesOverlap(s.time, l.time)) &&
+          (l.fromDate || '') <= (form.toDate || '9999-12-31') &&
+          (form.fromDate || '') <= (l.toDate || '9999-12-31')
+      )
+    : [];
+  const knownRooms = Array.from(new Set(allLessons.map((l) => normRoom(l.room)).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b, 'he', { numeric: true })
+  );
+  const trackNamesOf = (ids: string[]) => tracks.filter((t) => ids.includes(t.id)).map((t) => t.name).join(', ');
+  const teacherNamesOf = (ids: string[]) => teachers.filter((t) => ids.includes(t.id)).map((t) => t.name).join(', ');
 
   function toggleTrack(id: string) {
     setTrackIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
@@ -631,7 +673,10 @@ function LessonModal({
                 className="input py-1.5 text-sm"
                 placeholder="שעה מותאמת, לדוגמה: 16:00-16:45"
                 value={newCustomTime}
-                onChange={(e) => setNewCustomTime(e.target.value)}
+                onChange={(e) => {
+                  setNewCustomTime(e.target.value);
+                  setCustomTimeError('');
+                }}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomTime())}
               />
               <button
@@ -643,9 +688,11 @@ function LessonModal({
                 <Plus size={14} /> הוספה
               </button>
             </div>
+            {customTimeError && <p className="text-red-600 text-xs mt-1">{customTimeError}</p>}
             {skippedCount > 0 && (
               <p className="text-amber-700 text-xs mt-1">
-                שימו לב: {skippedCount} מהצירופים לא ייווצרו, כי השעה לא קיימת במערכת של אותו יום (למשל שלישי)
+                שימו לב: {skippedCount} מהצירופים לא ייווצרו, כי השעה שנבחרה קיימת רק במערכת של יום אחר (למשל שעה של
+                שלישי). כדי ליצור אותה בכל הימים — כתבו אותה בתיבה "שעה מותאמת" ולחצו "הוספה".
               </p>
             )}
           </div>
@@ -721,7 +768,33 @@ function LessonModal({
           </div>
         </div>
 
-        <input className="input" placeholder="חדר" value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })} />
+        <div>
+          <input
+            className={`input ${roomConflicts.length ? 'border-red-400 ring-1 ring-red-300' : ''}`}
+            placeholder="חדר"
+            list="known-rooms"
+            value={form.room}
+            onChange={(e) => setForm({ ...form, room: e.target.value })}
+          />
+          <datalist id="known-rooms">
+            {knownRooms.map((r) => (
+              <option key={r} value={r} />
+            ))}
+          </datalist>
+          {roomConflicts.length > 0 && (
+            <div className="mt-1 text-xs bg-red-50 text-red-700 rounded-lg px-2 py-1.5">
+              <div className="font-bold">החדר תפוס בשעה הזו:</div>
+              {roomConflicts.map((l) => (
+                <div key={l.id}>
+                  {l.dayOfWeek} {l.time} — {l.subject || l.className}
+                  {trackNamesOf(l.track) && ` (${trackNamesOf(l.track)})`}
+                  {teacherNamesOf(l.teacher) && ` · ${teacherNamesOf(l.teacher)}`}
+                  {l.toDate && ` · עד ${l.toDate.split('-').reverse().join('/')}`}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="grid grid-cols-2 gap-2">
           <div>

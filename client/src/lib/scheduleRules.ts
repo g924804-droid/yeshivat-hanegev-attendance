@@ -26,7 +26,7 @@ function timeRange(time: string): [number, number] {
   return [start, end && end > start ? end : start];
 }
 
-function timesOverlap(a: string, b: string): boolean {
+export function timesOverlap(a: string, b: string): boolean {
   const [aStart, aEnd] = timeRange(a);
   const [bStart, bEnd] = timeRange(b);
   if (aStart === aEnd || bStart === bEnd) return aStart === bStart;
