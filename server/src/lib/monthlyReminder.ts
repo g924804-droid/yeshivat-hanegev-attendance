@@ -13,12 +13,19 @@ function buildReminderHtml(name: string, needsReceipt: boolean): string {
       ${needsReceipt ? '<p>מי שמועסקת נגד קבלה — באחריותך בלבד להעלות קבלה עבור החודש הנוכחי.</p>' : ''}
       <p>בנוסף, יש למלא את דוח הנוכחות של הבנות ולחתום על דוח הנוכחות.</p>
       <p>מילוי הדוח (וקבלה, במידה ורלוונטי) הוא תנאי לקבלת השכר.</p>
+      <p style="margin: 24px 0;">
+        <a href="${SITE_URL}" style="background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: bold; display: inline-block;">כניסה למערכת</a>
+      </p>
+      <p style="font-size: 13px; color: #64748b;">או בקישור: <a href="${SITE_URL}" style="color: #2563eb;">${SITE_URL}</a></p>
       <p>בברכה,<br>סמינר מאיר שכר</p>
     </div>
   `;
 }
 
 const SUBJECT = 'תזכורת חודשית — דוח שעות ונוכחות';
+
+/** כתובת האתר לכפתור "כניסה למערכת" במייל. */
+const SITE_URL = process.env.APP_URL || 'https://yeshivaanegev.onrender.com';
 
 /** התאריך לפי שעון ישראל (השרת רץ ב-UTC, ובחצות זה כבר יום אחר). */
 function israelToday(): { year: number; month: number; day: number; monthStr: string } {
