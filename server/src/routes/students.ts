@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request } from 'express';
 import {
   airtableFetch,
   airtableCreate,
@@ -16,6 +16,7 @@ import { getHebrewDateLabel } from '../lib/holidays';
 import { getTeacherTrackIds, findTeacherIds, canSeeAllStudentTracks } from '../lib/teacherScope';
 import { getMissingAttendanceSlots } from '../lib/teacherAttendanceCheck';
 import { requireAuth, requirePermission } from '../middleware/auth';
+import { buildAttendanceSummary, buildAttendanceExcel } from '../lib/studentAttendanceReport';
 
 const router = Router();
 router.use(requireAuth);
@@ -288,6 +289,37 @@ router.post('/bulkMarkAttendance', requirePermission('studentAttendance'), async
     res.json({ success: true, marked: toCreate.length, skipped: studentIds.length - toCreate.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בסימון נוכחות מרוכז' });
+  }
+});
+
+/** פרמטרים משותפים לדוח הנוכחות ולייצוא — רק למי שרואה את כל המסלולים (מנהלת/מזכירה). */
+function reportParams(req: Request) {
+  if (!canSeeAllStudentTracks(req.user!)) throw Object.assign(new Error('אין הרשאה לדוחות נוכחות'), { status: 403 });
+  const { from, to, trackId, lateCounts } = req.query as Record<string, string | undefined>;
+  const isDate = (d?: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (!isDate(from) || !isDate(to)) throw Object.assign(new Error('יש לבחור מתאריך ועד תאריך'), { status: 400 });
+  if (from! > to!) throw Object.assign(new Error('תאריך ההתחלה אחרי תאריך הסיום'), { status: 400 });
+  return { from: from!, to: to!, trackId: trackId || undefined, lateCounts: lateCounts !== '0' };
+}
+
+router.get('/attendanceSummary', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    const summary = await buildAttendanceSummary(reportParams(req));
+    res.json({ ...summary, records: undefined });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'שגיאה בהפקת דוח נוכחות' });
+  }
+});
+
+router.get('/exportAttendanceExcel', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    const params = reportParams(req);
+    const buffer = await buildAttendanceExcel(await buildAttendanceSummary(params));
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`נוכחות תלמידות ${params.from} עד ${params.to}.xlsx`)}`);
+    res.send(buffer);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'שגיאה בייצוא לאקסל' });
   }
 });
 

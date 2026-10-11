@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, CheckCircle } from 'lucide-react';
+import { Users, CheckCircle, FileBarChart } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/permissions';
 
 type Track = { id: string; name: string; description: string; studentCount: number; presentToday: number };
 
@@ -10,6 +11,9 @@ export function StudentTracks() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // דוחות הנוכחות מכסים את כל התלמידות — רק למי שרואה את כל המסלולים (כמו בשרת)
+  const canSeeReports = !!user && (user.role === 'מנהל' || user.isAttendanceManager || user.canManageAllStudentTracks);
 
   useEffect(() => {
     api
@@ -20,6 +24,13 @@ export function StudentTracks() {
 
   return (
     <Layout title="מסלולי תלמידות">
+      {canSeeReports && (
+        <div className="flex justify-end mb-4">
+          <button onClick={() => navigate('/students/report')} className="btn-primary text-sm py-2">
+            <FileBarChart size={16} /> דוחות נוכחות ואקסל
+          </button>
+        </div>
+      )}
       {error && <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {tracks.map((t) => (

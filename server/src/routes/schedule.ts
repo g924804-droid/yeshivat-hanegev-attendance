@@ -151,7 +151,7 @@ router.get('/getScheduleHistory', async (req, res) => {
 router.get('/exportScheduleExcel', async (req, res) => {
   try {
     const { from, to, trackId } = req.query as { from?: string; to?: string; trackId?: string };
-    const isDate = (d?: string) => !!d && /^d{4}-d{2}-d{2}$/.test(d);
+    const isDate = (d?: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
     if (!isDate(from) || !isDate(to)) return res.status(400).json({ error: 'יש לבחור מתאריך ועד תאריך' });
     if (from! > to!) return res.status(400).json({ error: 'תאריך ההתחלה אחרי תאריך הסיום' });
     const days = (Date.parse(to!) - Date.parse(from!)) / 86_400_000;
