@@ -156,6 +156,18 @@ export async function airtableBatchUpdate(
   }
 }
 
+/** מחיקת מספר רשומות בבת אחת — Airtable מקבל עד 10 מזהים בבקשה אחת. */
+export async function airtableBatchDelete(tableId: string, recordIds: string[]): Promise<void> {
+  assertConfigured();
+  for (let i = 0; i < recordIds.length; i += 10) {
+    const qs = recordIds
+      .slice(i, i + 10)
+      .map((id) => `records[]=${encodeURIComponent(id)}`)
+      .join('&');
+    await requestWithRetry(() => client.delete(`/${tableId}?${qs}`));
+  }
+}
+
 /** upsert רשומת נוכחות עובד ב-Airtable, לפי מזהה מערכת (systemId = מזהה הרשומה ב-DB המקומי). */
 export async function syncAttendanceToAirtable(opts: {
   systemId: string;

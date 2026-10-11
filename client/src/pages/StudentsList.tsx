@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowRight, CalendarClock, ChevronRight, ChevronLeft, CheckCheck, Check, Search, User, MapPin, AlertTriangle } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
@@ -52,6 +52,9 @@ function familyName(fullName: string): string {
 export function StudentsList() {
   const { trackId } = useParams();
   const navigate = useNavigate();
+  // קישור ישיר לתאריך ושיעור מסוימים (למשל ממסך "תיקון נתוני נוכחות")
+  const [searchParams] = useSearchParams();
+  const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('date') || '') ? searchParams.get('date')! : todayStr();
   const [students, setStudents] = useState<Student[]>([]);
   const [schedule, setSchedule] = useState<Lesson[]>([]);
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
@@ -59,7 +62,7 @@ export function StudentsList() {
   const [trackName, setTrackName] = useState('');
   // תאריך בר-בחירה, לא נעול ל"היום" — כדי שאפשר יהיה לחזור אחורה ולמלא נוכחות שהוחמצה
   // (למשל מזכירה שממלאת במקום מורה שלא הספיקה בימים קודמים באותו חודש).
-  const [date, setDate] = useState(todayStr());
+  const [date, setDate] = useState(initialDate);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -93,7 +96,7 @@ export function StudentsList() {
   }
 
   useEffect(() => {
-    load(date);
+    load(date, searchParams.get('lessonId'));
     api
       .get<{ missing: MissingSlot[] }>('/students/getMissingAttendanceForTrack', { trackId })
       .then((r) => setMissingSlots(r.missing))

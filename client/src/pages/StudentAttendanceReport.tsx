@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, ChevronDown, ChevronLeft, FileSpreadsheet, Printer, Search } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronLeft, FileSpreadsheet, Printer, Search, Wrench } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { todayStr, toHebrewDateString } from '../lib/utils';
@@ -191,7 +191,7 @@ export function StudentAttendanceReport() {
               .join(' · ')}</div>`
           : `<div class="verdict ok">בכל השיעורים אחוז ההיעדרות בתוך המותר (עד ${limit}%)</div>`;
         return `<div class="report">
-          <div class="head"><h1>סמינר מאיר שכר</h1>${logo}</div>
+          <div class="head"><h1>סמינר מאיר</h1>${logo}</div>
           <h2>דוח נוכחות — ${esc(s.name)}</h2>
           <div class="meta">תקופה: ${esc(summary.fromHeb)} – ${esc(summary.toHeb)}${
             summary.trackName ? ` · מסלול: ${esc(summary.trackName)}` : s.tracks.length ? ` · ${esc(s.tracks.join(', '))}` : ''
@@ -242,6 +242,9 @@ export function StudentAttendanceReport() {
       <div className="flex items-center justify-between mb-4">
         <button onClick={() => navigate('/students')} className="btn-outline text-sm py-2">
           <ArrowRight size={16} /> חזרה למסלולים
+        </button>
+        <button onClick={() => navigate('/students/fix')} className="btn-outline text-sm py-2 border-amber-400 text-amber-800">
+          <Wrench size={16} /> תיקון נתונים — נוכחות חסרה ולא משויכת
         </button>
       </div>
 

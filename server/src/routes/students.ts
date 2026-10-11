@@ -17,6 +17,7 @@ import { getTeacherTrackIds, findTeacherIds, canSeeAllStudentTracks } from '../l
 import { getMissingAttendanceSlots } from '../lib/teacherAttendanceCheck';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { buildAttendanceSummary, buildAttendanceExcel } from '../lib/studentAttendanceReport';
+import { getAttendanceIssues, assignRecordsToLesson, deleteAttendanceRecords } from '../lib/studentAttendanceIssues';
 
 const router = Router();
 router.use(requireAuth);
@@ -320,6 +321,48 @@ router.get('/exportAttendanceExcel', requirePermission('studentAttendance'), asy
     res.send(buffer);
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'שגיאה בייצוא לאקסל' });
+  }
+});
+
+/** מה צריך תיקון: סימונים בלי שיעור, ושיעורים בלי נוכחות. */
+router.get('/attendanceIssues', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    const { from, to } = reportParams(req);
+    res.json(await getAttendanceIssues(from, to));
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'שגיאה בבדיקת נתוני הנוכחות' });
+  }
+});
+
+function recordIdsFrom(body: any): string[] {
+  const ids = body?.recordIds;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 200 || !ids.every((id) => typeof id === 'string' && /^rec\w+$/.test(id))) {
+    throw Object.assign(new Error('רשימת רישומים לא תקינה'), { status: 400 });
+  }
+  return ids;
+}
+
+router.post('/assignAttendanceLesson', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    const { lessonId } = req.body as { lessonId?: string };
+    if (!lessonId || !/^rec\w+$/.test(lessonId)) return res.status(400).json({ error: 'יש לבחור שיעור' });
+    const ids = recordIdsFrom(req.body);
+    await assignRecordsToLesson(ids, lessonId);
+    res.json({ success: true, updated: ids.length });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'שגיאה בשיוך לשיעור' });
+  }
+});
+
+router.post('/deleteAttendanceRecords', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    const ids = recordIdsFrom(req.body);
+    await deleteAttendanceRecords(ids);
+    res.json({ success: true, deleted: ids.length });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'שגיאה במחיקה' });
   }
 });
 

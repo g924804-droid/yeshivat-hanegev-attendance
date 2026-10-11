@@ -47,6 +47,35 @@ function count(statuses: string[], lateCounts: boolean): Counts {
   return { total, present, absent, late, missed, pct: total ? Math.round((missed / total) * 1000) / 10 : 0 };
 }
 
+/** שמות שיעורים ומורות — משותף לדוח הנוכחות ולמסך תיקון הנתונים. */
+export function makeLessonNamer(schedule: Awaited<ReturnType<typeof getFullSchedule>>) {
+  const trackNameById = new Map(schedule.tracks.map((t) => [t.id, String(t.name || '').trim()]));
+  const teacherNameById = new Map(schedule.teachers.map((t) => [t.id, String(t.name || '').trim()]));
+  const teacherNames = (l: ParsedLesson) => (l.teacher || []).map((id) => teacherNameById.get(id) || '').filter(Boolean).join(', ');
+
+  // בחלק מהשיעורים השם נמצא ב"נושא", ובחלק ב"שם הכיתה" (למשל "תפילה") — אבל לרוב "שם הכיתה"
+  // הוא פשוט שם המסלול ("קודש י"ג"), שלא אומר לתלמידה על איזה שיעור מדובר.
+  const trackNames = new Set(Array.from(trackNameById.values()));
+  const ownName = (l: ParsedLesson): string => {
+    if (l.subject?.trim()) return l.subject.trim();
+    const cls = l.className?.trim() || '';
+    return cls && !trackNames.has(cls) && !/^(קודש\s*)?י["״]?[גד]['׳]?$/.test(cls) ? cls : '';
+  };
+  // שם לפי משבצת (מסלול+יום+שעה) — לשיעורים בלי שם, כשבאותה משבצת יש שיעור אחר עם שם
+  const nameBySlot = new Map<string, string>();
+  for (const l of schedule.lessons) {
+    const name = ownName(l);
+    if (name) for (const t of l.track || []) nameBySlot.set(`${t}|${l.dayOfWeek}|${l.time}`, name);
+  }
+
+  /** שם השיעור: הנושא/שם הכיתה; אחרת השם של אותה משבצת, ואז לפי המורה, ואז יום ושעה. */
+  const lessonName = (l: ParsedLesson) =>
+    ownName(l) ||
+    (l.track || []).map((t) => nameBySlot.get(`${t}|${l.dayOfWeek}|${l.time}`)).find(Boolean) ||
+    (teacherNames(l) ? `שיעור של ${teacherNames(l)}` : l.dayOfWeek ? `יום ${l.dayOfWeek} ${l.time || ''}`.trim() : 'שיעור');
+  return { lessonName, teacherNames };
+}
+
 /**
  * סיכום נוכחות לכל תלמידה בטווח תאריכים, לפי שיעור.
  *
@@ -76,28 +105,7 @@ export async function buildAttendanceSummary(opts: {
   const studentById = new Map(studentsRaw.map((s) => [s.id, s]));
   const studentTracks = (id: string): string[] => studentById.get(id)?.fields[FIELDS.students.track] || [];
   const isKodesh = (id: string) => (trackNameById.get(id) || '').startsWith('קודש');
-  const teacherNames = (l: ParsedLesson) => (l.teacher || []).map((id) => teacherNameById.get(id) || '').filter(Boolean).join(', ');
-
-  // בחלק מהשיעורים השם נמצא ב"נושא", ובחלק ב"שם הכיתה" (למשל "תפילה") — אבל לרוב "שם הכיתה"
-  // הוא פשוט שם המסלול ("קודש י"ג"), שלא אומר לתלמידה על איזה שיעור מדובר.
-  const trackNames = new Set(Array.from(trackNameById.values()));
-  const ownName = (l: ParsedLesson): string => {
-    if (l.subject?.trim()) return l.subject.trim();
-    const cls = l.className?.trim() || '';
-    return cls && !trackNames.has(cls) && !/^(קודש\s*)?י["״]?[גד]['׳]?$/.test(cls) ? cls : '';
-  };
-  // שם לפי משבצת (מסלול+יום+שעה) — לשיעורים בלי שם, כשבאותה משבצת יש שיעור אחר עם שם
-  const nameBySlot = new Map<string, string>();
-  for (const l of schedule.lessons) {
-    const name = ownName(l);
-    if (name) for (const t of l.track || []) nameBySlot.set(`${t}|${l.dayOfWeek}|${l.time}`, name);
-  }
-
-  /** שם השיעור: הנושא/שם הכיתה; אחרת השם של אותה משבצת, ואז לפי המורה, ואז יום ושעה. */
-  const lessonName = (l: ParsedLesson) =>
-    ownName(l) ||
-    (l.track || []).map((t) => nameBySlot.get(`${t}|${l.dayOfWeek}|${l.time}`)).find(Boolean) ||
-    (teacherNames(l) ? `שיעור של ${teacherNames(l)}` : l.dayOfWeek ? `יום ${l.dayOfWeek} ${l.time || ''}`.trim() : 'שיעור');
+  const { lessonName, teacherNames } = makeLessonNamer(schedule);
 
   type Rec = {
     date: string;
