@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2, Printer } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2, Printer, Search } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useAuth } from '../lib/permissions';
-import { currentMonth, safeFixed, formatHours, compareHebrewNames } from '../lib/utils';
+import { currentMonth, safeFixed, formatHours, compareByFamilyName, familyName, givenName } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
 import { printMonthlyReport } from '../lib/printReport';
 import { confirmAndDeleteContract } from '../lib/deleteContract';
@@ -25,7 +25,28 @@ type ReportRow = {
   hasNewContract: boolean;
   pendingReceipts: number;
   specialRateDetails: { date: string; hours: number; notes: string | null }[];
-  employee: { id: string; name: string; department: string | null };
+  employee: { id: string; name: string; lastName: string | null; department: string | null };
+};
+
+type MissingEmployee = { id: string; name: string; lastName: string | null; department: string | null };
+
+/** שורה בטבלת הדוחות: עובד/ת עם דוח, או בלי דוח בכלל החודש ("חסר"). */
+type EmployeeRow = {
+  id: string;
+  name: string;
+  lastName: string | null;
+  department: string | null;
+  status: 'חסר' | ReportRow['status'];
+  report: ReportRow | null;
+};
+
+const STATUS_FILTERS = ['הכל', 'חסר', 'טיוטה', 'הוגש', 'אושר'] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
+const STATUS_STYLE: Record<EmployeeRow['status'], string> = {
+  חסר: 'bg-red-100 text-red-700',
+  טיוטה: 'bg-slate-100 text-slate-600',
+  הוגש: 'bg-blue-100 text-blue-800',
+  אושר: 'bg-green-100 text-green-800',
 };
 
 type PendingReceipts = { id: string; name: string; count: number };
@@ -33,6 +54,7 @@ type PendingReceipts = { id: string; name: string; count: number };
 type Employee = {
   id: string;
   name: string;
+  lastName: string | null;
   role: string;
   department: string | null;
   workArea: string | null;
@@ -134,7 +156,9 @@ function ReportsTab() {
   const navigate = useNavigate();
   const [month, setMonth] = useUrlState('month', currentMonth());
   const [reports, setReports] = useState<ReportRow[]>([]);
-  const [missing, setMissing] = useState<{ id: string; name: string }[]>([]);
+  const [missing, setMissing] = useState<MissingEmployee[]>([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('הכל');
   const [pendingReceipts, setPendingReceipts] = useState<PendingReceipts[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -158,15 +182,36 @@ function ReportsTab() {
   async function load() {
     const data = await api.get<{
       reports: ReportRow[];
-      missingEmployees: any[];
+      missingEmployees: MissingEmployee[];
       pendingReceipts: PendingReceipts[];
       summary: any;
     }>('/reports/getAllReports', { month });
-    setReports([...data.reports].sort((a, b) => compareHebrewNames(a.employee.name, b.employee.name)));
-    setMissing([...data.missingEmployees].sort((a, b) => compareHebrewNames(a.name, b.name)));
+    setReports(data.reports);
+    setMissing(data.missingEmployees);
     setPendingReceipts(data.pendingReceipts || []);
     setSummary(data.summary);
   }
+
+  // כל העובדים בטבלה אחת — כולל מי שעוד לא התחיל/ה דוח — לפי א'-ב' של שם המשפחה
+  const rows = useMemo<EmployeeRow[]>(
+    () =>
+      [
+        ...reports.map((r) => ({
+          id: r.employee.id,
+          name: r.employee.name,
+          lastName: r.employee.lastName,
+          department: r.employee.department,
+          status: r.status,
+          report: r,
+        })),
+        ...missing.map((m) => ({ ...m, status: 'חסר' as const, report: null })),
+      ].sort(compareByFamilyName),
+    [reports, missing]
+  );
+  const shownRows = useMemo(
+    () => rows.filter((r) => r.name.includes(search.trim()) && (statusFilter === 'הכל' || r.status === statusFilter)),
+    [rows, search, statusFilter]
+  );
 
   useEffect(() => {
     load();
@@ -279,11 +324,29 @@ function ReportsTab() {
         </div>
       )}
 
-      <div className="card overflow-x-auto">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
+          <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input className="input pr-9" placeholder="חיפוש לפי שם..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        {STATUS_FILTERS.map((st) => (
+          <button
+            key={st}
+            onClick={() => setStatusFilter(st)}
+            className={`badge cursor-pointer px-3 py-1.5 text-xs border ${
+              statusFilter === st ? 'bg-navy text-white border-navy' : `${st === 'הכל' ? 'bg-white text-slate-600' : STATUS_STYLE[st]} border-transparent`
+            }`}
+          >
+            {st} ({st === 'הכל' ? rows.length : rows.filter((r) => r.status === st).length})
+          </button>
+        ))}
+      </div>
+
+      <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm text-center">
           <thead>
-            <tr className="text-slate-500 border-b">
-              <th className="py-2">שם</th>
+            <tr className="text-slate-500 border-b bg-slate-50">
+              <th className="py-2.5 pr-4 text-right">שם</th>
               <th>מחלקה</th>
               <th>סטטוס</th>
               <th>שעות</th>
@@ -296,99 +359,119 @@ function ReportsTab() {
             </tr>
           </thead>
           <tbody>
-            {reports.map((r) => (
-              <tr
-                key={r.id}
-                className={`border-b last:border-0 hover:bg-slate-50 ${
-                  r.specialRateHours > 0 || r.isNewEmployee || r.hasNewContract ? 'bg-amber-50' : ''
-                }`}
-              >
-                <td className="py-2">
-                  <div className="flex items-center justify-center gap-1.5">
-                    {r.employee.name}
-                    {r.isNewEmployee && (
-                      <span className="badge bg-amber-200 border border-amber-400 text-amber-900 text-[10px]">
-                        עובד/ת חדשה
-                      </span>
-                    )}
-                    {r.hasNewContract && (
-                      <span className="badge bg-amber-200 border border-amber-400 text-amber-900 text-[10px]">
-                        חוזה חדש
-                      </span>
-                    )}
-                    {r.pendingReceipts > 0 && (
-                      <span className="badge bg-sky-100 border border-sky-300 text-sky-900 text-[10px]" title="קבלות שהוגשו וממתינות לאישור">
-                        <Receipt size={10} className="inline" /> {r.pendingReceipts} {r.pendingReceipts === 1 ? 'קבלה ממתינה' : 'קבלות ממתינות'}
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td>{r.employee.department || '—'}</td>
-                <td>{r.status}</td>
-                <td>{safeFixed(r.totalHours)}</td>
-                <td>{safeFixed(r.totalOvertime)}</td>
-                <td>{r.sickDays}</td>
-                <td>{r.vacationDays}</td>
-                <td>{r.absenceDays}</td>
-                <td>
-                  {r.specialRateHours > 0 ? (
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="inline-flex items-center gap-1 font-bold border-2 border-black rounded-full px-2 py-0.5 bg-amber-200">
-                        {formatHours(r.specialRateHours)}
-                      </span>
-                      {r.specialRateDetails.map((d) => (
-                        <span key={d.date} className="text-[11px] text-slate-700 max-w-[220px]" title={d.notes || ''}>
-                          {Number(d.date.slice(8, 10))}/{Number(d.date.slice(5, 7))}: {d.notes || formatHours(d.hours)}
+            {shownRows.map((row, i) => {
+              const letter = familyName(row.name, row.lastName).charAt(0);
+              const showLetter = i === 0 || familyName(shownRows[i - 1].name, shownRows[i - 1].lastName).charAt(0) !== letter;
+              const r = row.report;
+              const highlight = r && (r.specialRateHours > 0 || r.isNewEmployee || r.hasNewContract);
+              return (
+                <Fragment key={row.id}>
+                  {showLetter && (
+                    <tr className="bg-white">
+                      <td colSpan={10} className="pt-3 pb-1 pr-3 text-right">
+                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gold/20 text-navy font-bold">
+                          {letter}
                         </span>
-                      ))}
-                    </div>
-                  ) : (
-                    '—'
+                      </td>
+                    </tr>
                   )}
-                </td>
-                <td className="flex gap-1 justify-center py-1">
-                  <button className="btn-outline text-xs py-1 px-2" onClick={() => navigate(`/report/${month}?userId=${r.employee.id}`)}>
-                    צפייה
-                  </button>
-                  <button
-                    className="btn-outline text-xs py-1 px-2"
-                    onClick={() => print(r.employee.id)}
-                    disabled={printingId === r.employee.id}
-                    title="הדפסה מיידית של הדוח של עובד/ת זו"
-                  >
-                    <Printer size={14} /> {printingId === r.employee.id ? 'מכין...' : 'הדפסה'}
-                  </button>
-                  {r.status === 'הוגש' && (
-                    <button className="btn-gold text-xs py-1 px-2" onClick={() => approve(r.id)}>
-                      <CheckCircle2 size={14} /> אשר
-                    </button>
-                  )}
-                  {(r.status === 'הוגש' || r.status === 'אושר') && (
-                    <button
-                      className="btn-outline text-xs py-1 px-2"
-                      onClick={() => recalculate(r.id, r.employee.name)}
-                      disabled={recalcId === r.id}
-                      title="עדכון הסכומים לפי הימים כמו שהם עכשיו (למשל אחרי שהמורה תיקנה ימים). הסטטוס והחתימה נשארים."
-                    >
-                      <RefreshCw size={14} className={recalcId === r.id ? 'animate-spin' : ''} /> חישוב מחדש
-                    </button>
-                  )}
-                  {(r.status === 'הוגש' || r.status === 'אושר') && (
-                    <button
-                      className="btn-outline text-xs py-1 px-2 text-red-600 border-red-200 hover:bg-red-50"
-                      onClick={() => revertToDraft(r.id)}
-                    >
-                      <Undo2 size={14} /> ביטול הגשה
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+                  <tr className={`border-b hover:bg-slate-50 ${highlight ? 'bg-amber-50' : ''}`}>
+                    <td className="py-2 pr-4 text-right">
+                      <div>
+                        <span className="font-bold text-navy">{familyName(row.name, row.lastName)}</span>{' '}
+                        <span className="text-slate-600">{givenName(row.name, row.lastName)}</span>
+                      </div>
+                      {r && (r.isNewEmployee || r.hasNewContract || r.pendingReceipts > 0) && (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {r.isNewEmployee && (
+                            <span className="badge bg-amber-200 border border-amber-400 text-amber-900 text-[10px]">עובד/ת חדשה</span>
+                          )}
+                          {r.hasNewContract && (
+                            <span className="badge bg-amber-200 border border-amber-400 text-amber-900 text-[10px]">חוזה חדש</span>
+                          )}
+                          {r.pendingReceipts > 0 && (
+                            <span className="badge bg-sky-100 border border-sky-300 text-sky-900 text-[10px]" title="קבלות שהוגשו וממתינות לאישור">
+                              <Receipt size={10} className="inline" /> {r.pendingReceipts}{' '}
+                              {r.pendingReceipts === 1 ? 'קבלה ממתינה' : 'קבלות ממתינות'}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="text-slate-500">{row.department || '—'}</td>
+                    <td>
+                      <span className={`badge ${STATUS_STYLE[row.status]}`}>{row.status === 'חסר' ? 'לא התחיל/ה' : row.status}</span>
+                    </td>
+                    <td className="font-medium">{r ? safeFixed(r.totalHours) : '—'}</td>
+                    <td>{r ? safeFixed(r.totalOvertime) : '—'}</td>
+                    <td>{r ? r.sickDays || '' : '—'}</td>
+                    <td>{r ? r.vacationDays || '' : '—'}</td>
+                    <td>{r ? r.absenceDays || '' : '—'}</td>
+                    <td>
+                      {r && r.specialRateHours > 0 ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="inline-flex items-center gap-1 font-bold border-2 border-black rounded-full px-2 py-0.5 bg-amber-200">
+                            {formatHours(r.specialRateHours)}
+                          </span>
+                          {r.specialRateDetails.map((d) => (
+                            <span key={d.date} className="text-[11px] text-slate-700 max-w-[220px]" title={d.notes || ''}>
+                              {Number(d.date.slice(8, 10))}/{Number(d.date.slice(5, 7))}: {d.notes || formatHours(d.hours)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="py-1 pl-2">
+                      <div className="flex gap-1 justify-center flex-wrap">
+                        <button className="btn-outline text-xs py-1 px-2" onClick={() => navigate(`/report/${month}?userId=${row.id}`)}>
+                          צפייה
+                        </button>
+                        {r && (
+                          <button
+                            className="btn-outline text-xs py-1 px-2"
+                            onClick={() => print(row.id)}
+                            disabled={printingId === row.id}
+                            title="הדפסה מיידית של הדוח של עובד/ת זו"
+                          >
+                            <Printer size={14} /> {printingId === row.id ? 'מכין...' : 'הדפסה'}
+                          </button>
+                        )}
+                        {r?.status === 'הוגש' && (
+                          <button className="btn-gold text-xs py-1 px-2" onClick={() => approve(r.id)}>
+                            <CheckCircle2 size={14} /> אשר
+                          </button>
+                        )}
+                        {r && (r.status === 'הוגש' || r.status === 'אושר') && (
+                          <button
+                            className="btn-outline text-xs py-1 px-2"
+                            onClick={() => recalculate(r.id, row.name)}
+                            disabled={recalcId === r.id}
+                            title="עדכון הסכומים לפי הימים כמו שהם עכשיו (למשל אחרי שהמורה תיקנה ימים). הסטטוס והחתימה נשארים."
+                          >
+                            <RefreshCw size={14} className={recalcId === r.id ? 'animate-spin' : ''} /> חישוב מחדש
+                          </button>
+                        )}
+                        {r && (r.status === 'הוגש' || r.status === 'אושר') && (
+                          <button
+                            className="btn-outline text-xs py-1 px-2 text-red-600 border-red-200 hover:bg-red-50"
+                            onClick={() => revertToDraft(r.id)}
+                          >
+                            <Undo2 size={14} /> ביטול הגשה
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
-        {missing.length > 0 && (
-          <p className="text-amber-700 text-sm mt-4">חסרים דוח: {missing.map((m) => m.name).join(', ')}</p>
-        )}
+        {shownRows.length === 0 && <p className="text-center text-slate-400 py-6">אין עובדים להצגה</p>}
+      </div>
+      <div className="mt-2">
         {pendingReceipts.length > 0 && (
           <p className="text-sky-800 text-sm mt-2">
             <Receipt size={14} className="inline ml-1" />
@@ -451,7 +534,7 @@ function EmployeesTab() {
       employees
         .filter((e) => !departmentFilter || e.department === departmentFilter)
         .filter((e) => !workAreaFilter || e.workArea === workAreaFilter)
-        .sort((a, b) => compareHebrewNames(a.name, b.name)),
+        .sort(compareByFamilyName),
     [employees, departmentFilter, workAreaFilter]
   );
 
@@ -571,7 +654,7 @@ function EmployeesTab() {
         <table className="w-full text-sm text-center">
           <thead>
             <tr className="text-slate-500 border-b">
-              <th className="py-2"><Users size={14} className="inline" /> שם</th>
+              <th className="py-2 text-right pr-4"><Users size={14} className="inline" /> שם</th>
               <th>תפקיד</th>
               <th>מחלקה</th>
               <th>תחום עיסוק</th>
@@ -586,7 +669,10 @@ function EmployeesTab() {
               const hasPending = employeeContracts.some((c) => c.status === 'ממתין לחתימה');
               return (
                 <tr key={e.id} className="border-b last:border-0 hover:bg-slate-50">
-                  <td className="py-2">{e.name}</td>
+                  <td className="py-2 text-right pr-4">
+                    <span className="font-bold text-navy">{familyName(e.name, e.lastName)}</span>{' '}
+                    <span className="text-slate-600">{givenName(e.name, e.lastName)}</span>
+                  </td>
                   <td>{e.role}</td>
                   <td>{e.department || '—'}</td>
                   <td>{e.workArea || '—'}</td>
@@ -793,6 +879,7 @@ function EditEmployeeModal({
 }) {
   const [form, setForm] = useState({
     name: employee.name,
+    lastName: employee.lastName || '',
     email: employee.email || '',
     role: employee.role,
     department: employee.department || '',
@@ -828,6 +915,7 @@ function EditEmployeeModal({
       await api.put('/employees/updateEmployee', {
         id: employee.id,
         ...form,
+        lastName: form.lastName.trim() || null,
         department: form.department || null,
         workArea: form.workArea || null,
         idNumber: form.idNumber || null,
@@ -858,6 +946,15 @@ function EditEmployeeModal({
           <div>
             <label className="label">שם מלא</label>
             <input className="input" value={form.name} onChange={(e) => setField('name', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">שם משפחה (למיון א'-ב')</label>
+            <input
+              className="input"
+              placeholder={`אוטומטי: ${familyName(form.name)}`}
+              value={form.lastName}
+              onChange={(e) => setField('lastName', e.target.value)}
+            />
           </div>
           <div>
             <label className="label">אימייל</label>

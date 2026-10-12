@@ -242,9 +242,40 @@ export function formatHours(hours: number): string {
  * אחרת כל מי ששמה מתחיל ב"המורה" נדחסת יחד תחת ה'.
  */
 export function compareHebrewNames(a: string | null | undefined, b: string | null | undefined): number {
-  const key = (name: string | null | undefined) =>
-    String(name || '')
-      .replace(/^\s*(ה?מורה|הרב|הגב'|גב'|גברת)\s*[:\-]?\s*/, '')
-      .trim();
-  return key(a).localeCompare(key(b), 'he');
+  return stripTitle(a).localeCompare(stripTitle(b), 'he');
+}
+
+function stripTitle(name: string | null | undefined): string {
+  return String(name || '')
+    .replace(/^\s*(ה?מורה|הרבנית|הרב|הגב'|גב'|גברת)\s*[:\-]?\s*/, '')
+    .trim();
+}
+
+/**
+ * שם המשפחה של עובד/ת: מהשדה "שם משפחה" אם מולא, אחרת המילה האחרונה בשם המלא — רוב השמות
+ * כתובים "פרטי משפחה" ("בת שבע זלזניק"). שם שכתוב הפוך מתקנים במילוי "שם משפחה" בעריכת העובד.
+ */
+export function familyName(name: string | null | undefined, lastName?: string | null): string {
+  if (lastName?.trim()) return lastName.trim();
+  const words = stripTitle(name).split(/\s+/).filter(Boolean);
+  return words[words.length - 1] || '';
+}
+
+/** השם המלא בלי שם המשפחה — להצגה "משפחה, פרטי". */
+export function givenName(name: string | null | undefined, lastName?: string | null): string {
+  const full = stripTitle(name);
+  const family = familyName(name, lastName);
+  const idx = full.lastIndexOf(family);
+  return (idx >= 0 ? full.slice(0, idx) + full.slice(idx + family.length) : full).replace(/\s+/g, ' ').trim();
+}
+
+/** מיון לפי שם משפחה, ובשם משפחה זהה — לפי השם הפרטי. */
+export function compareByFamilyName(
+  a: { name: string | null | undefined; lastName?: string | null },
+  b: { name: string | null | undefined; lastName?: string | null }
+): number {
+  return (
+    familyName(a.name, a.lastName).localeCompare(familyName(b.name, b.lastName), 'he') ||
+    givenName(a.name, a.lastName).localeCompare(givenName(b.name, b.lastName), 'he')
+  );
 }
