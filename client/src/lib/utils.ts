@@ -87,11 +87,23 @@ export function trackNameHasLetter(name: string, letter: 'יג' | 'יד'): boole
 }
 
 /**
+ * לאיזה שנתון שייך מסלול מקצועי: שנה א' = י"ג, שנה ב' = י"ד. חלק מהמסלולים נקראים "שנה א/ב"
+ * (סולם שנה א) וחלק לפי הכיתה (הוראה י"ג) — שני הכתיבים נחשבים.
+ */
+export function trackYear(name: string): 'א' | 'ב' | null {
+  if (/שנה\s*א/.test(name) || trackNameHasLetter(name, 'יג')) return 'א';
+  if (/שנה\s*ב/.test(name) || trackNameHasLetter(name, 'יד')) return 'ב';
+  return null;
+}
+
+/**
  * יג/יד הן עכשיו מסלולים נפרדים ("קודש י\"ג" / "קודש י\"ד"), לא כיתה בתוך אותו מסלול — קודם
  * בודקים לפי שם המסלול; שדה "כיתה" (className) נשאר כנפילה-לאחור לנתונים ישנים מלפני השינוי.
  */
 function kodeshLetter(l: { className?: string | null; track?: string[] }, tracks: TrackRef[]): '' | 'יג' | 'יד' {
   const trackName = tracks.find((t) => t.id === l.track?.[0])?.name || '';
+  // מסלול מקצועי שבשמו יש כיתה (למשל "הוראה י"ג") — הוא לא קודש, ולא מקבל את הצבע של קודש
+  if (trackName && !trackName.includes('קודש')) return '';
   if (trackNameHasLetter(trackName, 'יד')) return 'יד';
   if (trackNameHasLetter(trackName, 'יג')) return 'יג';
   const legacy = classLetter(l.className);

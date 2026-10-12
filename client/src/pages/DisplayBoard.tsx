@@ -10,6 +10,7 @@ import {
   lessonColor,
   trackColor,
   trackNameHasLetter,
+  trackYear,
   compareLessonDisplayOrder,
 } from '../lib/utils';
 
@@ -233,7 +234,7 @@ export function DisplayBoard() {
    */
   // שנה א' תמיד לפני שנה ב' (סדר קבוע), לא הסדר הגולמי של המסלולים ב-Airtable.
   const professionalTracks = useMemo(() => {
-    const yearRank = (name: string) => (name.includes('שנה א') ? 0 : name.includes('שנה ב') ? 1 : 2);
+    const yearRank = (name: string) => (trackYear(name) === 'א' ? 0 : trackYear(name) === 'ב' ? 1 : 2);
     return tracks
       .filter((t) => !t.name.includes('קודש'))
       .slice()
@@ -254,9 +255,9 @@ export function DisplayBoard() {
   );
   const todayColumns = useMemo(() => {
     return professionalTracks.map((track) => {
-      const kodeshTrackId = track.name.includes('שנה א')
+      const kodeshTrackId = trackYear(track.name) === 'א'
         ? kodeshYudGimelTrackId
-        : track.name.includes('שנה ב')
+        : trackYear(track.name) === 'ב'
         ? kodeshYudDaledTrackId
         : undefined;
       const colLessons = todayLessons
@@ -274,12 +275,12 @@ export function DisplayBoard() {
   // מסך "השבוע" מפוצל לשתי שקופיות נפרדות (שנה א' ושנה ב'), כל אחת עם המסלולים המקצועיים
   // של אותה שנה ביחד עם שיעורי הקודש התואמים — כדי שכל שנתון יראה רק את מה שרלוונטי לו.
   const yearATrackIds = useMemo(() => {
-    const ids = new Set(professionalTracks.filter((t) => t.name.includes('שנה א')).map((t) => t.id));
+    const ids = new Set(professionalTracks.filter((t) => trackYear(t.name) === 'א').map((t) => t.id));
     if (kodeshYudGimelTrackId) ids.add(kodeshYudGimelTrackId);
     return ids;
   }, [professionalTracks, kodeshYudGimelTrackId]);
   const yearBTrackIds = useMemo(() => {
-    const ids = new Set(professionalTracks.filter((t) => t.name.includes('שנה ב')).map((t) => t.id));
+    const ids = new Set(professionalTracks.filter((t) => trackYear(t.name) === 'ב').map((t) => t.id));
     if (kodeshYudDaledTrackId) ids.add(kodeshYudDaledTrackId);
     return ids;
   }, [professionalTracks, kodeshYudDaledTrackId]);
