@@ -12,6 +12,7 @@ export type AdminContract = {
   employee: { id: string; name: string; lastName?: string | null };
   uploadedAt: string;
   signedAt: string | null;
+  employeeSignature: string | null;
   amount: number | null;
   amountUnit: string | null;
 };
@@ -192,6 +193,7 @@ function ContractRow({
   const [amount, setAmount] = useState(c.amount != null ? String(c.amount) : '');
   const [unit, setUnit] = useState(c.amountUnit || 'לשעה');
   const [busy, setBusy] = useState(false);
+  const [showSignature, setShowSignature] = useState(false);
 
   async function save() {
     setBusy(true);
@@ -249,7 +251,36 @@ function ContractRow({
         <span className={`badge ${older ? 'bg-slate-100 text-slate-400' : STATUS_STYLE[c.status]}`}>{c.status}</span>
       </td>
       <td className="text-center text-xs">{heDate(c.uploadedAt)}</td>
-      <td className="text-center text-xs">{heDate(c.signedAt)}</td>
+      <td className="text-center text-xs">
+        <div className="flex flex-col items-center gap-0.5 py-1">
+          {heDate(c.signedAt)}
+          {c.employeeSignature && (
+            <button title="הגדלת החתימה" onClick={() => setShowSignature(true)}>
+              <img
+                src={c.employeeSignature}
+                alt="חתימה"
+                className={`h-9 max-w-[110px] object-contain bg-white rounded border ${older ? 'opacity-50' : ''}`}
+              />
+            </button>
+          )}
+        </div>
+        {showSignature && c.employeeSignature && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setShowSignature(false)}>
+            <div className="bg-white rounded-2xl p-5 text-right" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3 gap-6">
+                <h3 className="font-bold text-navy">
+                  חתימה — {c.employee.name} · {c.title}
+                </h3>
+                <button className="text-slate-400 hover:text-slate-600" onClick={() => setShowSignature(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <img src={c.employeeSignature} alt="חתימה" className="max-h-60 bg-white rounded border" />
+              <p className="text-xs text-slate-500 mt-2">נחתם ב-{heDate(c.signedAt)}</p>
+            </div>
+          </div>
+        )}
+      </td>
       <td className="pl-2">
         <div className="flex gap-1 justify-end">
           {editing ? (
