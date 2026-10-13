@@ -19,14 +19,24 @@ const LIST_SELECT = {
   signedAt: true,
   uploadedAt: true,
   notes: true,
+  amount: true,
+  amountUnit: true,
 } as const;
+
+const AMOUNT_UNITS = ['לשעה', 'לשיעור', 'לחודש', 'סה"כ'];
+
+/** סכום מהטופס ("8,000" / "60.5" / ריק) → מספר או null. */
+function parseAmount(value: unknown): number | null {
+  const n = Number(String(value ?? '').replace(/[,\s₪]/g, ''));
+  return String(value ?? '').trim() && Number.isFinite(n) && n >= 0 ? n : null;
+}
 
 router.get('/getContracts', async (req, res) => {
   try {
     const isAdmin = req.user!.role === 'מנהל';
     const contracts = await prisma.contract.findMany({
       where: isAdmin ? {} : { employeeId: req.user!.id },
-      select: { ...LIST_SELECT, employee: { select: { id: true, name: true } } },
+      select: { ...LIST_SELECT, employee: { select: { id: true, name: true, lastName: true } } },
       orderBy: { uploadedAt: 'desc' },
     });
     res.json({ contracts });
@@ -37,7 +47,7 @@ router.get('/getContracts', async (req, res) => {
 
 router.post('/uploadContract', requireAdmin, upload.single('contractFile'), async (req, res) => {
   try {
-    const { title, employeeId, notes } = req.body;
+    const { title, employeeId, notes, amount, amountUnit } = req.body;
     if (!title || !employeeId) return res.status(400).json({ error: 'חסר כותרת או עובד' });
 
     const contract = await prisma.contract.create({
@@ -45,6 +55,8 @@ router.post('/uploadContract', requireAdmin, upload.single('contractFile'), asyn
         title,
         employeeId,
         notes,
+        amount: parseAmount(amount),
+        amountUnit: AMOUNT_UNITS.includes(amountUnit) ? amountUnit : null,
         status: 'ממתין לחתימה',
         fileData: req.file?.buffer,
         fileMime: req.file?.mimetype,
@@ -87,6 +99,25 @@ router.post('/signContract', async (req, res) => {
     res.json({ success: true, contract: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בחתימת חוזה' });
+  }
+});
+
+/** עדכון כותרת/סכום של חוזה (מנהל) — הקובץ והחתימה לא משתנים. */
+router.put('/:id', requireAdmin, async (req, res) => {
+  try {
+    const { title, amount, amountUnit } = req.body as { title?: string; amount?: unknown; amountUnit?: string };
+    const updated = await prisma.contract.update({
+      where: { id: req.params.id },
+      data: {
+        ...(title?.trim() ? { title: title.trim() } : {}),
+        amount: parseAmount(amount),
+        amountUnit: amountUnit && AMOUNT_UNITS.includes(amountUnit) ? amountUnit : null,
+      },
+      select: LIST_SELECT,
+    });
+    res.json({ success: true, contract: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בעדכון החוזה' });
   }
 });
 

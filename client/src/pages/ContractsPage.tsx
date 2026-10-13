@@ -5,18 +5,22 @@ import { SignaturePad, SignaturePadHandle } from '../components/SignaturePad';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import { confirmAndDeleteContract } from '../lib/deleteContract';
+import { AdminContractsList, AMOUNT_UNITS, formatAmount } from '../components/AdminContractsList';
+import { compareByFamilyName } from '../lib/utils';
 
 type Contract = {
   id: string;
   title: string;
   status: 'ממתין לחתימה' | 'נחתם' | 'בוטל';
   fileName: string | null;
-  employee: { id: string; name: string };
+  employee: { id: string; name: string; lastName?: string | null };
   uploadedAt: string;
   signedAt: string | null;
   employeeSignature: string | null;
+  amount: number | null;
+  amountUnit: string | null;
 };
-type Employee = { id: string; name: string };
+type Employee = { id: string; name: string; lastName: string | null; isActive: boolean };
 
 const STATUS_STYLE: Record<Contract['status'], string> = {
   'ממתין לחתימה': 'bg-amber-100 text-amber-800',
@@ -57,6 +61,9 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
         </div>
       )}
 
+      {isAdmin && !forced ? (
+        <AdminContractsList contracts={contracts} onChanged={load} />
+      ) : (
       <div className="grid sm:grid-cols-2 gap-4">
         {contracts.map((c) => (
           <div key={c.id} className="card">
@@ -80,6 +87,7 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
               </span>
             </div>
             {isAdmin && <p className="text-slate-500 text-sm mb-2">עובד: {c.employee.name}</p>}
+            {formatAmount(c) && <p className="text-navy font-bold text-sm mb-2">{formatAmount(c)}</p>}
             {c.fileName && (
               <a href={`/api/contracts/${c.id}/file`} target="_blank" rel="noreferrer" className="text-sm text-navy underline">
                 צפייה בקובץ החוזה
@@ -107,6 +115,7 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
         ))}
         {contracts.length === 0 && <p className="text-slate-400 col-span-2 text-center py-10">אין חוזים</p>}
       </div>
+      )}
 
       {showUpload && (
         <UploadContractModal
@@ -154,12 +163,16 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
 function UploadContractModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [title, setTitle] = useState('');
   const [employeeId, setEmployeeId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [amountUnit, setAmountUnit] = useState('לשעה');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.get<{ employees: Employee[] }>('/employees/getEmployees').then((r) => setEmployees(r.employees));
+    api
+      .get<{ employees: Employee[] }>('/employees/getEmployees')
+      .then((r) => setEmployees(r.employees.filter((e) => e.isActive).sort(compareByFamilyName)));
   }, []);
 
   async function submit() {
@@ -168,6 +181,10 @@ function UploadContractModal({ onClose, onSaved }: { onClose: () => void; onSave
       const fd = new FormData();
       fd.append('title', title);
       fd.append('employeeId', employeeId);
+      if (amount.trim()) {
+        fd.append('amount', amount);
+        fd.append('amountUnit', amountUnit);
+      }
       if (fileRef.current?.files?.[0]) fd.append('contractFile', fileRef.current.files[0]);
       await api.postForm('/contracts/uploadContract', fd);
       onSaved();
@@ -185,6 +202,20 @@ function UploadContractModal({ onClose, onSaved }: { onClose: () => void; onSave
           <option value="">בחר/י עובד</option>
           {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
+        <div className="flex gap-2">
+          <input
+            className="input"
+            placeholder="סכום בחוזה (לא חובה)"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <select className="input w-auto" value={amountUnit} onChange={(e) => setAmountUnit(e.target.value)}>
+            {AMOUNT_UNITS.map((u) => (
+              <option key={u}>{u}</option>
+            ))}
+          </select>
+        </div>
         <input ref={fileRef} type="file" accept="application/pdf" className="input" />
         <div className="flex gap-2 justify-end pt-2">
           <button className="btn-outline" onClick={onClose}>ביטול</button>

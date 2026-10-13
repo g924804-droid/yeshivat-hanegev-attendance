@@ -142,6 +142,8 @@ model Contract {
   signedAt          DateTime?
   uploadedAt        DateTime  @default(now())
   notes             String?
+  amount            Float?    // הסכום בחוזה — להצגה ברשימת החוזים
+  amountUnit        String?   // לשעה | לשיעור | לחודש | סה"כ
 }
 
 model ScheduleHistory {
