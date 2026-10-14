@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Printer, Search } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
+import { buildGrid, ROWS } from '../lib/studentScheduleGrid';
 import { lessonsForDate, lessonAppliesOnDate, currentWeekSunday, weekDates, addDays } from '../lib/scheduleRules';
 import {
-  startMinutes,
   lessonColor,
   compareLessonDisplayOrder,
   toHebrewDateString,
@@ -28,9 +28,6 @@ type Student = { id: string; name: string; trackIds: string[] };
 type Data = { students: Student[]; lessons: Lesson[]; teachers: Ref[]; tracks: Ref[] };
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי'];
-/** שעת ההתחלה של שיעור ("9:00-9:45" → "9:00") — שורות המערכת הן לפי שעת התחלה, כי השעות בפועל משתנות
- *  מאוד בין הימים והמסלולים (אחר הצהריים, שיעורים כפולים) ולא נכנסות למבנה השיעורים הקבוע. */
-const startOf = (time: string) => (time || '').split('-')[0].trim();
 
 /** "2026-10-12" → "12/10" */
 function shortDate(date: string): string {
@@ -86,10 +83,14 @@ const PRINT_STYLE = `
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   th, td { border: 1px solid #94a3b8; padding: 3px; vertical-align: top; }
   th { background: #0f172a; color: #f1c40f; font-size: 16px; padding: 6px; }
-  th.p { width: 62px; }
+  th.p { width: 92px; }
   td.p { background: #e2e8f0; font-weight: bold; font-size: 14px; text-align: center; vertical-align: middle; color: #0f172a; }
   td.p small { display: block; font-weight: normal; font-size: 10px; color: #475569; }
-  .l { border: 1.5px solid; border-radius: 7px; padding: 4px 6px; margin-bottom: 3px; line-height: 1.25; }
+  td.one { text-align: center; vertical-align: middle; padding: 5px; line-height: 1.3; border: 1px solid #94a3b8 !important; }
+  td.one b { display: block; font-size: 15px; }
+  td.one .t { font-size: 13px; }
+  td.one small { font-size: 11px; opacity: .85; }
+  .l { border: 1.5px solid; border-radius: 7px; padding: 4px 6px; margin-bottom: 3px; line-height: 1.25; text-align: center; }
   .l + .l { margin-top: 3px; }
   .l b { display: block; font-size: 14px; }
   .l .t { font-size: 12px; }
@@ -160,19 +161,13 @@ export function StudentSchedules() {
     [data, trackId, search]
   );
 
-  /** טבלת שעה×יום לתלמידה — שורה לכל שעת התחלה שיש בה שיעור באחד הימים. */
+  /** טבלת שורות קבועות (תפילה, שיעור ראשון...) × ימים לתלמידה — ראו studentScheduleGrid. */
   function grid(s: Student) {
-    const mine = lessonsOf(s);
-    const cells = new Map<string, Lesson[]>();
-    for (const l of mine) {
-      const key = `${startOf(l.time)}|${l.dayOfWeek}`;
-      cells.set(key, [...(cells.get(key) || []), l]);
-    }
-    for (const list of cells.values()) list.sort((a, b) => compareLessonDisplayOrder(a, b, tracks));
-    const periods = Array.from(new Set(mine.map((l) => startOf(l.time)))).sort((a, b) => startMinutes(a) - startMinutes(b));
-    return { mine, cells, periods };
+    return buildGrid(lessonsOf(s), DAYS, (a, b) => compareLessonDisplayOrder(a, b, tracks));
   }
   const weekLabel = `${shortDate(dates['ראשון'])}–${shortDate(dates['חמישי'])}`;
+  // השעה מוצגת בשיעור רק כשהיא שונה מהשעה הרגילה של השורה (למשל ביום שלישי, או שיעור כפול)
+  const timeNote = (l: Lesson, row: number) => (l.time.replace(/\s/g, '') === ROWS[row].time ? '' : l.time);
 
   async function print(list: Student[]) {
     if (!list.length) return;
@@ -184,28 +179,33 @@ export function StudentSchedules() {
       /* בלי לוגו */
     }
     const today = toHebrewDateString(new Date());
+    const lessonHtml = (l: Lesson, row: number) => {
+      const extra = [timeNote(l, row), l.room, l.toDate ? `זמני עד ${shortDate(l.toDate)}` : ''].filter(Boolean).join(' · ');
+      return `<b>${esc(l.subject || l.className)}</b>${teacherName(l.teacher) ? `<div class="t">${esc(teacherName(l.teacher))}</div>` : ''}${
+        extra ? `<small>${esc(extra)}</small>` : ''
+      }`;
+    };
     const pages = list
       .map((s) => {
-        const { cells, periods } = grid(s);
+        const { rows, cells } = grid(s);
         const legend = s.trackIds
           .filter((t) => trackName(t))
           .map((t) => `<span style="${classesToStyle(trackColorOf(t))}">${esc(trackName(t))}</span>`)
           .join('');
-        const rows = periods
+        const body = rows
           .map(
-            (p) =>
-              `<tr><td class="p">${esc(p)}</td>${DAYS.map(
-                (d) =>
-                  `<td>${(cells.get(`${p}|${d}`) || [])
-                    .map(
-                      (l) => `<div class="l" style="${classesToStyle(lessonColor(l, tracks))}">
-                        <b>${esc(l.subject || l.className)}</b>
-                        ${teacherName(l.teacher) ? `<div class="t">${esc(teacherName(l.teacher))}</div>` : ''}
-                        <small>${esc(l.time)}${l.room ? ` · ${esc(l.room)}` : ''}${l.toDate ? ` · זמני עד ${shortDate(l.toDate)}` : ''}</small>
-                      </div>`
-                    )
-                    .join('')}</td>`
-              ).join('')}</tr>`
+            (r) =>
+              `<tr><td class="p">${esc(ROWS[r].label)}<small>${esc(ROWS[r].time)}</small></td>${DAYS.map((d) => {
+                const c = cells[d][r];
+                if (c === 'covered') return '';
+                if (!c) return '<td></td>';
+                const span = c.span > 1 ? ` rowspan="${c.span}"` : '';
+                if (c.lessons.length === 1)
+                  return `<td class="one"${span} style="${classesToStyle(lessonColor(c.lessons[0], tracks))}">${lessonHtml(c.lessons[0], r)}</td>`;
+                return `<td${span}>${c.lessons
+                  .map((l) => `<div class="l" style="${classesToStyle(lessonColor(l, tracks))}">${lessonHtml(l, r)}</div>`)
+                  .join('')}</td>`;
+              }).join('')}</tr>`
           )
           .join('');
         const tracksLine = s.trackIds.map(trackName).filter(Boolean).join(' · ');
@@ -219,8 +219,8 @@ export function StudentSchedules() {
             <div class="brand">${logo}סמינר מאיר</div>
           </div>
           ${
-            rows
-              ? `<table><thead><tr><th class="p">שעה</th>${DAYS.map((d) => `<th>${d}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`
+            body
+              ? `<table><thead><tr><th class="p"></th>${DAYS.map((d) => `<th>${d}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`
               : '<p>אין שיעורים במערכת למסלולים של התלמידה.</p>'
           }
         </div></div>`;
@@ -250,39 +250,59 @@ export function StudentSchedules() {
   }
 
   function preview(s: Student) {
-    const { cells, periods } = grid(s);
-    if (!periods.length) return <p className="text-slate-400 text-xs">אין שיעורים במערכת למסלולים של התלמידה</p>;
+    const { rows, cells } = grid(s);
+    if (!rows.length) return <p className="text-slate-400 text-xs">אין שיעורים במערכת למסלולים של התלמידה</p>;
+    const lessonBody = (l: Lesson, r: number) => {
+      const extra = [timeNote(l, r), l.room, l.toDate ? `זמני עד ${shortDate(l.toDate)}` : ''].filter(Boolean).join(' · ');
+      return (
+        <>
+          <div className="font-bold text-[13px]">{l.subject || l.className}</div>
+          <div>{teacherName(l.teacher)}</div>
+          {extra && <div className="opacity-75 text-[11px]">{extra}</div>}
+        </>
+      );
+    };
     return (
       <table className="w-full text-xs border-collapse bg-white table-fixed">
         <thead>
           <tr>
-            <th className="border border-slate-200 bg-slate-50 p-1.5 w-20">שעה</th>
+            <th className="border border-slate-300 bg-navy p-1.5 w-24"></th>
             {DAYS.map((d) => (
-              <th key={d} className="border border-slate-200 bg-slate-50 p-1.5 text-navy">{d}</th>
+              <th key={d} className="border border-slate-300 bg-navy text-gold p-1.5 text-sm">{d}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {periods.map((p) => (
-            <tr key={p}>
-              <td className="border border-slate-200 bg-slate-50 p-1.5 text-center font-medium text-navy">
-                {p}
+          {rows.map((r) => (
+            <tr key={r}>
+              <td className="border border-slate-300 bg-slate-100 p-1.5 text-center font-bold text-navy">
+                {ROWS[r].label}
+                <div className="font-normal text-slate-500 text-[11px]">{ROWS[r].time}</div>
               </td>
-              {DAYS.map((d) => (
-                <td key={d} className="border border-slate-200 p-1 align-top">
-                  {(cells.get(`${p}|${d}`) || []).map((l) => (
-                    <div key={l.id} className={`rounded-lg border px-1.5 py-1 mb-1 ${lessonColor(l, tracks)}`}>
-                      <div className="font-semibold">{l.subject || l.className}</div>
-                      <div className="opacity-80">{teacherName(l.teacher)}</div>
-                      <div className="opacity-70">
-                        {l.time}
-                        {l.room ? ` · ${l.room}` : ''}
-                        {l.toDate ? ` · זמני עד ${shortDate(l.toDate)}` : ''}
+              {DAYS.map((d) => {
+                const c = cells[d][r];
+                if (c === 'covered') return null;
+                if (!c) return <td key={d} className="border border-slate-300" />;
+                if (c.lessons.length === 1)
+                  return (
+                    <td
+                      key={d}
+                      rowSpan={c.span}
+                      className={`border border-slate-300 p-1.5 text-center align-middle ${lessonColor(c.lessons[0], tracks)}`}
+                    >
+                      {lessonBody(c.lessons[0], r)}
+                    </td>
+                  );
+                return (
+                  <td key={d} rowSpan={c.span} className="border border-slate-300 p-1 align-top">
+                    {c.lessons.map((l) => (
+                      <div key={l.id} className={`rounded-lg border px-1.5 py-1 mb-1 text-center ${lessonColor(l, tracks)}`}>
+                        {lessonBody(l, r)}
                       </div>
-                    </div>
-                  ))}
-                </td>
-              ))}
+                    ))}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
