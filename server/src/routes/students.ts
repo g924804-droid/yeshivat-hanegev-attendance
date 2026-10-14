@@ -366,6 +366,24 @@ router.post('/deleteAttendanceRecords', requirePermission('studentAttendance'), 
   }
 });
 
+/** מערכת שעות אישית לכל תלמידה — כל התלמידות עם המסלולים שלהן + מערכת השעות המלאה (הסינון לשבוע נעשה בדפדפן). */
+router.get('/studentSchedules', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    const [studentsRaw, schedule] = await Promise.all([airtableFetch(TABLES.students), getFullSchedule()]);
+    const students = studentsRaw
+      .map((s) => ({
+        id: s.id,
+        name: String(s.fields[FIELDS.students.name] || '').trim(),
+        trackIds: (s.fields[FIELDS.students.track] || []) as string[],
+      }))
+      .filter((s) => s.name);
+    res.json({ students, ...schedule });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת מערכות השעות' });
+  }
+});
+
 router.post('/addTeacher', requirePermission('studentAttendance'), async (req, res) => {
   try {
     const { name } = req.body as { name: string };

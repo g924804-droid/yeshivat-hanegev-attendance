@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, CheckCircle, FileBarChart } from 'lucide-react';
+import { Users, CheckCircle, FileBarChart, CalendarDays } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
@@ -25,9 +25,12 @@ export function StudentTracks() {
   return (
     <Layout title="מסלולי תלמידות">
       {canSeeReports && (
-        <div className="flex justify-end mb-4">
+        <div className="flex justify-end gap-2 mb-4 flex-wrap">
           <button onClick={() => navigate('/students/report')} className="btn-primary text-sm py-2">
             <FileBarChart size={16} /> דוחות נוכחות ואקסל
+          </button>
+          <button onClick={() => navigate('/students/schedules')} className="btn-outline text-sm py-2">
+            <CalendarDays size={16} /> מערכות שעות אישיות
           </button>
         </div>
       )}
