@@ -41,6 +41,7 @@ model User {
   // המסלולים המקושרים לשיעורים שלה), בלי לקבל גישה לניהול דוחות נוכחות עובדים/מורות ובלי
   // כפתור "ניהול" בדף הבית — מיועד למזכירה שממלאת נוכחות תלמידות בשביל כמה מסלולים/מורות.
   canManageAllStudentTracks Boolean @default(false)
+  noMonthlyReminder   Boolean  @default(false) // לא לשלוח לה את מייל התזכורת החודשית
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

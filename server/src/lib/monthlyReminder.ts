@@ -42,12 +42,12 @@ function reminderDay(year: number, month: number): number {
 }
 
 /**
- * מי צריכה לקבל תזכורת: עובדות פעילות שנדרשות בדוח שעות (לא "חודשי"), ושעוד לא הגישו את
- * הדוח של החודש — מי שכבר הגישה לא צריכה תזכורת.
+ * מי צריכה לקבל תזכורת: עובדות פעילות שנדרשות בדוח שעות (לא "חודשי"), שלא הוצאו מהתזכורת
+ * בהגדרות העובד, ושעוד לא הגישו את הדוח של החודש — מי שכבר הגישה לא צריכה תזכורת.
  */
 async function reminderRecipients(month: string) {
   const employees = await prisma.user.findMany({
-    where: { isActive: true, employmentType: { not: 'חודשי' } },
+    where: { isActive: true, employmentType: { not: 'חודשי' }, noMonthlyReminder: false },
     include: { monthlyReports: { where: { month }, select: { status: true } } },
     orderBy: { name: 'asc' },
   });

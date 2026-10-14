@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2, Printer, Search, MessageSquareText, Paperclip } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2, Printer, Search, MessageSquareText, Paperclip, MailX } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useAuth } from '../lib/permissions';
@@ -77,6 +77,7 @@ type Employee = {
   fridayHours: number | null;
   isAttendanceManager: boolean;
   canManageAllStudentTracks: boolean;
+  noMonthlyReminder: boolean;
 };
 
 type ReceiptRow = {
@@ -697,6 +698,11 @@ function EmployeesTab() {
                   <td className="py-2 text-right pr-4">
                     <span className="font-bold text-navy">{familyName(e.name, e.lastName)}</span>{' '}
                     <span className="text-slate-600">{givenName(e.name, e.lastName)}</span>
+                    {e.noMonthlyReminder && (
+                      <span className="badge bg-slate-100 text-slate-500 text-[10px] mr-1" title="לא מקבל/ת את מייל התזכורת החודשית">
+                        <MailX size={10} className="inline" /> בלי תזכורת
+                      </span>
+                    )}
                   </td>
                   <td>{e.role}</td>
                   <td>{e.department || '—'}</td>
@@ -925,6 +931,7 @@ function EditEmployeeModal({
     fridayHours: employee.fridayHours ?? '',
     isAttendanceManager: employee.isAttendanceManager,
     canManageAllStudentTracks: employee.canManageAllStudentTracks,
+    noMonthlyReminder: employee.noMonthlyReminder,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1068,6 +1075,14 @@ function EditEmployeeModal({
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input type="checkbox" checked={form.isActive} onChange={(e) => setField('isActive', e.target.checked)} />
           פעיל/ה במערכת
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.noMonthlyReminder}
+            onChange={(e) => setField('noMonthlyReminder', e.target.checked)}
+          />
+          לא לשלוח תזכורת חודשית במייל
         </label>
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input type="checkbox" checked={form.trackLessons} onChange={(e) => setField('trackLessons', e.target.checked)} />
