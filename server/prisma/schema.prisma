@@ -106,10 +106,26 @@ model MonthlyReport {
   absenceHours      Float    @default(0)
   absenceDays       Int      @default(0)
   specialRateHours  Float    @default(0) // תת-קבוצה של totalHours — שעות שסומנו בשכר שונה מהרגיל
+  employeeNote      String? // הערה של העובד/ת לחשבת השכר, נכתבת לפני החתימה
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  attachments ReportAttachment[]
+
   @@unique([employeeId, month])
+}
+
+// קובץ שהעובד/ת מצרפ/ת לדוח החודשי לחשבת השכר. בטבלה נפרדת כדי שטעינת הדוחות לא תמשוך את תוכן הקבצים.
+model ReportAttachment {
+  id        String        @id @default(cuid())
+  reportId  String
+  report    MonthlyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  fileData  Bytes
+  fileMime  String
+  fileName  String
+  createdAt DateTime      @default(now())
+
+  @@index([reportId])
 }
 
 model Receipt {

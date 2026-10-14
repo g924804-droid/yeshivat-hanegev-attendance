@@ -35,7 +35,10 @@ type Report = {
   totalLessons: number;
   specialRateHours: number;
   employeeSignature: string | null;
+  employeeNote: string | null;
 };
+
+type Attachment = { id: string; fileName: string; fileMime: string };
 
 const DOW_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
@@ -67,13 +70,16 @@ const STYLE = `
   .sick-notes-list { margin-top: 8px; font-size: 11px; page-break-inside: avoid; }
   .sick-note { page-break-before: always; text-align: center; }
   .sick-note img { max-width: 100%; max-height: 245mm; object-fit: contain; }
+  .employee-note { margin-top: 8px; border: 2px solid #c9a227; border-radius: 6px; padding: 5px 10px; font-size: 11px;
+                   page-break-inside: avoid; white-space: pre-wrap; }
+  .employee-note strong { display: block; margin-bottom: 2px; }
 `;
 
 function esc(s: string | null | undefined): string {
   return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
 
-function buildHtml(employeeName: string, report: Report, days: DayDetail[]): string {
+function buildHtml(employeeName: string, report: Report, days: DayDetail[], attachments: Attachment[] = []): string {
   const rows = days
     .map((d) => {
       const r = d.record;
@@ -134,10 +140,26 @@ function buildHtml(employeeName: string, report: Report, days: DayDetail[]): str
         <th>שעות</th><th>עודפות</th><th>שיעורים</th><th>הערות</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    ${noteHtml(report.employeeNote, attachments)}
     ${report.employeeSignature ? `<div class="signature"><div>חתימת עובד/ת:</div><img src="${esc(report.employeeSignature)}" /></div>` : ''}
     ${sickList}
     ${sickPages}
+    ${attachments
+      .filter((a) => a.fileMime.startsWith('image/'))
+      .map((a) => `<div class="sick-note"><h2>קובץ מצורף — ${esc(a.fileName)}</h2><img src="/api/reports/attachments/${a.id}" /></div>`)
+      .join('')}
   </body></html>`;
+}
+
+/** הערת העובד/ת לחשבת השכר ורשימת הקבצים שצירפ/ה (תמונות מודפסות בעמוד נפרד, שאר הקבצים נפתחים במערכת). */
+function noteHtml(note: string | null, attachments: Attachment[]): string {
+  if (!note?.trim() && !attachments.length) return '';
+  const files = attachments
+    .map((a) => `<li>${esc(a.fileName)}${a.fileMime.startsWith('image/') ? ' — מצורף בעמוד נפרד' : ' — ניתן לפתוח במערכת'}</li>`)
+    .join('');
+  return `<div class="employee-note"><strong>הערה לחשבת השכר:</strong>${esc(note?.trim())}${
+    files ? `<div style="margin-top:4px;white-space:normal"><strong>קבצים מצורפים:</strong><ul style="margin:0">${files}</ul></div>` : ''
+  }</div>`;
 }
 
 /** ממתין שכל התמונות (חתימה, אישורי מחלה) ייטענו לפני ההדפסה — אחרת הן יוצאות ריקות. */
@@ -157,7 +179,7 @@ function waitForImages(doc: Document, timeoutMs = 10_000): Promise<void> {
  * ונפתח ישר בחלון ההדפסה של הדפדפן. משם אפשר גם "שמירה כ-PDF".
  */
 export async function printMonthlyReport(month: string, userId: string): Promise<void> {
-  const data = await api.get<{ report: Report; days: DayDetail[]; employeeName: string }>('/reports/getMonthlyReport', {
+  const data = await api.get<{ report: Report; days: DayDetail[]; employeeName: string; attachments?: Attachment[] }>('/reports/getMonthlyReport', {
     month,
     userId,
   });
@@ -168,7 +190,7 @@ export async function printMonthlyReport(month: string, userId: string): Promise
   document.body.appendChild(iframe);
   const doc = iframe.contentDocument!;
   doc.open();
-  doc.write(buildHtml(data.employeeName, data.report, data.days));
+  doc.write(buildHtml(data.employeeName, data.report, data.days, data.attachments || []));
   doc.close();
 
   await waitForImages(doc);

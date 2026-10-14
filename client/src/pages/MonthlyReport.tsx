@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Download, Send, CheckCircle2, Pencil } from 'lucide-react';
+import { Download, Send, CheckCircle2, Pencil, Paperclip, Trash2, FileText } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { SignaturePad, SignaturePadHandle } from '../components/SignaturePad';
 import { api } from '../lib/api';
@@ -23,7 +23,10 @@ type Report = {
   specialRateHours: number;
   status: 'טיוטה' | 'הוגש' | 'אושר';
   pdfUrl: string | null;
+  employeeNote: string | null;
 };
+
+type Attachment = { id: string; fileName: string; fileMime: string };
 
 type Day = {
   date: string;
@@ -61,9 +64,19 @@ export function MonthlyReport() {
   // הנהלה ומזכירת נוכחות יכולות לתקן ימים ישירות מתוך הדוח של עובדת
   const canEdit = !!targetUserId && (user?.role === 'מנהל' || !!user?.isAttendanceManager);
   const [editingDay, setEditingDay] = useState<Day | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [note, setNote] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   async function load(recalc = false) {
-    const data = await api.get<{ report: Report; days: Day[]; employeeName: string; missingReceipt: boolean }>(
+    const data = await api.get<{
+      report: Report;
+      days: Day[];
+      employeeName: string;
+      missingReceipt: boolean;
+      attachments: Attachment[];
+    }>(
       '/reports/getMonthlyReport',
       { month, ...(targetUserId ? { userId: targetUserId } : {}), ...(recalc ? { recalc: '1' } : {}) }
     );
@@ -71,6 +84,37 @@ export function MonthlyReport() {
     setDays(data.days);
     setEmployeeName(data.employeeName);
     setMissingReceipt(data.missingReceipt);
+    setAttachments(data.attachments || []);
+    setNote(data.report.employeeNote || '');
+  }
+
+  async function uploadFiles(files: FileList | null) {
+    if (!files?.length || !report) return;
+    setError(null);
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await api.postForm<{ attachment: Attachment }>(`/reports/${report.id}/attachments`, fd);
+        setAttachments((prev) => [...prev, r.attachment]);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  async function removeAttachment(a: Attachment) {
+    if (!confirm(`להסיר את הקובץ "${a.fileName}"?`)) return;
+    try {
+      await api.delete(`/reports/attachments/${a.id}`);
+      setAttachments((prev) => prev.filter((x) => x.id !== a.id));
+    } catch (err: any) {
+      setError(err.message);
+    }
   }
 
   useEffect(() => {
@@ -91,6 +135,7 @@ export function MonthlyReport() {
       const r = await api.post<{ warning?: string }>('/reports/submitMonthlyReport', {
         reportId: report!.id,
         signatureDataUrl: dataUrl,
+        employeeNote: note,
       });
       if (r.warning) setNotice(r.warning);
       await load();
@@ -256,6 +301,39 @@ export function MonthlyReport() {
 
       {report.status === 'טיוטה' && !targetUserId ? (
         <div className="card">
+          <h3 className="font-bold text-navy mb-3">הערה לחשבת השכר (לא חובה)</h3>
+          <textarea
+            className="input mb-2"
+            rows={3}
+            maxLength={2000}
+            placeholder="למשל: בתאריך 12 עבדתי במילוי מקום, נסיעות מיוחדות, שינוי בשעות..."
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <div className="flex flex-wrap items-center gap-2 mb-5">
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
+              className="hidden"
+              onChange={(e) => uploadFiles(e.target.files)}
+            />
+            <button className="btn-outline text-sm py-1.5" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              <Paperclip size={15} /> {uploading ? 'מעלה...' : 'צירוף קובץ'}
+            </button>
+            {attachments.map((a) => (
+              <span key={a.id} className="badge bg-navy-50 text-navy inline-flex items-center gap-1">
+                <a href={`/api/reports/attachments/${a.id}`} target="_blank" rel="noreferrer" className="hover:underline">
+                  {a.fileName}
+                </a>
+                <button title="הסרת הקובץ" className="text-red-600 hover:text-red-800" onClick={() => removeAttachment(a)}>
+                  <Trash2 size={12} />
+                </button>
+              </span>
+            ))}
+            <span className="text-xs text-slate-400">תמונה, PDF, Word או Excel — עד 10MB</span>
+          </div>
           <h3 className="font-bold text-navy mb-3">חתימה והגשה</h3>
           <SignaturePad ref={sigRef} />
           <div className="flex gap-2 mt-4">
@@ -269,6 +347,28 @@ export function MonthlyReport() {
           <span>הדוח עדיין בטיוטה — {employeeName} צריכה להגיש אותו בעצמה</span>
         </div>
       ) : (
+        <>
+        {(report.employeeNote || attachments.length > 0) && (
+          <div className="card mb-4 border-2 border-gold/60">
+            <h3 className="font-bold text-navy mb-2">הערה לחשבת השכר</h3>
+            {report.employeeNote && <p className="text-sm whitespace-pre-wrap mb-2">{report.employeeNote}</p>}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {attachments.map((a) => (
+                  <a
+                    key={a.id}
+                    href={`/api/reports/attachments/${a.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="badge bg-navy-50 text-navy inline-flex items-center gap-1 hover:underline"
+                  >
+                    <FileText size={12} /> {a.fileName}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div className="card flex items-center justify-between">
           <div className="flex items-center gap-2 text-green-700">
             <CheckCircle2 size={20} />
@@ -278,6 +378,7 @@ export function MonthlyReport() {
             <Download size={16} /> ייצוא PDF
           </button>
         </div>
+        </>
       )}
       {editingDay && targetUserId && (
         <DayEditModal

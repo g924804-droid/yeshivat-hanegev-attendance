@@ -6,7 +6,8 @@ import { hasPendingContracts } from '../lib/contracts';
 import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
 import { renderHtmlToPdf, htmlToPdfBuffer, mergePdfs, savePdf } from '../lib/pdf';
 import { reportPdfHtml, reportsPdfHtml, summaryPdfHtml, SpecialRateDetail } from '../lib/pdfTemplates';
-import { loadSickNotes } from '../lib/sickNotes';
+import { loadSickNotes, loadReportAttachments } from '../lib/sickNotes';
+import multer from 'multer';
 import { DayDetail } from '../lib/monthlyReport';
 import { MonthlyReport, User } from '@prisma/client';
 import { sendMonthlyReminders, getReminderStatus, sendTestReminder } from '../lib/monthlyReminder';
@@ -86,8 +87,9 @@ async function buildReportPdf(
   signatureDataUrl?: string
 ): Promise<Buffer> {
   const sickNotes = await loadSickNotes(days);
-  const reportPdf = await htmlToPdfBuffer(reportPdfHtml(employee, report, days, signatureDataUrl, sickNotes));
-  const attachedPdfs = sickNotes.flatMap((n) => (n.kind === 'pdf' ? [n.data] : []));
+  const attachments = await loadReportAttachments(report.id);
+  const reportPdf = await htmlToPdfBuffer(reportPdfHtml(employee, report, days, signatureDataUrl, sickNotes, attachments));
+  const attachedPdfs = [...sickNotes, ...attachments].flatMap((n) => (n.kind === 'pdf' ? [n.data] : []));
   return attachedPdfs.length ? mergePdfs([reportPdf, ...attachedPdfs]) : reportPdf;
 }
 
@@ -109,8 +111,9 @@ async function buildCombinedReportsPdf(
 
   for (const { employee, report, days } of sections) {
     const sickNotes = await loadSickNotes(days);
-    pending.push({ employee, report, days, signatureDataUrl: report.employeeSignature || undefined, sickNotes });
-    const attachedPdfs = sickNotes.flatMap((n) => (n.kind === 'pdf' ? [n.data] : []));
+    const attachments = await loadReportAttachments(report.id);
+    pending.push({ employee, report, days, signatureDataUrl: report.employeeSignature || undefined, sickNotes, attachments });
+    const attachedPdfs = [...sickNotes, ...attachments].flatMap((n) => (n.kind === 'pdf' ? [n.data] : []));
     if (attachedPdfs.length) {
       await flush();
       buffers.push(...attachedPdfs);
@@ -189,7 +192,13 @@ router.get('/getMonthlyReport', async (req, res) => {
       missingReceipt = !hasReceipt;
     }
 
-    res.json({ report, days, employeeName: employee.name, missingReceipt });
+    const attachments = await prisma.reportAttachment.findMany({
+      where: { reportId: report.id },
+      select: ATTACHMENT_SELECT,
+      orderBy: { createdAt: 'asc' },
+    });
+
+    res.json({ report, days, employeeName: employee.name, missingReceipt, attachments });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת הדוח' });
   }
@@ -197,7 +206,11 @@ router.get('/getMonthlyReport', async (req, res) => {
 
 router.post('/submitMonthlyReport', async (req, res) => {
   try {
-    const { reportId, signatureDataUrl } = req.body as { reportId: string; signatureDataUrl: string };
+    const { reportId, signatureDataUrl, employeeNote } = req.body as {
+      reportId: string;
+      signatureDataUrl: string;
+      employeeNote?: string;
+    };
     if (!signatureDataUrl) return res.status(400).json({ error: 'חובה לצרף חתימה' });
 
     const report = await prisma.monthlyReport.findUnique({ where: { id: reportId } });
@@ -245,12 +258,81 @@ router.post('/submitMonthlyReport', async (req, res) => {
 
     const updated = await prisma.monthlyReport.update({
       where: { id: reportId },
-      data: { status: 'הוגש', employeeSignature: signatureDataUrl },
+      data: {
+        status: 'הוגש',
+        employeeSignature: signatureDataUrl,
+        employeeNote: typeof employeeNote === 'string' && employeeNote.trim() ? employeeNote.trim().slice(0, 2000) : null,
+      },
     });
 
     res.json({ success: true, report: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בהגשת הדוח' });
+  }
+});
+
+// ---------- קבצים שהעובד/ת מצרפ/ת לדוח לחשבת השכר ----------
+
+const ATTACHMENT_SELECT = { id: true, fileName: true, fileMime: true, createdAt: true } as const;
+const attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const ALLOWED_ATTACHMENT = /^(image\/|application\/pdf$|application\/msword$|application\/vnd\.openxmlformats-officedocument\.|application\/vnd\.ms-excel$)/;
+
+const canManageReports = (req: any) => req.user.role === 'מנהל' || !!req.user.isAttendanceManager;
+
+/** העובד/ת עצמה כל עוד הדוח בטיוטה, או הנהלה/מזכירת נוכחות בכל שלב. */
+async function reportForFileChange(req: any, reportId: string) {
+  const report = await prisma.monthlyReport.findUnique({ where: { id: reportId } });
+  if (!report) throw Object.assign(new Error('דוח לא נמצא'), { status: 404 });
+  if (canManageReports(req)) return report;
+  if (report.employeeId !== req.user.id) throw Object.assign(new Error('אין הרשאה'), { status: 403 });
+  if (report.status !== 'טיוטה') throw Object.assign(new Error('הדוח כבר הוגש — אי אפשר לשנות את הקבצים'), { status: 400 });
+  return report;
+}
+
+router.post('/:reportId/attachments', attachmentUpload.single('file'), async (req, res) => {
+  try {
+    const report = await reportForFileChange(req, req.params.reportId);
+    if (!req.file) return res.status(400).json({ error: 'לא נבחר קובץ' });
+    if (!ALLOWED_ATTACHMENT.test(req.file.mimetype)) {
+      return res.status(400).json({ error: 'אפשר לצרף תמונה, PDF, Word או Excel' });
+    }
+    // שמות קבצים בעברית מגיעים מ-multer בקידוד latin1
+    const fileName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    const attachment = await prisma.reportAttachment.create({
+      data: { reportId: report.id, fileData: req.file.buffer, fileMime: req.file.mimetype, fileName },
+      select: ATTACHMENT_SELECT,
+    });
+    res.json({ success: true, attachment });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'שגיאה בהעלאת הקובץ' });
+  }
+});
+
+router.get('/attachments/:id', async (req, res) => {
+  try {
+    const file = await prisma.reportAttachment.findUnique({
+      where: { id: req.params.id },
+      include: { report: { select: { employeeId: true } } },
+    });
+    if (!file) return res.status(404).json({ error: 'קובץ לא נמצא' });
+    if (file.report.employeeId !== req.user!.id && !canManageReports(req)) return res.status(403).json({ error: 'אין הרשאה' });
+    res.set('Content-Type', file.fileMime);
+    res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+    res.send(Buffer.from(file.fileData));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת הקובץ' });
+  }
+});
+
+router.delete('/attachments/:id', async (req, res) => {
+  try {
+    const file = await prisma.reportAttachment.findUnique({ where: { id: req.params.id }, select: { reportId: true } });
+    if (!file) return res.status(404).json({ error: 'קובץ לא נמצא' });
+    await reportForFileChange(req, file.reportId);
+    await prisma.reportAttachment.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'שגיאה במחיקת הקובץ' });
   }
 });
 
@@ -302,7 +384,7 @@ router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) =
     const employees = await prisma.user.findMany({ where: { isActive: true, employmentType: { not: 'חודשי' } } });
     const reports = await prisma.monthlyReport.findMany({
       where: { month },
-      include: { employee: true },
+      include: { employee: true, attachments: { select: ATTACHMENT_SELECT, orderBy: { createdAt: 'asc' } } },
     });
 
     const reportedIds = new Set(reports.map((r) => r.employeeId));

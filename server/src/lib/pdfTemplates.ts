@@ -1,6 +1,6 @@
 import { MonthlyReport, User } from '@prisma/client';
 import { DayDetail } from './monthlyReport';
-import { SickNote } from './sickNotes';
+import { ReportFile, SickNote } from './sickNotes';
 
 const BASE_STYLE = `
   <style>
@@ -34,6 +34,8 @@ const BASE_STYLE = `
     .sick-note h2 { margin-top: 0; }
     .sick-note img { max-width: 100%; max-height: 245mm; object-fit: contain; }
     .sick-notes-list { margin-top: 8px; font-size: 11px; page-break-inside: avoid; }
+    .employee-note { margin-top: 8px; border: 2px solid #c9a227; border-radius: 6px; padding: 5px 10px; font-size: 11px; page-break-inside: avoid; white-space: pre-wrap; }
+    .employee-note strong { display: block; margin-bottom: 2px; }
   </style>
 `;
 
@@ -63,12 +65,34 @@ function sickNotesHtml(notes: SickNote[]): string {
   return `<div class="sick-notes-list"><strong>אישורי מחלה:</strong><ul>${list}</ul></div>${images}`;
 }
 
+/** ההערה של העובד/ת לחשבת השכר והקבצים שצירפ/ה — מעל החתימה, כמו שנכתבו לפני החתימה. */
+function employeeNoteHtml(note: string | null, files: ReportFile[]): string {
+  if (!note?.trim() && !files.length) return '';
+  const list = files
+    .map((f) => {
+      const where = f.kind === 'image' ? 'מצורף בעמוד נפרד' : f.kind === 'pdf' ? 'מצורף בסוף הדוח' : 'ניתן לפתוח במערכת';
+      return `<li>${escapeHtml(f.fileName)} — ${where}</li>`;
+    })
+    .join('');
+  return `<div class="employee-note"><strong>הערה לחשבת השכר:</strong>${note?.trim() ? escapeHtml(note.trim()) : ''}${
+    list ? `<div style="margin-top:4px;white-space:normal"><strong>קבצים מצורפים:</strong><ul style="margin:0">${list}</ul></div>` : ''
+  }</div>`;
+}
+
+function attachmentImagesHtml(files: ReportFile[]): string {
+  return files
+    .filter((f): f is Extract<ReportFile, { kind: 'image' }> => f.kind === 'image')
+    .map((f) => `<div class="sick-note"><h2>קובץ מצורף — ${escapeHtml(f.fileName)}</h2><img src="${f.dataUrl}" /></div>`)
+    .join('');
+}
+
 function reportSectionHtml(
   employee: User,
   report: MonthlyReport,
   days: DayDetail[],
   signatureDataUrl?: string,
-  sickNotes: SickNote[] = []
+  sickNotes: SickNote[] = [],
+  attachments: ReportFile[] = []
 ): string {
   const rows = days
     .map((d) => {
@@ -117,8 +141,10 @@ function reportSectionHtml(
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    ${employeeNoteHtml(report.employeeNote, attachments)}
     ${signatureDataUrl ? `<div class="signature"><div>חתימת עובד/ת:</div><img src="${signatureDataUrl}" /></div>` : ''}
     ${sickNotesHtml(sickNotes)}
+    ${attachmentImagesHtml(attachments)}
   `;
 }
 
@@ -127,19 +153,27 @@ export function reportPdfHtml(
   report: MonthlyReport,
   days: DayDetail[],
   signatureDataUrl?: string,
-  sickNotes: SickNote[] = []
+  sickNotes: SickNote[] = [],
+  attachments: ReportFile[] = []
 ): string {
-  return reportsPdfHtml([{ employee, report, days, signatureDataUrl, sickNotes }]);
+  return reportsPdfHtml([{ employee, report, days, signatureDataUrl, sickNotes, attachments }]);
 }
 
 /** כמה דוחות מלאים במסמך HTML אחד — כל דוח מתחיל בעמוד חדש. */
 export function reportsPdfHtml(
-  sections: { employee: User; report: MonthlyReport; days: DayDetail[]; signatureDataUrl?: string; sickNotes: SickNote[] }[]
+  sections: {
+    employee: User;
+    report: MonthlyReport;
+    days: DayDetail[];
+    signatureDataUrl?: string;
+    sickNotes: SickNote[];
+    attachments?: ReportFile[];
+  }[]
 ): string {
   const body = sections
     .map(
       (s, idx) =>
-        `<div${idx > 0 ? ' style="page-break-before: always;"' : ''}>${reportSectionHtml(s.employee, s.report, s.days, s.signatureDataUrl, s.sickNotes)}</div>`
+        `<div${idx > 0 ? ' style="page-break-before: always;"' : ''}>${reportSectionHtml(s.employee, s.report, s.days, s.signatureDataUrl, s.sickNotes, s.attachments)}</div>`
     )
     .join('');
   return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>${body}</body></html>`;

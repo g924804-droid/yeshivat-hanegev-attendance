@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2, Printer, Search } from 'lucide-react';
+import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Receipt, Trash2, Plus, Pencil, Mail, Undo2, Printer, Search, MessageSquareText, Paperclip } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useAuth } from '../lib/permissions';
@@ -25,6 +25,8 @@ type ReportRow = {
   hasNewContract: boolean;
   pendingReceipts: number;
   specialRateDetails: { date: string; hours: number; notes: string | null }[];
+  employeeNote: string | null;
+  attachments: { id: string; fileName: string; fileMime: string }[];
   employee: { id: string; name: string; lastName: string | null; department: string | null };
 };
 
@@ -363,7 +365,7 @@ function ReportsTab() {
               const letter = familyName(row.name, row.lastName).charAt(0);
               const showLetter = i === 0 || familyName(shownRows[i - 1].name, shownRows[i - 1].lastName).charAt(0) !== letter;
               const r = row.report;
-              const highlight = r && (r.specialRateHours > 0 || r.isNewEmployee || r.hasNewContract);
+              const highlight = r && (r.specialRateHours > 0 || r.isNewEmployee || r.hasNewContract || !!r.employeeNote || r.attachments.length > 0);
               return (
                 <Fragment key={row.id}>
                   {showLetter && (
@@ -394,6 +396,29 @@ function ReportsTab() {
                               <Receipt size={10} className="inline" /> {r.pendingReceipts}{' '}
                               {r.pendingReceipts === 1 ? 'קבלה ממתינה' : 'קבלות ממתינות'}
                             </span>
+                          )}
+                        </div>
+                      )}
+                      {r && (r.employeeNote || r.attachments.length > 0) && (
+                        <div className="mt-1 text-xs bg-white border border-gold/60 rounded-lg px-2 py-1 max-w-[280px]">
+                          <div className="font-bold text-navy flex items-center gap-1">
+                            <MessageSquareText size={11} /> הערה לחשבת השכר
+                          </div>
+                          {r.employeeNote && <div className="whitespace-pre-wrap text-slate-700">{r.employeeNote}</div>}
+                          {r.attachments.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-0.5">
+                              {r.attachments.map((a) => (
+                                <a
+                                  key={a.id}
+                                  href={`/api/reports/attachments/${a.id}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-0.5 text-navy hover:underline"
+                                >
+                                  <Paperclip size={10} /> {a.fileName}
+                                </a>
+                              ))}
+                            </div>
                           )}
                         </div>
                       )}
