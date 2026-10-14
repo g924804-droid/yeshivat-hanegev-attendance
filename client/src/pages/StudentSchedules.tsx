@@ -67,33 +67,51 @@ function classesToStyle(classes: string): string {
   return `background:${pick('bg')};border-color:${pick('border')};color:${pick('text')};`;
 }
 
+// עמוד A4 לרוחב פחות שוליים: 277×190 מ"מ. כל מערכת נכנסת לעמוד אחד — אחרי הציור מגדילים/מקטינים אותה (fitPages).
 const PRINT_STYLE = `
   @page { size: A4 landscape; margin: 10mm; }
   body { font-family: 'Arial', sans-serif; direction: rtl; color: #1e293b; margin: 0;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .page { page-break-after: always; font-size: 11px; }
-  .page:last-child { page-break-after: auto; }
-  .head { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #c9a227; padding-bottom: 6px; margin-bottom: 8px; }
-  .head h1 { margin: 0; font-size: 19px; color: #0f172a; }
-  .head img { max-height: 46px; }
-  h2 { font-size: 17px; margin: 0 0 2px; color: #0f172a; }
-  .meta { color: #475569; margin-bottom: 6px; }
-  .legend { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
-  .legend span { border: 1px solid; border-radius: 10px; padding: 1px 9px; font-weight: bold; }
+  .page { width: 277mm; height: 189mm; overflow: hidden; page-break-after: always; break-after: page; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  .fit { font-size: 12px; transform-origin: top right; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+          border-bottom: 4px solid #c9a227; padding-bottom: 6px; margin-bottom: 8px; }
+  .name { font-size: 30px; font-weight: 900; color: #0f172a; line-height: 1.15; }
+  .sub { font-size: 14px; color: #475569; margin-top: 2px; }
+  .brand { text-align: left; font-size: 16px; font-weight: bold; color: #0f172a; white-space: nowrap; }
+  .brand img { max-height: 54px; display: block; margin: 0 0 2px auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .legend span { border: 1.5px solid; border-radius: 12px; padding: 1px 10px; font-weight: bold; font-size: 12px; }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  th, td { border: 1px solid #cbd5e1; padding: 3px; vertical-align: top; }
-  th { background: #0f172a; color: #f1c40f; font-size: 13px; padding: 5px; }
-  th.p { width: 78px; }
-  td.p { background: #f1f5f9; font-weight: bold; text-align: center; vertical-align: middle; }
-  td.p small { display: block; font-weight: normal; color: #64748b; }
-  .l { border: 1px solid; border-radius: 6px; padding: 3px 5px; margin-bottom: 2px; line-height: 1.3; }
-  .l b { display: block; font-size: 12px; }
-  .l small { opacity: .8; }
-  .dense { font-size: 9.5px; }
-  .dense .l { padding: 1px 4px; }
-  .dense .l b { font-size: 10.5px; }
-  .dense th { padding: 3px; }
+  th, td { border: 1px solid #94a3b8; padding: 3px; vertical-align: top; }
+  th { background: #0f172a; color: #f1c40f; font-size: 16px; padding: 6px; }
+  th.p { width: 62px; }
+  td.p { background: #e2e8f0; font-weight: bold; font-size: 14px; text-align: center; vertical-align: middle; color: #0f172a; }
+  td.p small { display: block; font-weight: normal; font-size: 10px; color: #475569; }
+  .l { border: 1.5px solid; border-radius: 7px; padding: 4px 6px; margin-bottom: 3px; line-height: 1.25; }
+  .l + .l { margin-top: 3px; }
+  .l b { display: block; font-size: 14px; }
+  .l .t { font-size: 12px; }
+  .l small { font-size: 10.5px; opacity: .85; }
 `;
+
+/** מגדיל/מקטין כל מערכת כך שתמלא בדיוק עמוד אחד — לא נחתכת לשני עמודים, ולא קטנה מדי כשיש מעט שיעורים. */
+function fitPages(doc: Document) {
+  doc.querySelectorAll<HTMLElement>('.page').forEach((page) => {
+    const fit = page.querySelector<HTMLElement>('.fit')!;
+    let scale = 1;
+    // הטבלה נפרשת מחדש לפי הרוחב, אז מחשבים כמה פעמים עד שמתייצב
+    for (let i = 0; i < 4; i++) {
+      fit.style.width = `${page.clientWidth / scale}px`;
+      fit.style.transform = `scale(${scale})`;
+      const next = Math.min(1.6, (page.clientHeight / fit.scrollHeight) * 0.98, 1.6);
+      if (Math.abs(next - scale) < 0.01) break;
+      scale = next;
+    }
+  });
+}
+
 
 export function StudentSchedules() {
   const navigate = useNavigate();
@@ -182,7 +200,7 @@ export function StudentSchedules() {
                     .map(
                       (l) => `<div class="l" style="${classesToStyle(lessonColor(l, tracks))}">
                         <b>${esc(l.subject || l.className)}</b>
-                        ${teacherName(l.teacher) ? `<div>${esc(teacherName(l.teacher))}</div>` : ''}
+                        ${teacherName(l.teacher) ? `<div class="t">${esc(teacherName(l.teacher))}</div>` : ''}
                         <small>${esc(l.time)}${l.room ? ` · ${esc(l.room)}` : ''}${l.toDate ? ` · זמני עד ${shortDate(l.toDate)}` : ''}</small>
                       </div>`
                     )
@@ -190,23 +208,28 @@ export function StudentSchedules() {
               ).join('')}</tr>`
           )
           .join('');
-        // הרבה שורות (שיעורי אחר הצהריים וכו') — מקטינים כדי שהכל ייכנס בעמוד אחד
-        return `<div class="page${periods.length > 11 ? ' dense' : ''}">
-          <div class="head"><h1>סמינר מאיר</h1>${logo}</div>
-          <h2>מערכת שעות — ${esc(s.name)}</h2>
-          <div class="meta">${withTemporary ? `שבוע ${esc(weekLabel)} · ` : ''}הופק ב${esc(today)}</div>
-          ${legend ? `<div class="legend">${legend}</div>` : ''}
+        const tracksLine = s.trackIds.map(trackName).filter(Boolean).join(' · ');
+        return `<div class="page"><div class="fit">
+          <div class="head">
+            <div>
+              <div class="name">${esc(s.name)}</div>
+              <div class="sub">מערכת שעות${withTemporary ? ` · שבוע ${esc(weekLabel)}` : ''} · הופק ב${esc(today)}</div>
+              ${legend ? `<div class="legend">${legend}</div>` : tracksLine ? `<div class="sub">${esc(tracksLine)}</div>` : ''}
+            </div>
+            <div class="brand">${logo}סמינר מאיר</div>
+          </div>
           ${
             rows
               ? `<table><thead><tr><th class="p">שעה</th>${DAYS.map((d) => `<th>${d}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`
               : '<p>אין שיעורים במערכת למסלולים של התלמידה.</p>'
           }
-        </div>`;
+        </div></div>`;
       })
       .join('');
 
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;width:0;height:0;border:0;left:0;bottom:0;';
+    // מחוץ למסך אבל ברוחב עמוד אמיתי — כדי שאפשר יהיה למדוד את המערכות ולהתאים אותן לעמוד
+    iframe.style.cssText = 'position:fixed;width:300mm;height:200mm;border:0;left:-10000px;top:0;';
     document.body.appendChild(iframe);
     const doc = iframe.contentDocument!;
     doc.open();
@@ -220,6 +243,7 @@ export function StudentSchedules() {
       ),
       new Promise((r) => setTimeout(r, 5000)),
     ]);
+    fitPages(doc);
     iframe.contentWindow!.focus();
     iframe.contentWindow!.print();
     setTimeout(() => iframe.remove(), 60_000);
@@ -269,8 +293,8 @@ export function StudentSchedules() {
   return (
     <Layout title="מערכות שעות אישיות">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={() => navigate('/students')} className="btn-outline text-sm py-2">
-          <ArrowRight size={16} /> חזרה למסלולים
+        <button onClick={() => navigate(-1)} className="btn-outline text-sm py-2">
+          <ArrowRight size={16} /> חזרה
         </button>
       </div>
 

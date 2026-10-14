@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2, ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { lessonsForDate, currentWeekSunday, weekDates, addDays, localIsoDate, timesOverlap } from '../lib/scheduleRules';
 import { useUrlState } from '../lib/useUrlState';
 import { Layout } from '../components/Layout';
@@ -302,11 +303,14 @@ export function SchedulePage() {
             </div>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button className="btn-outline" onClick={() => setCompact((c) => !c)}>
             {compact ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
             {compact ? 'תצוגה מלאה' : 'תצוגה קומפקטית'}
           </button>
+          <Link to="/students/schedules" className="btn-outline">
+            <Users size={16} /> מערכות אישיות לתלמידות
+          </Link>
           <a href="/display" target="_blank" rel="noreferrer" className="btn-outline">
             <Monitor size={16} /> מסך תצוגה
           </a>
