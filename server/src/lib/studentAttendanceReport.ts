@@ -228,7 +228,7 @@ export async function buildAttendanceSummary(opts: {
   };
 }
 
-function styleSheet(ws: ExcelJS.Worksheet) {
+export function styleSheet(ws: ExcelJS.Worksheet) {
   ws.views = [{ rightToLeft: true, state: 'frozen', ySplit: 1 }];
   const header = ws.getRow(1);
   header.font = { bold: true, color: { argb: 'FFF1C40F' } };

@@ -1,9 +1,10 @@
-import { Router } from 'express';
+import { Router, Request } from 'express';
 import { airtableFetch, airtableCreate, airtableUpdate, TABLES } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
 import { getFullSchedule } from '../lib/scheduleData';
 import { getTeacherTrackIds, getTeacherStudentIds, findTeacherIds, canSeeAllStudentTracks } from '../lib/teacherScope';
 import { requireAuth, requirePermission } from '../middleware/auth';
+import { buildGradesSummary, buildGradesExcel, DEFAULT_PASS_SCORE } from '../lib/studentGradesReport';
 
 const router = Router();
 router.use(requireAuth);
@@ -195,6 +196,42 @@ router.post('/saveGrade', requirePermission('grades'), async (req, res) => {
     res.json({ success: true, recordId: record.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בשמירת ציון' });
+  }
+});
+
+function reportParams(req: Request) {
+  if (!canSeeAllStudentTracks(req.user!)) throw Object.assign(new Error('אין הרשאה לדוחות ציונים'), { status: 403 });
+  const { from, to, trackId, passScore } = req.query as Record<string, string | undefined>;
+  const isDate = (d?: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (!isDate(from) || !isDate(to)) throw Object.assign(new Error('יש לבחור מתאריך ועד תאריך'), { status: 400 });
+  if (from! > to!) throw Object.assign(new Error('תאריך ההתחלה אחרי תאריך הסיום'), { status: 400 });
+  const pass = Number(passScore);
+  return {
+    from: from!,
+    to: to!,
+    trackId: trackId || undefined,
+    passScore: passScore && Number.isFinite(pass) && pass >= 0 && pass <= 100 ? pass : DEFAULT_PASS_SCORE,
+  };
+}
+
+/** גליון ציונים לכל תלמידה (לתצוגה ולהדפסת דוח אישי). */
+router.get('/gradesSummary', requirePermission('grades'), async (req, res) => {
+  try {
+    res.json(await buildGradesSummary(reportParams(req)));
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'שגיאה בהפקת דוח ציונים' });
+  }
+});
+
+router.get('/exportGradesExcel', requirePermission('grades'), async (req, res) => {
+  try {
+    const summary = await buildGradesSummary(reportParams(req));
+    const buffer = await buildGradesExcel(summary);
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`ציונים ${summary.fromHeb} עד ${summary.toHeb}.xlsx`)}`);
+    res.send(buffer);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message || 'שגיאה בייצוא לאקסל' });
   }
 });
 

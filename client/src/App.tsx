@@ -17,6 +17,7 @@ import { StudentAttendanceReport } from './pages/StudentAttendanceReport';
 import { StudentAttendanceFix } from './pages/StudentAttendanceFix';
 import { GradeTracks } from './pages/GradeTracks';
 import { GradesPage } from './pages/GradesPage';
+import { StudentGradesReport } from './pages/StudentGradesReport';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { SchedulePage } from './pages/SchedulePage';
 import { ContractsPage } from './pages/ContractsPage';
@@ -183,6 +184,14 @@ function AppRoutes() {
                 element={
                   <PermissionGuard permission="grades">
                     <GradeTracks />
+                  </PermissionGuard>
+                }
+              />
+              <Route
+                path="/grades/report"
+                element={
+                  <PermissionGuard permission="grades">
+                    <StudentGradesReport />
                   </PermissionGuard>
                 }
               />
