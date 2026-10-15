@@ -9,7 +9,7 @@ import { useUrlState } from '../lib/useUrlState';
 import { printMonthlyReport } from '../lib/printReport';
 import { confirmAndDeleteContract } from '../lib/deleteContract';
 
-const WORK_AREAS = ['קודש', 'אדריכלות', 'עיצוב מדיה', 'מזכירות', 'הנהלת חשבונות', 'סולם'];
+const WORK_AREAS = ['קודש', 'הוראה', 'אדריכלות', 'עיצוב מדיה', 'מזכירות', 'הנהלת חשבונות', 'סולם'];
 
 type ReportRow = {
   id: string;
