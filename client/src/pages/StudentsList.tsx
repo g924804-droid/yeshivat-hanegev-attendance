@@ -4,6 +4,7 @@ import { ArrowRight, CalendarClock, ChevronRight, ChevronLeft, CheckCheck, Check
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { todayStr, DOW_HE, getTimeSlotsForDay } from '../lib/utils';
+import { familyFirstName } from '../lib/studentName';
 
 type Student = {
   id: string;
@@ -38,15 +39,6 @@ function displayDate(dateStr: string): string {
 function slotLabel(dayOfWeek: string, time: string): string {
   const slot = getTimeSlotsForDay(dayOfWeek).find((s) => s.time === time);
   return slot?.label || '';
-}
-
-/**
- * אין שדה נפרד לשם משפחה — לפי המוסכמה בנתונים בפועל (למשל "אדלר בת שבע", "כהן יסכה"),
- * שם המשפחה הוא המילה הראשונה, לא האחרונה. תיקון לבאג קודם שמיין לפי השם הפרטי בטעות.
- */
-function familyName(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/);
-  return parts[0] || fullName;
 }
 
 export function StudentsList() {
@@ -160,8 +152,9 @@ export function StudentsList() {
   const filteredStudents = useMemo(
     () =>
       students
-        .filter((s) => s.name.includes(search.trim()))
-        .sort((a, b) => familyName(a.name).localeCompare(familyName(b.name), 'he')),
+        .map((s) => ({ ...s, displayName: familyFirstName(s.name) }))
+        .filter((s) => s.name.includes(search.trim()) || s.displayName.includes(search.trim()))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName, 'he')),
     [students, search]
   );
 
@@ -324,7 +317,7 @@ export function StudentsList() {
           <tbody>
             {filteredStudents.map((s) => (
               <tr key={s.id} className="border-b last:border-0 hover:bg-slate-50">
-                <td className="py-2">{s.name}</td>
+                <td className="py-2">{s.displayName}</td>
                 <td>{s.className || '—'}</td>
                 <td>{s.avgGrade ?? '—'}</td>
                 <td>
