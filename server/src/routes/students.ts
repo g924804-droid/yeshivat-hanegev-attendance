@@ -14,6 +14,7 @@ import { getFullSchedule } from '../lib/scheduleData';
 import { lessonsForDate } from '../lib/scheduleRules';
 import { getCancelledKeys } from '../lib/lessonCancellations';
 import { getHebrewDateLabel } from '../lib/holidays';
+import { familyFirstName } from '../lib/studentName';
 import { getTeacherTrackIds, findTeacherIds, canSeeAllStudentTracks } from '../lib/teacherScope';
 import { getMissingAttendanceSlots } from '../lib/teacherAttendanceCheck';
 import { requireAuth, requirePermission } from '../middleware/auth';
@@ -376,7 +377,7 @@ router.get('/studentSchedules', requirePermission('studentAttendance'), async (r
     const students = studentsRaw
       .map((s) => ({
         id: s.id,
-        name: String(s.fields[FIELDS.students.name] || '').trim(),
+        name: familyFirstName(String(s.fields[FIELDS.students.name] || '')),
         trackIds: (s.fields[FIELDS.students.track] || []) as string[],
       }))
       .filter((s) => s.name);

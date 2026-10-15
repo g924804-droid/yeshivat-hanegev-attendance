@@ -3,6 +3,7 @@ import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
 import { getFullSchedule } from './scheduleData';
 import { hebrewDate } from './hebrewDate';
+import { familyFirstName } from './studentName';
 import { makeLessonNamer, styleSheet } from './studentAttendanceReport';
 
 /** ציון עובר כברירת מחדל — ציון נמוך ממנו מסומן באדום. */
@@ -114,7 +115,7 @@ export async function buildGradesSummary(opts: { from: string; to: string; track
     ).map(({ categoryId, ...row }) => row);
     return {
       id,
-      name: String(studentById.get(id)?.fields[FIELDS.students.name] || 'תלמידה לא ידועה').trim(),
+      name: familyFirstName(String(studentById.get(id)?.fields[FIELDS.students.name] || 'תלמידה לא ידועה')),
       tracks: [...studentTracks(id)]
         .sort((a, b) => categoryRank(a) - categoryRank(b))
         .map((t) => trackNameById.get(t) || '')

@@ -3,6 +3,7 @@ import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
 import { getFullSchedule, ParsedLesson } from './scheduleData';
 import { hebrewDate } from './hebrewDate';
+import { familyFirstName } from './studentName';
 
 /** אחוז ההיעדרויות המקסימלי המותר בכל שיעור (חיסורים, ואיחורים אם נספרים). */
 export const ABSENCE_LIMIT_PCT = 20;
@@ -181,7 +182,7 @@ export async function buildAttendanceSummary(opts: {
       .map(({ rank, ...row }) => row);
     return {
       id,
-      name: String(s?.fields[FIELDS.students.name] || 'תלמידה לא ידועה').trim(),
+      name: familyFirstName(String(s?.fields[FIELDS.students.name] || 'תלמידה לא ידועה')),
       tracks: [...studentTracks(id)]
         .sort((a, b) => categoryRank(a) - categoryRank(b))
         .map((t) => trackNameById.get(t) || '')
