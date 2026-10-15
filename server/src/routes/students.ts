@@ -12,6 +12,7 @@ import {
 import { FIELDS } from '../lib/airtableFields';
 import { getFullSchedule } from '../lib/scheduleData';
 import { lessonsForDate } from '../lib/scheduleRules';
+import { getCancelledKeys } from '../lib/lessonCancellations';
 import { getHebrewDateLabel } from '../lib/holidays';
 import { getTeacherTrackIds, findTeacherIds, canSeeAllStudentTracks } from '../lib/teacherScope';
 import { getMissingAttendanceSlots } from '../lib/teacherAttendanceCheck';
@@ -49,8 +50,9 @@ function parseStartMinutes(time?: string | null): number {
 async function getTrackLessonsForDate(trackId: string, date: string) {
   const { lessons, teachers } = await getFullSchedule();
   const teacherNameById = new Map(teachers.map((t) => [t.id, t.name]));
+  const cancelled = await getCancelledKeys(date, date); // שיעור שבוטל — לא מציגים למילוי נוכחות
   return lessonsForDate(lessons, date)
-    .filter((l) => (l.track || []).includes(trackId))
+    .filter((l) => (l.track || []).includes(trackId) && !cancelled.has(`${date}|${l.id}`))
     .map((l) => ({ ...l, teacherName: teacherNameById.get(l.teacher?.[0] || '') || '' }))
     .sort((a, b) => parseStartMinutes(a.time) - parseStartMinutes(b.time));
 }

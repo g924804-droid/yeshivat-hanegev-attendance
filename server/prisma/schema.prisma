@@ -181,6 +181,20 @@ model ScheduleHistory {
   previousData String? // JSON
 }
 
+// ביטול שיעור בתאריך מסוים (המורה לא הגיעה, משתחררות וכו'). שיעור שבוטל מוצג כמבוטל במערכת
+// ובמסך התצוגה, ולא נדרשת עליו נוכחות תלמידות מהמורה. השיעור עצמו ב-Airtable לא משתנה.
+model LessonCancellation {
+  id        String   @id @default(cuid())
+  lessonId  String // מזהה השיעור ב-Airtable
+  date      String // YYYY-MM-DD
+  reason    String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@unique([lessonId, date])
+  @@index([date])
+}
+
 model Announcement {
   id        String   @id @default(cuid())
   text      String? // אפשר גם הודעה עם קובץ בלבד (פוסטר/PDF) בלי טקסט

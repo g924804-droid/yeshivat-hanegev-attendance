@@ -5,6 +5,7 @@ import { getFullSchedule, invalidateScheduleCache } from '../lib/scheduleData';
 import { prisma } from '../lib/prisma';
 import { getReadableHistory, buildScheduleExcel } from '../lib/scheduleHistory';
 import { requireAuth, requirePermission } from '../middleware/auth';
+import { getCancellations, cancelLessons, restoreLesson } from '../lib/lessonCancellations';
 
 const router = Router();
 router.use(requireAuth);
@@ -137,6 +138,42 @@ router.post('/deleteScheduleLesson', async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה במחיקת שיעור' });
+  }
+});
+
+const isIsoDate = (d?: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
+
+/** ביטולי שיעורים בטווח תאריכים — להצגה במערכת השעות של השבוע. */
+router.get('/cancellations', async (req, res) => {
+  try {
+    const { from, to } = req.query as Record<string, string | undefined>;
+    if (!isIsoDate(from) || !isIsoDate(to)) return res.status(400).json({ error: 'חסר טווח תאריכים' });
+    res.json({ cancellations: await getCancellations(from!, to!) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת ביטולים' });
+  }
+});
+
+/** ביטול שיעור (או כמה) בתאריך מסוים — המורה לא תתבקש למלא עליו נוכחות. */
+router.post('/cancelLessons', async (req, res) => {
+  try {
+    const { lessonIds, date, reason } = req.body as { lessonIds?: string[]; date?: string; reason?: string };
+    if (!Array.isArray(lessonIds) || !lessonIds.length || !isIsoDate(date)) return res.status(400).json({ error: 'חסרים פרטי ביטול' });
+    await cancelLessons(lessonIds, date!, reason?.trim().slice(0, 200) || null, req.user!.name);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בביטול שיעור' });
+  }
+});
+
+router.post('/restoreLesson', async (req, res) => {
+  try {
+    const { lessonId, date } = req.body as { lessonId?: string; date?: string };
+    if (!lessonId || !isIsoDate(date)) return res.status(400).json({ error: 'חסרים פרטים' });
+    await restoreLesson(lessonId, date!);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בהחזרת שיעור' });
   }
 });
 

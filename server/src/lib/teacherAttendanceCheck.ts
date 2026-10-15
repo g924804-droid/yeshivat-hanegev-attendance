@@ -2,6 +2,7 @@ import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
 import { getFullSchedule } from './scheduleData';
 import { lessonsForDate } from './scheduleRules';
+import { getCancelledKeys } from './lessonCancellations';
 
 type RequiredSlot = { date: string; time: string; trackId: string; lessonId: string };
 
@@ -23,12 +24,16 @@ async function getRequiredAttendanceSlots(teacherName: string, month: string): P
   const daysInMonth = new Date(year, monthNum, 0).getDate();
   const today = new Date().toISOString().slice(0, 10);
 
+  // שיעור שבוטל (המורה לא הגיעה וכו') — לא דורשים עליו נוכחות
+  const cancelled = await getCancelledKeys(`${month}-01`, `${month}-31`);
+
   const slots: RequiredSlot[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const date = `${month}-${String(d).padStart(2, '0')}`;
     if (date > today) continue; // לא דורשים נוכחות לימים עתידיים
     for (const lesson of lessonsForDate(lessons, date)) {
       if (!(lesson.teacher || []).includes(teacherId)) continue;
+      if (cancelled.has(`${date}|${lesson.id}`)) continue;
       const trackIds = lesson.track || [];
       const time = lesson.time || '';
       trackIds.forEach((trackId) => slots.push({ date, time, trackId, lessonId: lesson.id }));

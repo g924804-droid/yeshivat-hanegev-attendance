@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getFullSchedule } from '../lib/scheduleData';
 import { prisma } from '../lib/prisma';
+import { getCancellations } from '../lib/lessonCancellations';
 
 // ראוטר ציבורי (ללא requireAuth בכוונה) — מיועד למסך תצוגה גדול בישיבה
 // (מערכת שעות + הודעות), ללא מידע רגיש, כדי שאפשר יהיה לפתוח אותו בלי התחברות.
@@ -11,6 +12,17 @@ router.get('/schedule', async (req, res) => {
     res.json(await getFullSchedule());
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת מערכת השעות' });
+  }
+});
+
+/** ביטולי שיעורים מהשבוע שעבר ועד שבועיים קדימה — בנפרד מהמערכת (שמתרעננת רק כל רבע שעה),
+ *  כדי שביטול של הרגע יופיע במסך התצוגה תוך דקה. */
+router.get('/cancellations', async (req, res) => {
+  try {
+    const day = (offset: number) => new Date(Date.now() + offset * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+    res.json({ cancellations: await getCancellations(day(-7), day(14)) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת ביטולים' });
   }
 });
 

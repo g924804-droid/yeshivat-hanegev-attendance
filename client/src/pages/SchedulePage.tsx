@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2, ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2, ChevronLeft, ChevronRight, Users, Ban, RotateCcw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { lessonsForDate, currentWeekSunday, weekDates, addDays, localIsoDate, timesOverlap } from '../lib/scheduleRules';
 import { useUrlState } from '../lib/useUrlState';
@@ -58,6 +58,7 @@ export function SchedulePage() {
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [duplicatingLesson, setDuplicatingLesson] = useState<Lesson | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [cancelling, setCancelling] = useState<{ lesson: Lesson; date: string } | null>(null);
   // תצוגה קומפקטית: עמודות וכרטיסי שיעור צרים וקטנים יותר, כדי שכל השבוע ייכנס בלי גלילה
   // אופקית במסכים רגילים. נשמר ב-localStorage כדי שהבחירה תישאר גם ברענון/כניסה הבאה.
   const [compact, setCompact] = useState(() => localStorage.getItem('scheduleCompact') === '1');
@@ -83,6 +84,30 @@ export function SchedulePage() {
   const [weekStart, setWeekStart] = useUrlState('week', currentWeekSunday());
   const dates = useMemo(() => weekDates(weekStart), [weekStart]);
   const weekLessons = useMemo(() => DAYS.flatMap((day) => lessonsForDate(lessons, dates[day])), [lessons, dates]);
+
+  // שיעורים שבוטלו בשבוע המוצג: `${date}|${lessonId}` → סיבה
+  const [cancelled, setCancelled] = useState<Map<string, string>>(new Map());
+  async function loadCancellations() {
+    try {
+      const r = await api.get<{ cancellations: { lessonId: string; date: string; reason: string | null }[] }>(
+        '/schedule/cancellations',
+        { from: dates['ראשון'], to: dates['שישי'] }
+      );
+      setCancelled(new Map(r.cancellations.map((c) => [`${c.date}|${c.lessonId}`, c.reason || ''])));
+    } catch {
+      /* בלי ביטולים */
+    }
+  }
+  useEffect(() => {
+    loadCancellations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart]);
+
+  async function restore(l: Lesson, date: string) {
+    if (!confirm(`להחזיר את השיעור "${l.subject || l.className}" ב-${shortDate(date)}?`)) return;
+    await api.post('/schedule/restoreLesson', { lessonId: l.id, date });
+    loadCancellations();
+  }
 
   const filtered = useMemo(
     () => (trackFilter ? weekLessons.filter((l) => l.track?.includes(trackFilter)) : weekLessons),
@@ -199,11 +224,14 @@ export function SchedulePage() {
                 return (
                   <td key={day} className={`${compact ? 'p-1' : 'p-1.5'} border border-slate-200 align-top`}>
                     <div className="flex flex-wrap gap-1">
-                      {cellLessons.map((l) => (
+                      {cellLessons.map((l) => {
+                        const cancelKey = `${dates[day]}|${l.id}`;
+                        const isCancelled = cancelled.has(cancelKey);
+                        return (
                         <div
                           key={l.id}
                           onDoubleClick={() => setEditingLesson(l)}
-                          className={`group relative rounded-lg border cursor-pointer flex-1 ${lessonColor(l, tracks)} ${
+                          className={`group relative rounded-lg border cursor-pointer flex-1 ${lessonColor(l, tracks)} ${isCancelled ? 'opacity-60' : ''} ${
                             compact ? 'px-1 py-1 text-[10px] min-w-[80px]' : 'px-2 py-1.5 text-xs min-w-[120px]'
                           }`}
                         >
@@ -218,6 +246,23 @@ export function SchedulePage() {
                             <button onClick={() => setEditingLesson(l)} title="עריכה" className="p-0.5 rounded hover:bg-black/10">
                               <Pencil size={compact ? 9 : 11} />
                             </button>
+                            {isCancelled ? (
+                              <button
+                                onClick={() => restore(l, dates[day])}
+                                title="החזרת השיעור (ביטול הביטול)"
+                                className="p-0.5 rounded hover:bg-black/10"
+                              >
+                                <RotateCcw size={compact ? 9 : 11} />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setCancelling({ lesson: l, date: dates[day] })}
+                                title="ביטול השיעור בתאריך הזה (המורה לא הגיעה וכו')"
+                                className="p-0.5 rounded hover:bg-red-100 text-red-600"
+                              >
+                                <Ban size={compact ? 9 : 11} />
+                              </button>
+                            )}
                           </div>
                           {l.notes && (
                             <span
@@ -227,7 +272,13 @@ export function SchedulePage() {
                               !
                             </span>
                           )}
-                          <div className={`font-semibold truncate ${compact ? 'pl-5' : 'pl-7'}`}>{l.subject || l.className}</div>
+                          <div className={`font-semibold truncate ${compact ? 'pl-8' : 'pl-11'} ${isCancelled ? 'line-through' : ''}`}>{l.subject || l.className}</div>
+                          {isCancelled && (
+                            <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-red-600 text-white px-1.5 py-0.5 text-[10px] font-bold max-w-full">
+                              <Ban size={10} className="shrink-0" />
+                              <span className="truncate">בוטל{cancelled.get(cancelKey) ? ` — ${cancelled.get(cancelKey)}` : ''}</span>
+                            </div>
+                          )}
                           {!compact && l.subject && l.className !== l.subject && (
                             <div className="opacity-70 truncate">כיתה {l.className}</div>
                           )}
@@ -252,7 +303,8 @@ export function SchedulePage() {
                             </div>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </td>
                 );
@@ -393,6 +445,20 @@ export function SchedulePage() {
           onSaved={() => {
             setDuplicatingLesson(null);
             load();
+          }}
+        />
+      )}
+
+      {cancelling && (
+        <CancelLessonModal
+          lesson={cancelling.lesson}
+          date={cancelling.date}
+          dayLessons={weekLessons.filter((l) => l.dayOfWeek === cancelling.lesson.dayOfWeek)}
+          trackName={trackName}
+          onClose={() => setCancelling(null)}
+          onSaved={() => {
+            setCancelling(null);
+            loadCancellations();
           }}
         />
       )}
@@ -855,6 +921,119 @@ function LessonModal({
               {multiDay && combos.length > 1 ? `שמירה (${combos.length} שיעורים)` : duplicate ? 'שמירה כשיעור חדש' : 'שמירה'}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CANCEL_REASONS = ['המורה לא הגיעה — משתחררות', 'המורה לא הגיעה', 'משתחררות מוקדם', 'אירוע / כנס'];
+
+/** ביטול שיעור בתאריך אחד — מוצג כמבוטל במערכת ובמסך התצוגה, והמורה לא תתבקש למלא עליו נוכחות. */
+function CancelLessonModal({
+  lesson,
+  date,
+  dayLessons,
+  trackName,
+  onClose,
+  onSaved,
+}: {
+  lesson: Lesson;
+  date: string;
+  /** שיעורי אותו יום (בפועל) — כדי להציע לבטל גם את השיעורים שאחריו באותם מסלולים */
+  dayLessons: Lesson[];
+  trackName: (ids: string[] | undefined) => string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [reason, setReason] = useState(CANCEL_REASONS[0]);
+  const later = dayLessons
+    .filter(
+      (l) =>
+        l.id !== lesson.id &&
+        startMinutes(l.time) > startMinutes(lesson.time) &&
+        (l.track || []).some((t) => (lesson.track || []).includes(t))
+    )
+    .sort((a, b) => startMinutes(a.time) - startMinutes(b.time));
+  const [alsoLater, setAlsoLater] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save() {
+    setBusy(true);
+    setError('');
+    try {
+      await api.post('/schedule/cancelLessons', { lessonIds: [lesson.id, ...alsoLater], date, reason });
+      onSaved();
+    } catch (err: any) {
+      setError(err.message || 'שגיאה בביטול');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3 max-h-[85vh] overflow-y-auto">
+        <h3 className="font-bold text-navy text-lg">ביטול שיעור</h3>
+        <div className="text-sm bg-slate-50 rounded-xl px-3 py-2">
+          <div className="font-semibold">{lesson.subject || lesson.className}</div>
+          <div className="text-slate-500">
+            {lesson.dayOfWeek} {shortDate(date)} · {lesson.time} · {trackName(lesson.track)}
+          </div>
+        </div>
+        <div>
+          <label className="label">סיבה (תוצג במסך התצוגה)</label>
+          <div className="flex flex-wrap gap-1 mb-2">
+            {CANCEL_REASONS.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setReason(r)}
+                className={`badge border cursor-pointer ${reason === r ? 'bg-navy text-white border-navy' : 'bg-white text-slate-600 border-slate-200'}`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} />
+        </div>
+        {later.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="label mb-0">לבטל גם את השיעורים שאחריו היום?</label>
+              <button
+                type="button"
+                className="text-xs text-navy underline"
+                onClick={() => setAlsoLater(alsoLater.length === later.length ? [] : later.map((l) => l.id))}
+              >
+                {alsoLater.length === later.length ? 'ניקוי' : 'סימון הכל'}
+              </button>
+            </div>
+            <div className="space-y-1 mt-1">
+              {later.map((l) => (
+                <label key={l.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={alsoLater.includes(l.id)}
+                    onChange={(e) => setAlsoLater(e.target.checked ? [...alsoLater, l.id] : alsoLater.filter((id) => id !== l.id))}
+                  />
+                  <span>
+                    {l.time} — {l.subject || l.className}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+        <p className="text-xs text-slate-500">
+          השיעור יוצג כמבוטל רק בתאריך הזה, והמורה לא תתבקש למלא עליו נוכחות. בשבוע הבא הוא חוזר כרגיל.
+        </p>
+        {error && <div className="text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
+        <div className="flex gap-2 justify-end pt-2">
+          <button className="btn-outline" onClick={onClose}>סגירה</button>
+          <button className="btn-primary bg-red-600 hover:bg-red-700" onClick={save} disabled={busy}>
+            <Ban size={14} /> {alsoLater.length ? `ביטול ${alsoLater.length + 1} שיעורים` : 'ביטול השיעור'}
+          </button>
         </div>
       </div>
     </div>

@@ -39,6 +39,7 @@ function WeekSlide({
   trackIds,
   tracks,
   teacherName,
+  cancelReason,
 }: {
   title: string;
   days: string[];
@@ -47,6 +48,8 @@ function WeekSlide({
   trackIds: Set<string>;
   tracks: Ref[];
   teacherName: (ids?: string[]) => string;
+  /** סיבת הביטול אם השיעור בוטל ביום הזה השבוע ('' = בוטל בלי סיבה), אחרת undefined */
+  cancelReason: (day: string, lessonId: string) => string | undefined;
 }) {
   return (
     <section className="h-full bg-white/80 rounded-2xl p-4 overflow-hidden shadow-md border border-amber-100 flex flex-col">
@@ -69,7 +72,9 @@ function WeekSlide({
                   {day} {isToday ? '(היום)' : ''}
                 </div>
                 <div className="flex flex-col gap-1">
-                  {dayLessons.map((l) => (
+                  {dayLessons.map((l) => {
+                    const reason = cancelReason(day, l.id);
+                    return (
                     <div
                       key={l.id}
                       className={`relative text-[11px] leading-tight rounded-md border overflow-hidden px-1.5 py-1 ${lessonColor(l, tracks)}`}
@@ -80,7 +85,7 @@ function WeekSlide({
                         </span>
                       )}
                       <div className="flex items-center justify-between gap-1">
-                        <span className="font-semibold truncate">{l.subject || l.className}</span>
+                        <span className={`font-semibold truncate ${reason !== undefined ? 'line-through opacity-60' : ''}`}>{l.subject || l.className}</span>
                         <span className="opacity-70 shrink-0">{l.time}</span>
                       </div>
                       <div className="opacity-80 truncate">
@@ -93,8 +98,14 @@ function WeekSlide({
                           <span className="truncate">{l.notes}</span>
                         </div>
                       )}
+                      {reason !== undefined && (
+                        <div className="mt-0.5 rounded bg-red-600 text-white px-1 py-0.5 font-bold text-center">
+                          בוטל{reason ? ` — ${reason}` : ''}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {dayLessons.length === 0 && <p className="text-navy-light/40 text-xs">אין שיעורים</p>}
                 </div>
               </div>
@@ -133,6 +144,8 @@ export function DisplayBoard() {
   const [teachers, setTeachers] = useState<Ref[]>([]);
   const [tracks, setTracks] = useState<Ref[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  // שיעורים שבוטלו: `${date}|${lessonId}` → סיבה
+  const [cancelled, setCancelled] = useState<Map<string, string>>(new Map());
   const [textAnnouncementIdx, setTextAnnouncementIdx] = useState(0);
   const [slideIdx, setSlideIdx] = useState(0);
   const [now, setNow] = useState(new Date());
@@ -159,6 +172,16 @@ export function DisplayBoard() {
         .catch(() => {});
     load();
     const interval = setInterval(load, SCHEDULE_POLL_MS);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const load = () =>
+      fetchJson<{ cancellations: { lessonId: string; date: string; reason: string | null }[] }>('/api/display/cancellations')
+        .then((d) => setCancelled(new Map(d.cancellations.map((c) => [`${c.date}|${c.lessonId}`, c.reason || '']))))
+        .catch(() => {});
+    load();
+    const interval = setInterval(load, ANNOUNCEMENT_POLL_MS);
     return () => clearInterval(interval);
   }, []);
 
@@ -223,6 +246,7 @@ export function DisplayBoard() {
     [lessons, todayIso]
   );
   const weekSunday = currentWeekSunday(now);
+  const weekCancelReason = (day: string, lessonId: string) => cancelled.get(`${weekDates(weekSunday)[day]}|${lessonId}`);
   const weekLessons = useMemo(() => {
     const dates = weekDates(weekSunday);
     return DAYS.flatMap((day) => lessonsForDate(lessons, dates[day]));
@@ -381,9 +405,19 @@ export function DisplayBoard() {
                                 </span>
                               )}
                               <div className="opacity-70 text-xs tabular-nums leading-tight">{item.lesson.time}</div>
-                              <div className="font-bold text-sm leading-tight break-words">
+                              <div
+                                className={`font-bold text-sm leading-tight break-words ${
+                                  cancelled.has(`${todayIso}|${item.lesson.id}`) ? 'line-through opacity-60' : ''
+                                }`}
+                              >
                                 {item.lesson.subject || item.lesson.className}
                               </div>
+                              {cancelled.has(`${todayIso}|${item.lesson.id}`) && (
+                                <div className="my-1 rounded-md bg-red-600 text-white px-2 py-1 text-sm font-black text-center animate-pulse">
+                                  בוטל
+                                  {cancelled.get(`${todayIso}|${item.lesson.id}`) ? ` — ${cancelled.get(`${todayIso}|${item.lesson.id}`)}` : ''}
+                                </div>
+                              )}
                               <div className="opacity-80 text-xs leading-tight break-words">
                                 {teacherName(item.lesson.teacher)} {item.lesson.room ? `· חדר ${item.lesson.room}` : ''}
                               </div>
@@ -418,6 +452,7 @@ export function DisplayBoard() {
             trackIds={yearATrackIds}
             tracks={tracks}
             teacherName={teacherName}
+            cancelReason={weekCancelReason}
           />
         )}
 
@@ -430,6 +465,7 @@ export function DisplayBoard() {
             trackIds={yearBTrackIds}
             tracks={tracks}
             teacherName={teacherName}
+            cancelReason={weekCancelReason}
           />
         )}
 

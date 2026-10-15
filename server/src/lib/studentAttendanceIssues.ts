@@ -2,6 +2,7 @@ import { airtableFetch, airtableBatchUpdate, airtableBatchDelete, TABLES, Airtab
 import { FIELDS } from './airtableFields';
 import { getFullSchedule } from './scheduleData';
 import { lessonsForDate } from './scheduleRules';
+import { getCancelledKeys } from './lessonCancellations';
 import { getHoliday } from './holidays';
 import { hebrewDate } from './hebrewDate';
 import { makeLessonNamer } from './studentAttendanceReport';
@@ -154,11 +155,12 @@ export async function getAttendanceIssues(from: string, to: string) {
   }
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
   const missing: MissingLesson[] = [];
+  const cancelled = await getCancelledKeys(from, to);
   for (const date of datesBetween(from, to < today ? to : today)) {
     const holiday = await getHoliday(date).catch(() => undefined);
     if (holiday?.type === 'full') continue;
     for (const l of lessonsForDate(schedule.lessons, date)) {
-      if (covered.has(`${date}|${l.id}`)) continue;
+      if (covered.has(`${date}|${l.id}`) || cancelled.has(`${date}|${l.id}`)) continue;
       for (const trackId of l.track || []) {
         missing.push({
           date,
