@@ -2,6 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requireAdmin } from '../middleware/auth';
+import { htmlToPdfBuffer } from '../lib/pdf';
+import { hourlyContractHtml, parseHourlyContractData, HourlyContractData } from '../lib/contractTemplate';
 
 const router = Router();
 router.use(requireAuth);
@@ -70,6 +72,57 @@ router.post('/uploadContract', requireAdmin, upload.single('contractFile'), asyn
   }
 });
 
+/** תצוגה מקדימה של חוזה מתבנית (PDF), בלי לשמור. */
+router.post('/templatePreview', requireAdmin, async (req, res) => {
+  try {
+    const data = parseHourlyContractData(req.body);
+    const pdf = await htmlToPdfBuffer(hourlyContractHtml(data, { createdAt: new Date() }));
+    res.set('Content-Type', 'application/pdf');
+    res.send(pdf);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'שגיאה ביצירת התצוגה המקדימה' });
+  }
+});
+
+/** יצירת חוזה מהתבנית לעובדת — נשלח לחתימה כמו חוזה שהועלה. */
+router.post('/createFromTemplate', requireAdmin, async (req, res) => {
+  try {
+    const { employeeId, title } = req.body as { employeeId?: string; title?: string };
+    const employee = employeeId ? await prisma.user.findUnique({ where: { id: employeeId }, select: { id: true, idNumber: true } }) : null;
+    if (!employee) return res.status(400).json({ error: 'יש לבחור עובדת' });
+    let data: HourlyContractData;
+    try {
+      data = parseHourlyContractData(req.body);
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+    const createdAt = new Date();
+    const pdf = await htmlToPdfBuffer(hourlyContractHtml(data, { createdAt }));
+    // ת"ז שהוקלדה בטופס נשמרת גם בכרטיס העובדת אם היה ריק
+    if (data.idNumber && !employee.idNumber) {
+      await prisma.user.update({ where: { id: employee.id }, data: { idNumber: data.idNumber } });
+    }
+    const contract = await prisma.contract.create({
+      data: {
+        title: title?.trim() || `הודעה בדבר תנאי עבודה — ${data.employeeName}`,
+        employeeId: employee.id,
+        amount: data.hourlyRate,
+        amountUnit: 'לשעה',
+        status: 'ממתין לחתימה',
+        uploadedAt: createdAt,
+        fileData: pdf,
+        fileMime: 'application/pdf',
+        fileName: `תנאי עבודה - ${data.employeeName}.pdf`,
+        templateData: data as any,
+      },
+      select: LIST_SELECT,
+    });
+    res.json({ success: true, contract });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה ביצירת החוזה' });
+  }
+});
+
 router.get('/:id/file', async (req, res) => {
   try {
     const contract = await prisma.contract.findUnique({ where: { id: req.params.id } });
@@ -91,9 +144,25 @@ router.post('/signContract', async (req, res) => {
     if (!contract) return res.status(404).json({ error: 'חוזה לא נמצא' });
     if (contract.employeeId !== req.user!.id) return res.status(403).json({ error: 'אין הרשאה' });
 
+    const signedAt = new Date();
+    // חוזה מתבנית — יוצרים מחדש את ה-PDF כשהחתימה בתוכו
+    let fileData: Buffer | undefined;
+    if (contract.templateData && signatureDataUrl) {
+      try {
+        fileData = await htmlToPdfBuffer(
+          hourlyContractHtml(contract.templateData as unknown as HourlyContractData, {
+            createdAt: contract.uploadedAt,
+            signature: signatureDataUrl,
+            signedAt,
+          })
+        );
+      } catch (err: any) {
+        console.error('שגיאה ביצירת PDF חתום (החתימה נשמרת בכל זאת):', err.message);
+      }
+    }
     const updated = await prisma.contract.update({
       where: { id: contractId },
-      data: { status: 'נחתם', employeeSignature: signatureDataUrl, signedAt: new Date() },
+      data: { status: 'נחתם', employeeSignature: signatureDataUrl, signedAt, ...(fileData ? { fileData } : {}) },
       select: LIST_SELECT,
     });
     res.json({ success: true, contract: updated });

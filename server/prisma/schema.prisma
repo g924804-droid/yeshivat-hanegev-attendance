@@ -161,6 +161,7 @@ model Contract {
   notes             String?
   amount            Float?    // הסכום בחוזה — להצגה ברשימת החוזים
   amountUnit        String?   // לשעה | לשיעור | לחודש | סה"כ
+  templateData      Json?     // חוזה שנוצר מתבנית — הנתונים שמולאו, כדי ליצור מחדש את ה-PDF עם החתימה
 }
 
 model ScheduleHistory {

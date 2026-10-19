@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileSignature, Upload, CheckCircle2, Clock, LogOut, Trash2 } from 'lucide-react';
+import { FileSignature, Upload, CheckCircle2, Clock, LogOut, Trash2, FilePlus2 } from 'lucide-react';
+import { TemplateContractModal } from '../components/TemplateContractModal';
 import { Layout } from '../components/Layout';
 import { SignaturePad, SignaturePadHandle } from '../components/SignaturePad';
 import { api } from '../lib/api';
@@ -32,6 +33,7 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
   const { user, refresh, logout } = useAuth();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [showUpload, setShowUpload] = useState(false);
+  const [showTemplate, setShowTemplate] = useState(false);
   const [signingId, setSigningId] = useState<string | null>(null);
 
   async function load() {
@@ -54,7 +56,10 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
       )}
 
       {isAdmin && !forced && (
-        <div className="flex justify-end mb-4">
+        <div className="flex justify-end gap-2 mb-4 flex-wrap">
+          <button className="btn-gold" onClick={() => setShowTemplate(true)}>
+            <FilePlus2 size={16} /> חוזה מתבנית (שעתי)
+          </button>
           <button className="btn-primary" onClick={() => setShowUpload(true)}>
             <Upload size={16} /> העלאת חוזה
           </button>
@@ -122,6 +127,16 @@ export function ContractsPage({ forced = false }: { forced?: boolean }) {
           onClose={() => setShowUpload(false)}
           onSaved={() => {
             setShowUpload(false);
+            load();
+          }}
+        />
+      )}
+
+      {showTemplate && (
+        <TemplateContractModal
+          onClose={() => setShowTemplate(false)}
+          onSaved={() => {
+            setShowTemplate(false);
             load();
           }}
         />
