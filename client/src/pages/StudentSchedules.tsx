@@ -218,7 +218,7 @@ export function StudentSchedules() {
               <div class="sub">מערכת שעות${withTemporary ? ` · שבוע ${esc(weekLabel)}` : ''} · הופק ב${esc(today)}</div>
               ${legend ? `<div class="legend">${legend}</div>` : tracksLine ? `<div class="sub">${esc(tracksLine)}</div>` : ''}
             </div>
-            <div class="brand">${logo}סמינר מאיר</div>
+            <div class="brand">${logo || 'סמינר מאיר'}</div>
           </div>
           ${
             body
