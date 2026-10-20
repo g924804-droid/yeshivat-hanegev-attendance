@@ -58,6 +58,17 @@ export function rowsOf(day: string, time: string): [number, number] {
   return [nearest, nearest];
 }
 
+/** שורות חלופיות לשיעור שתופס שורה אחת: כל השורות שהוא חופף להן, מהחפיפה הגדולה לקטנה. */
+function overlapRows(day: string, time: string): number[] {
+  const slots = daySlots(day);
+  const [s, e] = range(time);
+  return slots
+    .map(([a, b], i) => ({ i, o: Math.max(0, Math.min(b, e) - Math.max(a, s)) }))
+    .filter((x) => x.o > 0)
+    .sort((x, y) => y.o - x.o || x.i - y.i)
+    .map((x) => x.i);
+}
+
 export type GridCell<L> = { lessons: L[]; span: number } | 'covered' | null;
 
 /**
@@ -74,7 +85,19 @@ export function buildGrid<L extends { dayOfWeek: string; time: string }>(lessons
     const placed = lessons
       .filter((l) => l.dayOfWeek === day)
       .map((l) => ({ l, r: rowsOf(day, l.time) }))
-      .sort((a, b) => a.r[0] - b.r[0]);
+      .sort((a, b) => range(a.l.time)[0] - range(b.l.time)[0]);
+    // שני שיעורים בשעות שונות שנפלו לאותה שורה (למשל בשלישי 14:45-15:30 ו-15:30-16:15 —
+    // השני חופף בשווה לשביעי ולשמיני) — השני עובר לשורה פנויה אחרת שהוא חופף לה, אם יש.
+    const owner = new Map<number, string>();
+    for (const p of placed) {
+      const time = p.l.time.replace(/s/g, '');
+      if (p.r[0] === p.r[1] && owner.has(p.r[0]) && owner.get(p.r[0]) !== time) {
+        const alt = overlapRows(day, p.l.time).find((i) => !owner.has(i));
+        if (alt !== undefined) p.r = [alt, alt];
+      }
+      for (let r = p.r[0]; r <= p.r[1]; r++) if (!owner.has(r)) owner.set(r, time);
+    }
+    placed.sort((a, b) => a.r[0] - b.r[0]);
     const starts = new Set(placed.map((p) => p.r[0]));
     for (const row of Array.from(starts)) {
       const group = placed.filter((p) => p.r[0] === row);
