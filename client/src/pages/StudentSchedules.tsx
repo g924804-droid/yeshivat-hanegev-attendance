@@ -95,6 +95,8 @@ const PRINT_STYLE = `
   .l b { display: block; font-size: 14px; }
   .l .t { font-size: 12px; }
   .l small { font-size: 10.5px; opacity: .85; }
+  .note { margin-top: 8px; text-align: center; font-size: 15px; font-weight: bold; color: #0f172a;
+          background: #fef3c7; border: 1.5px solid #c9a227; border-radius: 8px; padding: 5px; }
 `;
 
 /** מגדיל/מקטין כל מערכת כך שתמלא בדיוק עמוד אחד — לא נחתכת לשני עמודים, ולא קטנה מדי כשיש מעט שיעורים. */
@@ -223,6 +225,7 @@ export function StudentSchedules() {
               ? `<table><thead><tr><th class="p"></th>${DAYS.map((d) => `<th>${d}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`
               : '<p>אין שיעורים במערכת למסלולים של התלמידה.</p>'
           }
+          <div class="note">שימי לב: המערכת עשויה להשתנות — יש להתעדכן בשינויים המופיעים במסך</div>
         </div></div>`;
       })
       .join('');
