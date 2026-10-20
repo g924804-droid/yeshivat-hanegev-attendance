@@ -52,8 +52,10 @@ export function rowsOf(day: string, time: string): [number, number] {
   if (hits.length) return [hits[0], hits[hits.length - 1]];
   const best = overlap.indexOf(Math.max(...overlap));
   if (overlap[best] > 0) return [best, best];
-  // לפני תחילת היום / אחרי סופו
-  return s < slots[0][0] ? [0, 0] : [slots.length - 1, slots.length - 1];
+  // לא חופף אף שורה (שיעור בזמן הפסקה, לפני/אחרי היום) — לשורה הקרובה ביותר, לא לשורה האחרונה
+  const gap = slots.map(([a, b]) => (s >= b ? s - b : a - e));
+  const nearest = gap.indexOf(Math.min(...gap));
+  return [nearest, nearest];
 }
 
 export type GridCell<L> = { lessons: L[]; span: number } | 'covered' | null;
