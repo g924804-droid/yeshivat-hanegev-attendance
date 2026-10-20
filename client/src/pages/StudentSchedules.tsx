@@ -225,7 +225,7 @@ export function StudentSchedules() {
               ? `<table><thead><tr><th class="p"></th>${DAYS.map((d) => `<th>${d}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`
               : '<p>אין שיעורים במערכת למסלולים של התלמידה.</p>'
           }
-          <div class="note">שימי לב: המערכת עשויה להשתנות — יש להתעדכן בשינויים המופיעים במסך</div>
+          <div class="note">באחריותך להתעדכן בכל יום במערכת המופיעה על המסך בכניסה.</div>
         </div></div>`;
       })
       .join('');
