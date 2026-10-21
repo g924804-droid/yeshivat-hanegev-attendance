@@ -276,8 +276,15 @@ model Expense {
   id             String          @id @default(cuid())
   categoryId     String
   category       ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  date           String // YYYY-MM-DD
-  payee          String // שם הרב / הספק
+  date           String // YYYY-MM-DD, או ריק אם באקסל היה רק תאריך עברי
+  hebrewDate     String? // תאריך עברי כפי שנכתב — רק כשאין תאריך לועזי (אחרת מחושב)
+  topic          String? // "נושא הפעילות" (מפגש אלולי, כנס פתיחה...) — כמה שורות לאותה פעילות
+  sortOrder      Float           @default(0) // סדר השורות כמו בגיליון
+  payee          String // שם בקבלה / שם הרב (יכול להיות ריק)
+  invoiceText    String? // חשבונית כקישור (למשל לקובץ ב-Google Drive מהאקסל)
+  invoiceUrl     String?
+  receiptText    String?
+  receiptUrl     String?
   details        String?
   paymentMethod  String?
   amount         Float?

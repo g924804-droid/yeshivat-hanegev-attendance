@@ -8,7 +8,13 @@ type ExpenseFile = { id: string; kind: 'invoice' | 'receipt'; fileName: string }
 type Expense = {
   id: string;
   date: string;
+  hebrewDate: string | null;
+  topic: string | null;
   payee: string;
+  invoiceText: string | null;
+  invoiceUrl: string | null;
+  receiptText: string | null;
+  receiptUrl: string | null;
   details: string | null;
   paymentMethod: string | null;
   amount: number | null;
@@ -89,15 +95,23 @@ export function ExpensesPage() {
     const q = search.trim();
     if (!q || !expenses) return expenses || [];
     return expenses.filter((e) =>
-      [e.payee, e.details, e.paymentMethod, e.accountDetails, e.notes, fmtDate(e.date), fmtDate(e.paymentDate || ''), ...e.files.map((f) => f.fileName)]
+      [e.topic, e.payee, e.details, e.paymentMethod, e.accountDetails, e.notes, e.invoiceText, e.receiptText, fmtDate(e.date), fmtDate(e.paymentDate || ''), ...e.files.map((f) => f.fileName)]
         .some((v) => v && v.includes(q))
     );
   }, [expenses, search]);
-  const payees = useMemo(() => Array.from(new Set((expenses || []).map((e) => e.payee))).sort((a, b) => a.localeCompare(b, 'he')), [expenses]);
+  const payees = useMemo(() => Array.from(new Set((expenses || []).map((e) => e.payee).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'he')), [expenses]);
+  const topics = useMemo(() => Array.from(new Set((expenses || []).map((e) => e.topic || '').filter(Boolean))), [expenses]);
+  const withTopic = topics.length > 0;
+  // סה"כ לכל נושא פעילות — מוצג בשורה הראשונה של הקבוצה
+  const topicTotals = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of expenses || []) if (e.topic) m.set(e.topic, (m.get(e.topic) || 0) + (e.amount || 0));
+    return m;
+  }, [expenses]);
   const totals = overview?.categories.reduce((s, c) => ({ budget: s.budget + c.budget, used: s.used + c.used }), { budget: 0, used: 0 });
 
   async function remove(e: Expense) {
-    if (!confirm(`למחוק את ההוצאה של ${e.payee} מ-${fmtDate(e.date)}?`)) return;
+    if (!confirm(`למחוק את ההוצאה "${e.payee || e.details || ''}"${e.date ? ` מ-${fmtDate(e.date)}` : ''}?`)) return;
     try {
       await api.delete(`/expenses/expenses/${e.id}`);
       reload();
@@ -214,7 +228,7 @@ export function ExpensesPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-600">
                   <tr>
-                    {['תאריך', 'תאריך עברי', 'שם הרב', 'פרוט', 'אופן תשלום', 'סכום לתשלום', 'חשבונית', 'פרטי חשבון', 'תאריך תשלום', 'קבלה', ''].map((h) => (
+                    {[...(withTopic ? ['נושא הפעילות'] : []), 'תאריך', 'תאריך עברי', 'שם בקבלה / שם הרב', 'פרוט', 'אופן תשלום', 'סכום לתשלום', 'חשבונית', 'פרטי חשבון', 'תאריך תשלום', 'קבלה', ''].map((h) => (
                       <th key={h} className="px-3 py-2.5 text-right font-medium whitespace-nowrap">
                         {h}
                       </th>
@@ -224,27 +238,39 @@ export function ExpensesPage() {
                 <tbody>
                   {expenses === null ? (
                     <tr>
-                      <td colSpan={11} className="px-3 py-6 text-center text-slate-400">
+                      <td colSpan={withTopic ? 12 : 11} className="px-3 py-6 text-center text-slate-400">
                         טוען...
                       </td>
                     </tr>
                   ) : !shown.length ? (
                     <tr>
-                      <td colSpan={11} className="px-3 py-6 text-center text-slate-400">
+                      <td colSpan={withTopic ? 12 : 11} className="px-3 py-6 text-center text-slate-400">
                         {search ? 'לא נמצאו הוצאות' : 'אין עדיין הוצאות בקטגוריה הזו'}
                       </td>
                     </tr>
                   ) : (
-                    shown.map((e) => (
-                      <tr key={e.id} className="border-t border-slate-100 hover:bg-slate-50/60 align-top">
+                    shown.map((e, i) => {
+                      const firstOfTopic = !!e.topic && shown[i - 1]?.topic !== e.topic;
+                      return (
+                      <tr key={e.id} className={`border-t hover:bg-slate-50/60 align-top ${firstOfTopic && i > 0 ? 'border-slate-300' : 'border-slate-100'}`}>
+                        {withTopic && (
+                          <td className="px-3 py-2">
+                            {firstOfTopic && (
+                              <>
+                                <p className="font-bold text-navy">{e.topic}</p>
+                                <p className="text-xs text-slate-500">סה"כ {shekel(topicTotals.get(e.topic!) || 0)}</p>
+                              </>
+                            )}
+                          </td>
+                        )}
                         <td className="px-3 py-2 whitespace-nowrap">{fmtDate(e.date)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{heDate(e.date)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{e.date ? heDate(e.date) : e.hebrewDate}</td>
                         <td className="px-3 py-2 font-medium text-navy">{e.payee}</td>
                         <td className="px-3 py-2">{e.details}</td>
                         <td className="px-3 py-2">{e.paymentMethod}</td>
                         <td className="px-3 py-2 whitespace-nowrap font-medium">{e.amount !== null ? shekel(e.amount) : ''}</td>
                         <td className="px-3 py-2">
-                          <FileLinks files={e.files.filter((f) => f.kind === 'invoice')} />
+                          <FileLinks files={e.files.filter((f) => f.kind === 'invoice')} text={e.invoiceText} url={e.invoiceUrl} />
                         </td>
                         <td className="px-3 py-2">
                           {e.accountDetails ||
@@ -254,7 +280,7 @@ export function ExpensesPage() {
                           {e.paymentDate ? fmtDate(e.paymentDate) : <span className="text-slate-400 text-xs">טרם שולם</span>}
                         </td>
                         <td className="px-3 py-2">
-                          <FileLinks files={e.files.filter((f) => f.kind === 'receipt')} />
+                          <FileLinks files={e.files.filter((f) => f.kind === 'receipt')} text={e.receiptText} url={e.receiptUrl} />
                           {e.notes && <p className="text-xs text-slate-400 mt-1">{e.notes}</p>}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap">
@@ -266,7 +292,8 @@ export function ExpensesPage() {
                           </button>
                         </td>
                       </tr>
-                    ))
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -280,6 +307,7 @@ export function ExpensesPage() {
           expense={editing === 'new' ? null : editing}
           categoryId={category.id}
           payees={payees}
+          topics={topics}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -323,9 +351,17 @@ function SummaryCard({ label, value, tone }: { label: string; value: string; ton
   );
 }
 
-function FileLinks({ files }: { files: ExpenseFile[] }) {
+function FileLinks({ files, text, url }: { files: ExpenseFile[]; text?: string | null; url?: string | null }) {
   return (
     <div className="space-y-0.5">
+      {url ? (
+        <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-700 hover:underline" title="קישור מהאקסל">
+          <Paperclip size={13} className="shrink-0" />
+          <span className="truncate max-w-[150px]">{text || 'קישור'}</span>
+        </a>
+      ) : (
+        text && <span className="text-slate-600">{text}</span>
+      )}
       {files.map((f) => (
         <a key={f.id} href={`/api/expenses/files/${f.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-700 hover:underline">
           <Paperclip size={13} className="shrink-0" />
@@ -340,18 +376,26 @@ function ExpenseModal({
   expense,
   categoryId,
   payees,
+  topics,
   onClose,
   onSaved,
 }: {
   expense: Expense | null;
   categoryId: string;
   payees: string[];
+  topics: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [form, setForm] = useState({
-    date: expense?.date || new Date().toISOString().slice(0, 10),
+    date: expense ? expense.date : new Date().toISOString().slice(0, 10),
+    hebrewDate: expense?.hebrewDate || '',
+    topic: expense?.topic || '',
     payee: expense?.payee || '',
+    invoiceText: expense?.invoiceText || '',
+    invoiceUrl: expense?.invoiceUrl || '',
+    receiptText: expense?.receiptText || '',
+    receiptUrl: expense?.receiptUrl || '',
     details: expense?.details || '',
     paymentMethod: expense?.paymentMethod || '',
     amount: expense?.amount != null ? String(expense.amount) : '',
@@ -369,6 +413,8 @@ function ExpenseModal({
   const needsAccount = isTransfer(form.paymentMethod) && !form.accountDetails.trim();
 
   async function save() {
+    if (!form.date && !form.hebrewDate && !form.topic.trim()) return setError('חסר תאריך');
+    if (!form.payee.trim() && !form.details.trim()) return setError('חסר שם בקבלה או פרוט');
     if (needsAccount) return setError('בתשלום בהעברה חובה למלא פרטי חשבון');
     setSaving(true);
     setError(null);
@@ -400,6 +446,20 @@ function ExpenseModal({
   const fileSection = (kind: 'invoice' | 'receipt', label: string, onPick: (f: FileList | null) => void) => (
     <div>
       <label className="label">{label}</label>
+      {form[`${kind}Url`] && (
+        <div className="flex items-center gap-2 text-sm mb-1">
+          <a href={form[`${kind}Url`]} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline truncate">
+            <Paperclip size={13} className="inline" /> {form[`${kind}Text`] || 'קישור'} (מהאקסל)
+          </a>
+          <button
+            className="text-red-600 hover:bg-red-50 rounded p-0.5"
+            title="הסרת הקישור"
+            onClick={() => setForm({ ...form, [`${kind}Url`]: '', [`${kind}Text`]: '' })}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
       {files
         .filter((f) => f.kind === kind)
         .map((f) => (
@@ -424,7 +484,7 @@ function ExpenseModal({
           <div>
             <label className="label">תאריך *</label>
             <input type="date" className="input" value={form.date} onChange={set('date')} />
-            <p className="text-xs text-slate-400 mt-1">{heDate(form.date)}</p>
+            <p className="text-xs text-slate-400 mt-1">{form.date ? heDate(form.date) : form.hebrewDate}</p>
           </div>
           <div>
             <label className="label">סכום לתשלום (₪)</label>
@@ -432,7 +492,16 @@ function ExpenseModal({
           </div>
         </div>
         <div>
-          <label className="label">שם הרב / הספק *</label>
+          <label className="label">נושא הפעילות</label>
+          <input className="input" list="expense-topics" value={form.topic} onChange={set('topic')} placeholder="למשל: כנס פתיחה (לא חובה)" />
+          <datalist id="expense-topics">
+            {topics.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
+        </div>
+        <div>
+          <label className="label">שם בקבלה / שם הרב</label>
           <input className="input" list="expense-payees" value={form.payee} onChange={set('payee')} />
           <datalist id="expense-payees">
             {payees.map((p) => (

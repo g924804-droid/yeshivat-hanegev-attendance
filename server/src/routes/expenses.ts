@@ -54,19 +54,34 @@ function parseDate(v: unknown): string {
 
 const isTransfer = (method: string | null) => !!method && method.includes('העברה');
 
-/** strict = שמירה מהטופס: בהעברה בנקאית חובה פרטי חשבון. בייבוא מהאקסל הישן לא חוסמים — השורה תסומן במסך כחסרה. */
+const url = (v: unknown) => {
+  const s = str(v, 1000);
+  return s && (s.toLowerCase().startsWith('http://') || s.toLowerCase().startsWith('https://')) ? s : null;
+};
+
+/**
+ * strict = שמירה מהטופס: חובה תאריך ושם/פרוט, ובהעברה בנקאית חובה פרטי חשבון. בייבוא מהאקסל
+ * הישן לא חוסמים — שורה בלי פרטי חשבון תסומן במסך כחסרה.
+ */
 function expenseData(body: any, strict = true) {
   const date = parseDate(body.date);
-  const payee = str(body.payee, 200);
-  if (!date) throw new Error('חסר תאריך');
-  if (!payee) throw new Error('חסר שם (הרב / הספק)');
+  const payee = str(body.payee, 200) || '';
+  const details = str(body.details);
+  if (strict && !date && !str(body.hebrewDate) && !str(body.topic)) throw new Error('חסר תאריך');
+  if (strict && !payee && !details) throw new Error('חסר שם בקבלה או פרוט');
   const paymentMethod = str(body.paymentMethod, 100);
   const accountDetails = str(body.accountDetails);
   if (strict && isTransfer(paymentMethod) && !accountDetails) throw new Error('בתשלום בהעברה חובה למלא פרטי חשבון');
   return {
     date,
+    hebrewDate: date ? null : str(body.hebrewDate, 60),
+    topic: str(body.topic, 150),
     payee,
-    details: str(body.details),
+    details,
+    invoiceText: str(body.invoiceText),
+    invoiceUrl: url(body.invoiceUrl),
+    receiptText: str(body.receiptText),
+    receiptUrl: url(body.receiptUrl),
     paymentMethod,
     amount: parseAmount(body.amount),
     accountDetails,
@@ -168,7 +183,7 @@ router.get('/list', async (req, res) => {
   try {
     const expenses = await prisma.expense.findMany({
       where: { categoryId: String(req.query.categoryId || '') },
-      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       include: { files: { select: FILE_META, orderBy: { createdAt: 'asc' } } },
     });
     res.json({ expenses });
@@ -181,8 +196,15 @@ router.post('/expenses', expenseFiles, async (req, res) => {
   try {
     const category = await prisma.expenseCategory.findUnique({ where: { id: String(req.body.categoryId || '') } });
     if (!category) return res.status(400).json({ error: 'לא נבחרה קטגוריה' });
+    const data = expenseData(req.body);
+    // שורה חדשה נכנסת בסוף הקבוצה של אותו נושא פעילות (כמו באקסל), אחרת בסוף הרשימה
+    const last = await prisma.expense.findFirst({
+      where: { categoryId: category.id, ...(data.topic ? { topic: data.topic } : {}) },
+      orderBy: { sortOrder: 'desc' },
+    });
+    const sortOrder = last ? last.sortOrder + (data.topic ? 0.001 : 1) : 0;
     const created = await prisma.expense.create({
-      data: { ...expenseData(req.body), categoryId: category.id, createdBy: req.user!.name },
+      data: { ...data, sortOrder, categoryId: category.id, createdBy: req.user!.name },
     });
     await saveFiles(req, created.id);
     res.json({ success: true, expense: await loadExpense(created.id) });
@@ -233,10 +255,15 @@ router.delete('/files/:id', async (req, res) => {
 
 // ---------- ייבוא מהאקסל / CSV הקיים ----------
 
-type Cell = string | number | Date | null;
-type ParsedRow = ReturnType<typeof expenseData>;
+type Link = { text: string; url: string };
+type Cell = string | number | Date | Link | null;
+type ParsedRow = ReturnType<typeof expenseData> & { sortOrder: number };
 
-function parseCsv(text: string): string[][] {
+const isLink = (c: Cell): c is Link => !!c && typeof c === 'object' && !(c instanceof Date) && 'url' in c;
+const cellText = (c: Cell) => (c instanceof Date ? c.toISOString().slice(0, 10) : isLink(c) ? c.text : String(c ?? '').trim());
+const cellDate = (c: Cell) => parseDate(isLink(c) ? c.text : c);
+
+export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cur = '';
@@ -263,64 +290,158 @@ function cellValue(v: ExcelJS.CellValue): Cell {
   if (v === null || v === undefined) return null;
   if (v instanceof Date || typeof v === 'number' || typeof v === 'string') return v;
   if (typeof v === 'object') {
-    if ('result' in v) return cellValue((v as any).result);
-    if ('richText' in v) return (v as any).richText.map((t: any) => t.text).join('');
-    if ('text' in v) return String((v as any).text);
+    const o = v as any;
+    if ('hyperlink' in o) {
+      const text = o.text && typeof o.text === 'object' && o.text.richText ? o.text.richText.map((t: any) => t.text).join('') : String(o.text ?? '');
+      return { text: text.trim(), url: String(o.hyperlink) };
+    }
+    if ('result' in o) return cellValue(o.result);
+    if ('richText' in o) return o.richText.map((t: any) => t.text).join('');
+    if ('text' in o) return String(o.text);
+    if ('formula' in o) return null; // נוסחה בלי תוצאה שמורה
   }
   return String(v);
 }
 
-/** גיליון בפורמט של קובץ ההוצאות: שורת "תקציב שנתי" (לא חובה), שורת כותרות, ואז השורות. */
-function parseSheet(rows: Cell[][]): { budget: number | null; rows: ParsedRow[] } {
-  const text = (c: Cell) => (c instanceof Date ? c.toISOString() : String(c ?? '').trim());
+/** קורא גיליון אקסל (ExcelJS) לטבלת תאים. */
+export function sheetRows(ws: ExcelJS.Worksheet): Cell[][] {
+  const rows: Cell[][] = [];
+  ws.eachRow({ includeEmpty: true }, (row) => rows.push((row.values as ExcelJS.CellValue[]).slice(1).map(cellValue)));
+  return rows;
+}
+
+/**
+ * גיליון בפורמט של קובץ ההוצאות: שורת "תקציב שנתי" (לא חובה), שורת כותרות, ואז השורות. לכל
+ * גיליון סדר עמודות אחר, אז העמודות מזוהות לפי שם הכותרת. בגיליון עם "נושא הפעילות" כמה שורות
+ * שייכות לאותה פעילות (הנושא כתוב רק בשורה הראשונה), והתאריך כתוב פעם אחת לכל הקבוצה — לפעמים
+ * עברי בשורה אחת ולועזי בשורה שאחריה.
+ */
+export function parseSheet(rows: Cell[][]): { budget: number | null; hasHeader: boolean; rows: ParsedRow[] } {
   let budget: number | null = null;
   for (const r of rows.slice(0, 3)) {
-    const i = r.findIndex((c) => text(c).includes('תקציב'));
-    if (i !== -1) budget = r.slice(i + 1).map(parseAmount).find((n) => n !== null) ?? null;
+    const i = r.findIndex((c) => cellText(c).includes('תקציב'));
+    // הראשון בלבד — בשורה 3 יש לפעמים טבלת "תקציב פעילויות" בצד
+    if (i !== -1 && budget === null) budget = r.slice(i + 1).map((c) => (isLink(c) ? null : parseAmount(c))).find((n) => n !== null) ?? null;
   }
-  const headerIdx = rows.findIndex((r) => r.some((c) => text(c) === 'תאריך') && r.filter((c) => text(c)).length >= 3);
-  if (headerIdx === -1) return { budget, rows: [] };
-  const header = rows[headerIdx].map(text);
+  const headerIdx = rows.findIndex((r) => r.some((c) => cellText(c) === 'תאריך') && r.filter((c) => cellText(c)).length >= 3);
+  if (headerIdx === -1) return { budget, hasHeader: false, rows: [] };
+  const header = rows[headerIdx].map(cellText);
   const col = (test: (h: string) => boolean) => header.findIndex(test);
   const cols = {
+    topic: col((h) => h.includes('נושא')),
     date: col((h) => h === 'תאריך'),
+    hebrew: col((h) => h.includes('תאריך עברי')),
     payee: col((h) => h.includes('שם')),
     details: col((h) => h.includes('פרוט') || h.includes('פירוט')),
     method: col((h) => h.includes('אופן')),
     amount: col((h) => h.includes('סכום')),
     invoice: col((h) => h.includes('חשבונית')),
-    account: col((h) => h.includes('פרטי חשבון')),
-    payment: col((h) => h === 'תשלום' || h === 'תאריך תשלום'),
-    receipt: col((h) => h.includes('קבלה')),
+    account: col((h) => h.includes('פרטי חשבון') || h.includes('פרטי בנק')),
+    payment: col((h) => h === 'תשלום' || h.includes('תאריך תשלום') || h.includes('בוצעה העברה')),
+    receipt: col((h) => h === 'קבלה'), // לא "שם בקבלה"
   };
-  const get = (r: Cell[], i: number) => (i === -1 ? null : r[i] ?? null);
-  const out: ParsedRow[] = [];
+  // תאים מחוץ לטבלה (למשל טבלת "תקציב פעילויות" בצד) לא נקראים
+  const get = (r: Cell[], i: number): Cell => (i === -1 || i >= header.length ? null : r[i] ?? null);
+  const linkOf = (c: Cell) => (isLink(c) ? c.url : null);
+
+  const raws: { r: Cell[]; group: number; topic: string | null }[] = [];
+  let topic: string | null = null;
+  let group = 0;
   for (const r of rows.slice(headerIdx + 1)) {
-    const date = parseDate(get(r, cols.date));
-    const payee = text(get(r, cols.payee));
-    if (!date || !payee) continue;
-    // עמודת "תשלום" באקסל: אם יש בה תאריך — זה תאריך התשלום, אחרת נשמרת כהערה
-    const payment = get(r, cols.payment);
-    const paymentDate = parseDate(payment);
-    const notes = [
-      text(payment) && !paymentDate && `תשלום: ${text(payment)}`,
-      text(get(r, cols.invoice)) && `חשבונית: ${text(get(r, cols.invoice))}`,
-      text(get(r, cols.receipt)) && `קבלה: ${text(get(r, cols.receipt))}`,
-    ].filter(Boolean).join(' · ');
-    out.push(
-      expenseData({
-        date,
-        payee,
-        details: get(r, cols.details),
-        paymentMethod: get(r, cols.method),
-        amount: get(r, cols.amount),
-        accountDetails: get(r, cols.account),
-        paymentDate,
-        notes,
-      }, false)
-    );
+    const t = cellText(get(r, cols.topic));
+    if (t) {
+      topic = t;
+      group++;
+    }
+    raws.push({ r, group, topic });
   }
-  return { budget, rows: out };
+  // תאריך לקבוצה: הלועזי הראשון שמופיע בה, והעברי הראשון שנכתב בה
+  const groupDate = new Map<number, { date: string; hebrew: string }>();
+  if (cols.topic !== -1) {
+    for (const { r, group: g } of raws) {
+      const cur = groupDate.get(g) || { date: '', hebrew: '' };
+      const d = get(r, cols.date);
+      const iso = cellDate(d);
+      if (iso && !cur.date) cur.date = iso;
+      else if (!iso && cellText(d) && !cur.hebrew) cur.hebrew = cellText(d);
+      groupDate.set(g, cur);
+    }
+  }
+
+  const out: ParsedRow[] = [];
+  raws.forEach(({ r, group: g, topic: rowTopic }, idx) => {
+    const payee = cellText(get(r, cols.payee));
+    const details = cellText(get(r, cols.details));
+    const amountCell = get(r, cols.amount);
+    const amount = isLink(amountCell) ? null : parseAmount(amountCell);
+    if (!payee && !details && amount === null) return;
+    const dCell = get(r, cols.date);
+    let date = cellDate(dCell);
+    let hebrew = cellText(get(r, cols.hebrew)) || (date ? '' : cellText(dCell));
+    if (cols.topic !== -1) {
+      const gd = groupDate.get(g)!;
+      date = date || gd.date;
+      hebrew = hebrew || gd.hebrew;
+    }
+    // עמודת התשלום: אם יש בה תאריך — זה תאריך התשלום, אחרת נשמרת כהערה ("לברר האם שילמו")
+    const payment = get(r, cols.payment);
+    const paymentDate = cellDate(payment);
+    const invoice = get(r, cols.invoice);
+    const receipt = get(r, cols.receipt);
+    out.push({
+      ...expenseData(
+        {
+          date,
+          hebrewDate: hebrew,
+          topic: rowTopic,
+          payee,
+          details,
+          paymentMethod: cellText(get(r, cols.method)),
+          amount,
+          accountDetails: cellText(get(r, cols.account)),
+          paymentDate,
+          invoiceText: cellText(invoice),
+          invoiceUrl: linkOf(invoice),
+          receiptText: cellText(receipt),
+          receiptUrl: linkOf(receipt),
+          notes: cellText(payment) && !paymentDate ? `תשלום: ${cellText(payment)}` : '',
+        },
+        false
+      ),
+      sortOrder: idx,
+    });
+  });
+  return { budget, hasHeader: true, rows: out };
+}
+
+/** מכניס גיליון אחד לקטגוריה (יוצר אותה אם צריך). ייבוא חוזר של אותו קובץ לא מכפיל שורות. */
+export async function importSheet(year: string, name: string, rows: Cell[][], createdBy: string) {
+  const parsed = parseSheet(rows);
+  if (!parsed.hasHeader && parsed.budget === null) return null;
+  let category = await prisma.expenseCategory.findUnique({ where: { year_name: { year, name } } });
+  if (!category) {
+    const count = await prisma.expenseCategory.count({ where: { year } });
+    category = await prisma.expenseCategory.create({ data: { year, name, budget: parsed.budget || 0, sortOrder: count } });
+  } else if (!category.budget && parsed.budget) {
+    category = await prisma.expenseCategory.update({ where: { id: category.id }, data: { budget: parsed.budget } });
+  }
+  const existing = await prisma.expense.findMany({ where: { categoryId: category.id } });
+  const key = (e: { topic: string | null; date: string; payee: string; amount: number | null; details: string | null }) =>
+    [e.topic ?? '', e.date, e.payee, e.amount ?? '', e.details ?? ''].join('|');
+  const seen = new Set(existing.map(key));
+  const base = existing.reduce((m, e) => Math.max(m, e.sortOrder + 1), 0);
+  let imported = 0;
+  let skipped = 0;
+  for (const row of parsed.rows) {
+    if (seen.has(key(row))) {
+      skipped++;
+      continue;
+    }
+    seen.add(key(row));
+    await prisma.expense.create({ data: { ...row, sortOrder: base + row.sortOrder, categoryId: category.id, createdBy } });
+    imported++;
+  }
+  return { category: category.name, imported, skipped };
 }
 
 router.post('/import', upload.single('file'), async (req, res) => {
@@ -333,14 +454,7 @@ router.post('/import', upload.single('file'), async (req, res) => {
     if (/\.xlsx$/i.test(fileName)) {
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(req.file.buffer as any);
-      wb.eachSheet((ws) => {
-        const rows: Cell[][] = [];
-        ws.eachRow({ includeEmpty: true }, (row) => {
-          const values = row.values as ExcelJS.CellValue[];
-          rows.push(values.slice(1).map(cellValue));
-        });
-        sheets.push({ name: ws.name.trim(), rows });
-      });
+      wb.eachSheet((ws) => sheets.push({ name: ws.name.trim(), rows: sheetRows(ws) }));
     } else if (/\.csv$/i.test(fileName)) {
       // שם הקטגוריה: מה שנבחר בטופס, אחרת מה שבסוגריים בשם הקובץ ("הוצאות תשפ_ז(הרצאות).csv")
       const name = str(req.body.categoryName, 100) || fileName.match(/\(([^)]+)\)/)?.[1]?.trim() || 'כללי';
@@ -349,33 +463,10 @@ router.post('/import', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'אפשר לייבא רק קובץ Excel (xlsx) או CSV' });
     }
 
-    const summary: { category: string; imported: number; skipped: number }[] = [];
+    const summary = [];
     for (const sheet of sheets) {
-      const parsed = parseSheet(sheet.rows);
-      if (!parsed.rows.length && parsed.budget === null) continue;
-      let category = await prisma.expenseCategory.findUnique({ where: { year_name: { year, name: sheet.name } } });
-      if (!category) {
-        const count = await prisma.expenseCategory.count({ where: { year } });
-        category = await prisma.expenseCategory.create({
-          data: { year, name: sheet.name, budget: parsed.budget || 0, sortOrder: count },
-        });
-      } else if (!category.budget && parsed.budget) {
-        category = await prisma.expenseCategory.update({ where: { id: category.id }, data: { budget: parsed.budget } });
-      }
-      // ייבוא חוזר של אותו קובץ לא מכפיל שורות שכבר קיימות
-      const existing = await prisma.expense.findMany({ where: { categoryId: category.id } });
-      const key = (e: { date: string; payee: string; amount: number | null; details: string | null }) =>
-        [e.date, e.payee, e.amount ?? '', e.details ?? ''].join('|');
-      const seen = new Set(existing.map(key));
-      let imported = 0;
-      let skipped = 0;
-      for (const row of parsed.rows) {
-        if (seen.has(key(row))) { skipped++; continue; }
-        seen.add(key(row));
-        await prisma.expense.create({ data: { ...row, categoryId: category.id, createdBy: req.user!.name } });
-        imported++;
-      }
-      summary.push({ category: category.name, imported, skipped });
+      const r = await importSheet(year, sheet.name, sheet.rows, req.user!.name);
+      if (r) summary.push(r);
     }
     if (!summary.length) return res.status(400).json({ error: 'לא נמצאה בקובץ שורת כותרות (תאריך, שם, סכום...)' });
     res.json({ success: true, summary });
@@ -394,7 +485,7 @@ router.get('/exportExcel', async (req, res) => {
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       include: {
         expenses: {
-          orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
           include: { files: { select: { id: true, kind: true, fileName: true } } },
         },
       },
@@ -426,36 +517,62 @@ router.get('/exportExcel', async (req, res) => {
       ws.views = [{ rightToLeft: true, state: 'frozen', ySplit: 2 }];
       ws.addRow(['תקציב שנתי:', c.budget, 'עד כה נוצל', used(c), '', 'יתרה לניצול', c.budget - used(c)]).font = { bold: true };
       [2, 4, 7].forEach((i) => (ws.getRow(1).getCell(i).numFmt = '₪#,##0.00'));
-      const header = ws.addRow(['תאריך', 'תאריך עברי', 'שם הרב', 'פרוט', 'אופן תשלום', 'סכום לתשלום', 'חשבונית', 'פרטי חשבון', 'תאריך תשלום', 'קבלה', 'הערות']);
+      const withTopic = c.expenses.some((e) => e.topic);
+      const columns: { title: string; width: number }[] = [
+        ...(withTopic ? [{ title: 'נושא הפעילות', width: 18 }] : []),
+        { title: 'תאריך', width: 12 },
+        { title: 'תאריך עברי', width: 20 },
+        { title: 'שם בקבלה / שם הרב', width: 22 },
+        { title: 'פרוט', width: 22 },
+        { title: 'אופן תשלום', width: 12 },
+        { title: 'סכום לתשלום', width: 14 },
+        { title: 'חשבונית', width: 24 },
+        { title: 'פרטי חשבון', width: 22 },
+        { title: 'תאריך תשלום', width: 14 },
+        { title: 'קבלה', width: 24 },
+        { title: 'הערות', width: 30 },
+      ];
+      const header = ws.addRow(columns.map((x) => x.title));
       header.font = { bold: true, color: { argb: 'FFF1C40F' } };
       header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
-      [12, 20, 22, 22, 12, 14, 24, 22, 16, 24, 30].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+      columns.forEach((x, i) => (ws.getColumn(i + 1).width = x.width));
+      const at = (title: string) => columns.findIndex((x) => x.title === title) + 1;
+
+      let prevTopic: string | null = null;
       for (const e of c.expenses) {
-        const filesOf = (kind: string) => e.files.filter((f) => f.kind === kind);
-        const row = ws.addRow([
-          e.date ? new Date(`${e.date}T00:00:00Z`) : '',
-          e.date ? hebrewDate(e.date) : '',
-          e.payee,
-          e.details || '',
-          e.paymentMethod || '',
-          e.amount ?? '',
-          filesOf('invoice').map((f) => f.fileName).join(', '),
-          e.accountDetails || '',
-          e.paymentDate ? new Date(`${e.paymentDate}T00:00:00Z`) : '',
-          filesOf('receipt').map((f) => f.fileName).join(', '),
-          e.notes || '',
-        ]);
-        row.getCell(1).numFmt = 'dd/mm/yyyy';
-        row.getCell(9).numFmt = 'dd/mm/yyyy';
-        row.getCell(6).numFmt = '₪#,##0.00';
-        // קישור לקובץ הראשון — נפתח באתר (צריך להיות מחוברת)
-        ([[7, 'invoice'], [10, 'receipt']] as const).forEach(([i, kind]) => {
-          const f = filesOf(kind)[0];
-          if (f) {
-            row.getCell(i).value = { text: filesOf(kind).map((x) => x.fileName).join(', '), hyperlink: `${base}/api/expenses/files/${f.id}` };
-            row.getCell(i).font = { color: { argb: 'FF2563EB' }, underline: true };
-          }
-        });
+        const values: Record<string, any> = {
+          'נושא הפעילות': e.topic && e.topic !== prevTopic ? e.topic : '',
+          'תאריך': e.date ? new Date(`${e.date}T00:00:00Z`) : '',
+          'תאריך עברי': e.date ? hebrewDate(e.date) : e.hebrewDate || '',
+          'שם בקבלה / שם הרב': e.payee,
+          'פרוט': e.details || '',
+          'אופן תשלום': e.paymentMethod || '',
+          'סכום לתשלום': e.amount ?? '',
+          'פרטי חשבון': e.accountDetails || '',
+          'תאריך תשלום': e.paymentDate ? new Date(`${e.paymentDate}T00:00:00Z`) : '',
+          'הערות': e.notes || '',
+        };
+        prevTopic = e.topic;
+        const row = ws.addRow(columns.map((x) => values[x.title] ?? ''));
+        row.getCell(at('תאריך')).numFmt = 'dd/mm/yyyy';
+        row.getCell(at('תאריך תשלום')).numFmt = 'dd/mm/yyyy';
+        row.getCell(at('סכום לתשלום')).numFmt = '₪#,##0.00';
+        if (values['נושא הפעילות']) row.getCell(1).font = { bold: true };
+        // חשבונית/קבלה: קבצים שהועלו (נפתחים באתר) או הקישור מהאקסל המקורי
+        const fileCells = [
+          ['חשבונית', 'invoice', e.invoiceText, e.invoiceUrl],
+          ['קבלה', 'receipt', e.receiptText, e.receiptUrl],
+        ] as const;
+        for (const [title, kind, text, link] of fileCells) {
+          const files = e.files.filter((f) => f.kind === kind);
+          const label = [text, ...files.map((f) => f.fileName)].filter(Boolean).join(', ');
+          const href = files[0] ? `${base}/api/expenses/files/${files[0].id}` : link;
+          const cell = row.getCell(at(title));
+          if (href) {
+            cell.value = { text: label || 'קובץ', hyperlink: href };
+            cell.font = { color: { argb: 'FF2563EB' }, underline: true };
+          } else cell.value = label;
+        }
       }
     }
 
