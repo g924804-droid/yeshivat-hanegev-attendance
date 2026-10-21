@@ -22,6 +22,7 @@ type Lesson = {
   room: string;
   fromDate?: string | null;
   toDate?: string | null;
+  everyTwoWeeks?: boolean;
 };
 type Ref = { id: string; name: string };
 type Student = { id: string; name: string; trackIds: string[] };
@@ -142,7 +143,7 @@ export function StudentSchedules() {
     return DAYS.flatMap((day) =>
       withTemporary
         ? lessonsForDate(data.lessons, dates[day])
-        : data.lessons.filter((l) => l.dayOfWeek === day && !l.toDate && lessonAppliesOnDate(l, dates[day]))
+        : data.lessons.filter((l) => l.dayOfWeek === day && !l.toDate && lessonAppliesOnDate(l, dates[day], { ignoreRotation: true }))
     );
   }, [data, dates, withTemporary]);
 
@@ -182,7 +183,7 @@ export function StudentSchedules() {
     }
     const today = toHebrewDateString(new Date());
     const lessonHtml = (l: Lesson, row: number) => {
-      const extra = [timeNote(l, row), l.room, l.toDate ? `זמני עד ${shortDate(l.toDate)}` : ''].filter(Boolean).join(' · ');
+      const extra = [timeNote(l, row), l.room, l.toDate ? `זמני עד ${shortDate(l.toDate)}` : '', l.everyTwoWeeks ? 'כל שבועיים' : ''].filter(Boolean).join(' · ');
       return `<b>${esc(l.subject || l.className)}</b>${teacherName(l.teacher) ? `<div class="t">${esc(teacherName(l.teacher))}</div>` : ''}${
         extra ? `<small>${esc(extra)}</small>` : ''
       }`;

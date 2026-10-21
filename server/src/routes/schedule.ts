@@ -21,7 +21,7 @@ router.get('/getSchedule', async (req, res) => {
 
 router.post('/updateScheduleLesson', async (req, res) => {
   try {
-    const { id, className, subject, dayOfWeek, time, trackIds, teacherIds, room, year, notes, fromDate, toDate } =
+    const { id, className, subject, dayOfWeek, time, trackIds, teacherIds, room, year, notes, fromDate, toDate, everyTwoWeeks } =
       req.body as {
         id?: string;
         className: string;
@@ -35,6 +35,7 @@ router.post('/updateScheduleLesson', async (req, res) => {
         notes?: string;
         fromDate: string;
         toDate?: string;
+        everyTwoWeeks?: boolean;
       };
     if (!fromDate) return res.status(400).json({ error: 'חובה לרשום תאריך התחלה' });
     if (!trackIds?.length) return res.status(400).json({ error: 'חובה לבחור לפחות מסלול אחד' });
@@ -68,13 +69,24 @@ router.post('/updateScheduleLesson', async (req, res) => {
       changeType = 'create';
     }
 
+    // רוטציה "כל שבועיים" — רק לשיעור קבוע (שיעור זמני עם "עד תאריך" לא צריך)
+    if (everyTwoWeeks && !toDate) {
+      await prisma.lessonRotation.upsert({
+        where: { lessonId: record.id },
+        create: { lessonId: record.id, everyTwoWeeks: true },
+        update: { everyTwoWeeks: true },
+      });
+    } else {
+      await prisma.lessonRotation.deleteMany({ where: { lessonId: record.id } });
+    }
+
     // השיעור כבר נשמר בהצלחה ב-Airtable בשלב הזה — רישום ההיסטוריה הוא תיעוד נלווה, לא
     // חלק מהפעולה עצמה. אם כתיבה זו נכשלת (למשל תקלת חיבור זמנית ל-DB המקומי, שקורה מדי
     // פעם), אסור שזה יגרום למשתמשת לראות "נכשל" על שינוי שבפועל כבר הצליח ונשמר.
     try {
       await prisma.scheduleHistory.create({
         data: {
-          description: `${changeType === 'create' ? 'נוצר' : 'עודכן'} שיעור: ${className} — ${dayOfWeek} ${time} (${fromDate}${toDate ? ` עד ${toDate}` : ''})`,
+          description: `${changeType === 'create' ? 'נוצר' : 'עודכן'} שיעור: ${className} — ${dayOfWeek} ${time} (${fromDate}${toDate ? ` עד ${toDate}` : ''})${everyTwoWeeks && !toDate ? ' · כל שבועיים' : ''}`,
           changedBy: req.user!.name,
           changeType,
           lessonId: record.id,
@@ -108,6 +120,7 @@ router.post('/deleteScheduleLesson', async (req, res) => {
     if (!record) return res.status(404).json({ error: 'שיעור לא נמצא' });
 
     await airtableDelete(TABLES.lessons, id);
+    await prisma.lessonRotation.deleteMany({ where: { lessonId: id } }).catch(() => {});
 
     const className = record.fields[FIELDS.lessons.className] || '';
     const dayOfWeek = record.fields[FIELDS.lessons.dayOfWeek] || '';

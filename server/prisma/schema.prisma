@@ -251,3 +251,10 @@ model TrackPrice {
   trackName     String
   monthlyAmount Float  @default(0)
 }
+
+// שיעור ברוטציה "כל שבועיים" (שבוע מורה א', שבוע מורה ב') — נספר מה"מתאריך" של השיעור.
+model LessonRotation {
+  lessonId      String   @id
+  everyTwoWeeks Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2, ChevronLeft, ChevronRight, Users, Ban, RotateCcw } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { lessonsForDate, currentWeekSunday, weekDates, addDays, localIsoDate, timesOverlap } from '../lib/scheduleRules';
+import { lessonsForDate, lessonAppliesOnDate, currentWeekSunday, weekDates, addDays, localIsoDate, timesOverlap } from '../lib/scheduleRules';
 import { useUrlState } from '../lib/useUrlState';
 import { Layout } from '../components/Layout';
 import { FitScale } from '../components/FitScale';
@@ -35,6 +35,7 @@ type Lesson = {
   notes?: string | null;
   fromDate?: string | null;
   toDate?: string | null;
+  everyTwoWeeks?: boolean;
 };
 type Ref = { id: string; name: string };
 
@@ -298,6 +299,14 @@ export function SchedulePage() {
                               זמני עד {shortDate(l.toDate)}
                             </div>
                           )}
+                          {l.everyTwoWeeks && (
+                            <div
+                              className="mt-0.5 inline-flex items-center rounded-full bg-white/70 border border-current px-1.5 text-[9px] font-semibold"
+                              title="רוטציה — השיעור מתקיים כל שבועיים, החל מהשבוע של 'מתאריך'"
+                            >
+                              כל שבועיים
+                            </div>
+                          )}
                           {!compact && l.notes && (
                             <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 max-w-full">
                               <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
@@ -503,6 +512,8 @@ function LessonModal({
     // מתאריך חובה (שיעור חדש מתחיל היום כברירת מחדל); עד תאריך לא חובה — ריק אומר "עדיין בתוקף".
     fromDate: lesson?.fromDate || todayStr(),
     toDate: lesson?.toDate || '',
+    // רוטציה בין שתי מורות: שבוע אחד מורה א', שבוע אחד מורה ב' — כל אחת שיעור נפרד "כל שבועיים"
+    everyTwoWeeks: !!lesson?.everyTwoWeeks,
   });
   // שיעור חדש/משוכפל — אפשר לסמן כמה ימים וכמה שעות בבת אחת, ונוצרת רשומה נפרדת לכל צירוף
   // יום×שעה, כדי לא למלא את אותו שיעור שחוזר כמה פעמים בשבוע שוב ושוב. בשכפול מתחילים בלי
@@ -595,7 +606,16 @@ function LessonModal({
           normRoom(l.room) === normRoom(form.room) &&
           roomSlots.some((s) => s.time && s.dayOfWeek === l.dayOfWeek && timesOverlap(s.time, l.time)) &&
           (l.fromDate || '') <= (form.toDate || '9999-12-31') &&
-          (form.fromDate || '') <= (l.toDate || '9999-12-31')
+          (form.fromDate || '') <= (l.toDate || '9999-12-31') &&
+          // שתי רוטציות "כל שבועיים" בשבועות מתחלפים לא מתנגשות
+          !(
+            form.everyTwoWeeks &&
+            !form.toDate &&
+            l.everyTwoWeeks &&
+            l.fromDate &&
+            form.fromDate &&
+            !lessonAppliesOnDate({ fromDate: l.fromDate < form.fromDate ? l.fromDate : form.fromDate, everyTwoWeeks: true }, l.fromDate < form.fromDate ? form.fromDate : l.fromDate)
+          )
       )
     : [];
   const knownRooms = Array.from(new Set(allLessons.map((l) => normRoom(l.room)).filter(Boolean))).sort((a, b) =>
@@ -888,6 +908,23 @@ function LessonModal({
             />
           </div>
         </div>
+        {!form.toDate && (
+          <label className="flex items-start gap-2 text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={form.everyTwoWeeks}
+              onChange={(e) => setForm({ ...form, everyTwoWeeks: e.target.checked })}
+            />
+            <span>
+              <b>כל שבועיים (רוטציה)</b>
+              <span className="block text-xs text-slate-500">
+                השיעור מתקיים בשבוע של "מתאריך" ואז כל שבוע שני. לרוטציה בין שתי מורות: שיעור אחד לכל מורה,
+                שניהם מסומנים כאן, וה"מתאריך" של השנייה — שבוע אחרי הראשונה.
+              </span>
+            </span>
+          </label>
+        )}
         {form.toDate && (
           <p className="text-xs text-navy bg-slate-100 rounded-lg px-2 py-1.5">
             שינוי זמני: עד התאריך הזה השיעור יחליף את השיעורים הקבועים של אותם מסלולים באותן שעות.

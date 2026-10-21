@@ -1,5 +1,6 @@
 import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
+import { prisma } from './prisma';
 
 /** שדות שיעור גולמיים מ-Airtable → אובייקט שיעור. משמש גם לגרסאות ישנות שנשמרו בהיסטוריה (previousData). */
 export function parseLessonFields(id: string, f: Record<string, any>) {
@@ -34,11 +35,14 @@ let cache: { data: ScheduleData; expiresAt: number } | null = null;
 let inFlight: Promise<ScheduleData> | null = null;
 
 async function fetchFullSchedule() {
-  const [lessons, teachers, tracks] = await Promise.all([
+  const [lessons, teachers, tracks, rotations] = await Promise.all([
     airtableFetch(TABLES.lessons),
     airtableFetch(TABLES.teachers),
     airtableFetch(TABLES.tracks),
+    // רוטציה "כל שבועיים" נשמרת אצלנו ב-DB (לא ב-Airtable). תקלה כאן לא מפילה את המערכת.
+    prisma.lessonRotation.findMany({ where: { everyTwoWeeks: true } }).catch(() => [] as { lessonId: string }[]),
   ]);
+  const rotating = new Set(rotations.map((r) => r.lessonId));
 
   // סדר א'-ב' — ברשימת Airtable הגולמית המורות מופיעות בסדר הוספה, מה שמקשה למצוא מורה
   // ברשימת הצ'קבוקסים הארוכה בטופס השיעור. כמעט כל השמות מתחילים ב"המורה" — ממיינים לפי מה
@@ -50,7 +54,7 @@ async function fetchFullSchedule() {
   const trackList = tracks.map((t) => ({ id: t.id, name: t.fields[FIELDS.tracks.name] }));
 
   return {
-    lessons: lessons.map((l) => parseLessonFields(l.id, l.fields)),
+    lessons: lessons.map((l): ParsedLesson & { everyTwoWeeks: boolean } => ({ ...parseLessonFields(l.id, l.fields), everyTwoWeeks: rotating.has(l.id) })),
     teachers: teacherList,
     tracks: trackList,
   };

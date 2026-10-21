@@ -26,6 +26,7 @@ type Lesson = {
   notes?: string | null;
   fromDate?: string | null;
   toDate?: string | null;
+  everyTwoWeeks?: boolean;
 };
 type Ref = { id: string; name: string };
 type Announcement = { id: string; text: string | null; fileName: string | null; fileMime: string | null };

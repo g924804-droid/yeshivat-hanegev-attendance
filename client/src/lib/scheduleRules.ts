@@ -8,12 +8,31 @@ type DatedLesson = {
   track?: string[] | null;
   fromDate?: string | null;
   toDate?: string | null;
+  everyTwoWeeks?: boolean;
 };
 
-/** שיעורים ישנים בלי מתאריך/עד-תאריך נחשבים תקפים תמיד — התאריכים נוספו רק בהמשך. */
-export function lessonAppliesOnDate(l: { fromDate?: string | null; toDate?: string | null }, date: string): boolean {
+/** מספר הימים מ-1970 של יום ראשון בשבוע של התאריך */
+function weekSundayDays(date: string): number {
+  const d = new Date(`${date}T00:00:00Z`);
+  return Math.round(d.getTime() / 86400000) - d.getUTCDay();
+}
+
+/**
+ * שיעורים ישנים בלי מתאריך/עד-תאריך נחשבים תקפים תמיד — התאריכים נוספו רק בהמשך.
+ * שיעור "כל שבועיים" (רוטציה בין שתי מורות) מתקיים בשבוע של ה"מתאריך" שלו ואז כל שבוע שני,
+ * לפי לוח השנה (גם שבועות חופשה נספרים). ignoreRotation — למערכת הקבועה, שמציגה את שתי המורות.
+ */
+export function lessonAppliesOnDate(
+  l: { fromDate?: string | null; toDate?: string | null; everyTwoWeeks?: boolean },
+  date: string,
+  opts: { ignoreRotation?: boolean } = {}
+): boolean {
   if (l.fromDate && date < l.fromDate) return false;
   if (l.toDate && date > l.toDate) return false;
+  if (l.everyTwoWeeks && l.fromDate && !opts.ignoreRotation) {
+    const weeks = Math.round((weekSundayDays(date) - weekSundayDays(l.fromDate)) / 7);
+    if (weeks % 2 !== 0) return false;
+  }
   return true;
 }
 
