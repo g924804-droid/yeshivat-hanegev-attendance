@@ -8,6 +8,7 @@ import {
   CalendarClock,
   FileSignature,
   ShieldCheck,
+  Receipt,
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../lib/permissions';
@@ -61,6 +62,12 @@ export function Home() {
       icon: CalendarClock,
       label: 'מערכת שעות',
       show: user.permissions.system,
+    },
+    {
+      to: '/expenses',
+      icon: Receipt,
+      label: 'פנקס הוצאות',
+      show: !!user.permissions.expenses,
     },
     {
       to: '/contracts',

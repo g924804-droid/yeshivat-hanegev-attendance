@@ -51,6 +51,13 @@ export function requireAdminOrAttendanceManager(req: Request, res: Response, nex
   next();
 }
 
+/** פנקס ההוצאות: רק מי שקיבלה במפורש "גישה הוצאות" — בלי מעקף למנהלות, כי הגישה נקבעת אישית. */
+export function requireExpensesAccess(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) return res.status(401).json({ error: 'לא מחובר' });
+  if (!req.user.permissions.expenses) return res.status(403).json({ error: 'אין הרשאה לפנקס ההוצאות' });
+  next();
+}
+
 export function requirePermission(key: keyof SessionPayload['permissions']) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ error: 'לא מחובר' });

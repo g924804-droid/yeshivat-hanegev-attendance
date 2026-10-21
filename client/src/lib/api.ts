@@ -51,4 +51,5 @@ export const api = {
     return request<T>('DELETE', `${path}${qs}`);
   },
   postForm: <T>(path: string, formData: FormData) => request<T>('POST', path, formData, true),
+  putForm: <T>(path: string, formData: FormData) => request<T>('PUT', path, formData, true),
 };

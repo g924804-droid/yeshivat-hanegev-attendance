@@ -258,3 +258,50 @@ model LessonRotation {
   everyTwoWeeks Boolean  @default(true)
   updatedAt     DateTime @updatedAt
 }
+
+// פנקס הוצאות — קטגוריה (גיליון) לשנה, למשל "הרצאות" בתשפ"ז, עם תקציב שנתי.
+model ExpenseCategory {
+  id        String    @id @default(cuid())
+  year      String // שנת לימודים בעברית, למשל תשפ"ז
+  name      String
+  budget    Float     @default(0)
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  expenses  Expense[]
+
+  @@unique([year, name])
+}
+
+model Expense {
+  id             String          @id @default(cuid())
+  categoryId     String
+  category       ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  date           String // YYYY-MM-DD
+  payee          String // שם הרב / הספק
+  details        String?
+  paymentMethod  String?
+  amount         Float?
+  accountDetails String?
+  paymentDate    String? // תאריך התשלום, YYYY-MM-DD
+  notes          String?
+  createdBy      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  files          ExpenseFile[]
+
+  @@index([categoryId])
+}
+
+// קובץ חשבונית או קבלה של הוצאה — נשמר ב-DB (מערכת הקבצים ב-Render לא קבועה).
+model ExpenseFile {
+  id        String   @id @default(cuid())
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  kind      String // invoice | receipt
+  fileData  Bytes
+  fileMime  String
+  fileName  String
+  createdAt DateTime @default(now())
+
+  @@index([expenseId])
+}

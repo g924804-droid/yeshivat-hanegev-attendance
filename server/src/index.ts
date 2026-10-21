@@ -22,6 +22,7 @@ import syncRoutes from './routes/sync';
 import displayRoutes from './routes/display';
 import announcementsRoutes from './routes/announcements';
 import settingsRoutes from './routes/settings';
+import expensesRoutes from './routes/expenses';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -47,6 +48,7 @@ app.use('/api/sync', syncRoutes);
 app.use('/api/display', displayRoutes);
 app.use('/api/announcements', announcementsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/expenses', expensesRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

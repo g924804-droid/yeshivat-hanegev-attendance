@@ -8,6 +8,7 @@ export type Permissions = {
   teacherAttendance: boolean;
   studentAttendance: boolean;
   contracts: boolean;
+  expenses?: boolean;
 };
 
 export type CurrentUser = {

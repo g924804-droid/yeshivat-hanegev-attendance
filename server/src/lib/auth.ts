@@ -12,6 +12,7 @@ export type SessionPayload = {
     teacherAttendance: boolean;
     studentAttendance: boolean;
     contracts: boolean;
+    expenses?: boolean; // פנקס הוצאות — רק מי שמסומנת "מאושר" בעמודה "גישה הוצאות" (גם מנהלות צריכות סימון)
   };
 };
 

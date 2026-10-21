@@ -81,6 +81,7 @@ router.post('/login', async (req, res) => {
       teacherAttendance: approved(passwordRecord.fields['גישה לנוכחות מורה']),
       studentAttendance: approved(passwordRecord.fields['גישה לנוכחות תלמידה']),
       contracts: true,
+      expenses: approved(passwordRecord.fields['גישה הוצאות'] ?? passwordRecord.fields['גישה להוצאות']),
     };
 
     const token = signSession({ userId: matched.id, permissions });

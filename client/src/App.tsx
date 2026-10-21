@@ -23,6 +23,7 @@ import { PaymentsPage } from './pages/PaymentsPage';
 import { SchedulePage } from './pages/SchedulePage';
 import { ContractsPage } from './pages/ContractsPage';
 import { DisplayBoard } from './pages/DisplayBoard';
+import { ExpensesPage } from './pages/ExpensesPage';
 
 /**
  * זו אפליקציית דף-יחיד (SPA): מעבר בין דפים בתוך האתר לא טוען שום דבר מחדש מהשרת, אז
@@ -225,6 +226,14 @@ function AppRoutes() {
                 element={
                   <PermissionGuard permission="system">
                     <SchedulePage />
+                  </PermissionGuard>
+                }
+              />
+              <Route
+                path="/expenses"
+                element={
+                  <PermissionGuard permission="expenses" strict>
+                    <ExpensesPage />
                   </PermissionGuard>
                 }
               />

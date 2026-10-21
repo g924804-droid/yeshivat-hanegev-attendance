@@ -4,13 +4,13 @@ import { useAuth, Permissions } from '../lib/permissions';
 import { LoadingProgress } from './LoadingProgress';
 import { ShieldAlert } from 'lucide-react';
 
-/** שומר הרשאות לעמודים — מנהל (system=true) עובר תמיד, לפי הספק 5.4. */
-export function PermissionGuard({ permission, children }: { permission?: keyof Permissions; children: ReactNode }) {
+/** שומר הרשאות לעמודים — מנהל (system=true) עובר תמיד, לפי הספק 5.4. strict = גם מנהל צריך את ההרשאה (פנקס ההוצאות). */
+export function PermissionGuard({ permission, strict, children }: { permission?: keyof Permissions; strict?: boolean; children: ReactNode }) {
   const { user, loading } = useAuth();
 
   if (loading) return <LoadingProgress />;
   if (!user) return <Navigate to="/" replace />;
-  if (user.role === 'מנהל') return <>{children}</>;
+  if (user.role === 'מנהל' && !strict) return <>{children}</>;
   if (permission && !user.permissions[permission]) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
