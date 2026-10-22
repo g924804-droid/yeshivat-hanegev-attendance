@@ -123,19 +123,40 @@ router.get('/overview', async (req, res) => {
       }),
     ]);
     const years = Array.from(new Set([currentSchoolYear(), year, ...yearsRows.map((y) => y.year)])).sort();
+    const own = new Map(categories.map((c) => [c.id, c.expenses.reduce((s, e) => s + (e.amount || 0), 0)]));
     res.json({
       year,
       years,
-      categories: categories.map(({ expenses, ...c }) => ({
-        ...c,
-        used: expenses.reduce((s, e) => s + (e.amount || 0), 0),
-        count: expenses.length,
-      })),
+      categories: categories.map(({ expenses, ...c }) => {
+        const children = categories.filter((ch) => ch.parentId === c.id);
+        const childUsed = children.reduce((s, ch) => s + own.get(ch.id)!, 0);
+        return {
+          ...c,
+          ownUsed: own.get(c.id)!,
+          childUsed,
+          childNames: children.map((ch) => ch.name),
+          used: own.get(c.id)! + childUsed,
+          count: expenses.length,
+        };
+      }),
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת הפנקס' });
   }
 });
+
+// מחזיר parentId תקין (או null), או זורק שגיאה בעברית — רמה אחת בלבד, באותה שנה
+async function validParent(raw: unknown, year: string, selfId?: string): Promise<string | null> {
+  const parentId = str(raw, 50);
+  if (!parentId) return null;
+  if (parentId === selfId) throw new Error('קטגוריה לא יכולה לרדת מעצמה');
+  const parent = await prisma.expenseCategory.findUnique({ where: { id: parentId } });
+  if (!parent || parent.year !== year) throw new Error('קטגוריית האב לא נמצאה בשנה הזו');
+  if (parent.parentId) throw new Error(`"${parent.name}" כבר יורדת מקטגוריה אחרת`);
+  if (selfId && (await prisma.expenseCategory.count({ where: { parentId: selfId } })))
+    throw new Error('יש קטגוריות שיורדות מהקטגוריה הזו, ולכן היא לא יכולה לרדת מקטגוריה אחרת');
+  return parentId;
+}
 
 router.post('/categories', async (req, res) => {
   try {
@@ -144,9 +165,15 @@ router.post('/categories', async (req, res) => {
     if (!name || !year) return res.status(400).json({ error: 'חסר שם קטגוריה' });
     const exists = await prisma.expenseCategory.findUnique({ where: { year_name: { year, name } } });
     if (exists) return res.status(400).json({ error: `כבר יש קטגוריה "${name}" בשנה הזו` });
+    let parentId: string | null;
+    try {
+      parentId = await validParent(req.body.parentId, year);
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
     const count = await prisma.expenseCategory.count({ where: { year } });
     const category = await prisma.expenseCategory.create({
-      data: { name, year, budget: parseAmount(req.body.budget) || 0, sortOrder: count },
+      data: { name, year, budget: parseAmount(req.body.budget) || 0, sortOrder: count, parentId },
     });
     res.json({ success: true, category });
   } catch (err: any) {
@@ -158,9 +185,17 @@ router.put('/categories/:id', async (req, res) => {
   try {
     const name = str(req.body.name, 100);
     if (!name) return res.status(400).json({ error: 'חסר שם קטגוריה' });
+    const current = await prisma.expenseCategory.findUnique({ where: { id: req.params.id } });
+    if (!current) return res.status(404).json({ error: 'הקטגוריה לא נמצאה' });
+    let parentId: string | null;
+    try {
+      parentId = await validParent(req.body.parentId, current.year, current.id);
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
     const category = await prisma.expenseCategory.update({
       where: { id: req.params.id },
-      data: { name, budget: parseAmount(req.body.budget) || 0 },
+      data: { name, budget: parseAmount(req.body.budget) || 0, parentId },
     });
     res.json({ success: true, category });
   } catch (err: any) {
@@ -492,7 +527,11 @@ router.get('/exportExcel', async (req, res) => {
     });
     const base = process.env.APP_URL || `https://${req.get('host')}`;
     const wb = new ExcelJS.Workbook();
-    const used = (c: (typeof categories)[number]) => c.expenses.reduce((s, e) => s + (e.amount || 0), 0);
+    const ownUsed = (c: (typeof categories)[number]) => c.expenses.reduce((s, e) => s + (e.amount || 0), 0);
+    // ניצול של קטגוריית אב כולל את הקטגוריות שיורדות ממנה
+    const used = (c: (typeof categories)[number]) =>
+      ownUsed(c) + categories.filter((ch) => ch.parentId === c.id).reduce((s, ch) => s + ownUsed(ch), 0);
+    const topLevel = categories.filter((c) => !c.parentId);
 
     const summary = wb.addWorksheet('סיכום');
     summary.views = [{ rightToLeft: true }];
@@ -502,12 +541,20 @@ router.get('/exportExcel', async (req, res) => {
       { header: 'נוצל', key: 'used', width: 14 },
       { header: 'יתרה', key: 'left', width: 14 },
     ];
-    for (const c of categories) summary.addRow({ name: c.name, budget: c.budget, used: used(c), left: c.budget - used(c) });
+    for (const c of categories) {
+      const parent = c.parentId && categories.find((p) => p.id === c.parentId);
+      summary.addRow({
+        name: parent ? `${c.name} (יורד מ${parent.name})` : c.name,
+        budget: c.budget,
+        used: used(c),
+        left: c.budget - used(c),
+      });
+    }
     summary.addRow({
       name: 'סה"כ',
-      budget: categories.reduce((s, c) => s + c.budget, 0),
-      used: categories.reduce((s, c) => s + used(c), 0),
-      left: categories.reduce((s, c) => s + c.budget - used(c), 0),
+      budget: topLevel.reduce((s, c) => s + c.budget, 0),
+      used: topLevel.reduce((s, c) => s + used(c), 0),
+      left: topLevel.reduce((s, c) => s + c.budget - used(c), 0),
     }).font = { bold: true };
     summary.getRow(1).font = { bold: true };
     ['budget', 'used', 'left'].forEach((k) => (summary.getColumn(k).numFmt = '₪#,##0.00'));

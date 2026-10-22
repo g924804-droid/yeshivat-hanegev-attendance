@@ -23,7 +23,18 @@ type Expense = {
   notes: string | null;
   files: ExpenseFile[];
 };
-type Category = { id: string; name: string; year: string; budget: number; used: number; count: number };
+type Category = {
+  id: string;
+  name: string;
+  year: string;
+  budget: number;
+  used: number; // כולל קטגוריות שיורדות ממנה
+  ownUsed: number;
+  childUsed: number;
+  childNames: string[];
+  parentId: string | null;
+  count: number;
+};
 type Overview = { year: string; years: string[]; categories: Category[] };
 
 const PAYMENT_METHODS = ['העברה', 'משכורת', "צ'ק", 'מזומן', 'אשראי'];
@@ -108,7 +119,11 @@ export function ExpensesPage() {
     for (const e of expenses || []) if (e.topic) m.set(e.topic, (m.get(e.topic) || 0) + (e.amount || 0));
     return m;
   }, [expenses]);
-  const totals = overview?.categories.reduce((s, c) => ({ budget: s.budget + c.budget, used: s.used + c.used }), { budget: 0, used: 0 });
+  // קטגוריות שיורדות מקטגוריה אחרת כבר נכללות בה — לא סופרים אותן פעמיים
+  const totals = overview?.categories
+    .filter((c) => !c.parentId)
+    .reduce((s, c) => ({ budget: s.budget + c.budget, used: s.used + c.used }), { budget: 0, used: 0 });
+  const parentOf = (c: Category) => overview?.categories.find((p) => p.id === c.parentId);
 
   async function remove(e: Expense) {
     if (!confirm(`למחוק את ההוצאה "${e.payee || e.details || ''}"${e.date ? ` מ-${fmtDate(e.date)}` : ''}?`)) return;
@@ -210,6 +225,17 @@ export function ExpensesPage() {
               />
               <SummaryCard label={`כל הקטגוריות — נוצל מתוך ${shekel(totals!.budget)}`} value={shekel(totals!.used)} />
             </div>
+            {category.childUsed > 0 && (
+              <p className="text-sm text-slate-600 -mt-2 mb-4">
+                הניצול כולל {shekel(category.childUsed)} מ{category.childNames.join(', ')} (הוצאות ישירות כאן: {shekel(category.ownUsed)})
+              </p>
+            )}
+            {parentOf(category) && (
+              <p className="text-sm text-slate-600 -mt-2 mb-4">
+                כל הוצאה כאן יורדת גם מהתקציב של <b>{parentOf(category)!.name}</b> — שם נשארו{' '}
+                {shekel(parentOf(category)!.budget - parentOf(category)!.used)}
+              </p>
+            )}
 
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <button className="btn-gold py-2" onClick={() => setEditing('new')}>
@@ -318,6 +344,7 @@ export function ExpensesPage() {
       {categoryModal && (
         <CategoryModal
           category={categoryModal === 'new' ? null : categoryModal}
+          categories={overview?.categories || []}
           year={year}
           onClose={() => setCategoryModal(null)}
           onSaved={(id) => {
@@ -563,27 +590,33 @@ function ExpenseModal({
 
 function CategoryModal({
   category,
+  categories,
   year,
   onClose,
   onSaved,
 }: {
   category: Category | null;
+  categories: Category[];
   year: string;
   onClose: () => void;
   onSaved: (id?: string) => void;
 }) {
   const [name, setName] = useState(category?.name || '');
   const [budget, setBudget] = useState(category ? String(category.budget) : '');
+  const [parentId, setParentId] = useState(category?.parentId || '');
   const [error, setError] = useState<string | null>(null);
+  // רמה אחת בלבד: אב לא יכול לרדת מאחר, וקטגוריה שיורדת לא יכולה להיות אב
+  const parentOptions = categories.filter((c) => c.id !== category?.id && !c.parentId);
+  const hasChildren = !!category?.childNames.length;
 
   async function save() {
     setError(null);
     try {
       if (category) {
-        await api.put(`/expenses/categories/${category.id}`, { name, budget });
+        await api.put(`/expenses/categories/${category.id}`, { name, budget, parentId });
         onSaved();
       } else {
-        const r = await api.post<{ category: Category }>('/expenses/categories', { name, budget, year });
+        const r = await api.post<{ category: Category }>('/expenses/categories', { name, budget, year, parentId });
         onSaved(r.category.id);
       }
     } catch (err: any) {
@@ -612,7 +645,22 @@ function CategoryModal({
           <label className="label">תקציב שנתי (₪)</label>
           <input className="input" inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} />
         </div>
-        {error && <p className="text-sm text-red-700">{error}</p>}
+        <div>
+          <label className="label">ההוצאות יורדות גם מתקציב של</label>
+          {hasChildren ? (
+            <p className="text-sm text-slate-500">לא זמין — {category!.childNames.join(', ')} יורדות מהקטגוריה הזו</p>
+          ) : (
+            <select className="input" value={parentId} onChange={(e) => setParentId(e.target.value)}>
+              <option value="">— לא יורד מקטגוריה אחרת —</option>
+              {parentOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {error &&<p className="text-sm text-red-700">{error}</p>}
         <div className="flex gap-2 justify-end pt-1">
           {category && !category.count && (
             <button className="btn-danger ml-auto" onClick={remove}>

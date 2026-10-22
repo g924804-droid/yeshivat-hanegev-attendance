@@ -268,6 +268,10 @@ model ExpenseCategory {
   sortOrder Int       @default(0)
   createdAt DateTime  @default(now())
   expenses  Expense[]
+  // קטגוריה שההוצאות שלה יורדות גם מהתקציב של קטגוריית האב (למשל ק"ק פעילות ← פעילות חברתית)
+  parentId  String?
+  parent    ExpenseCategory?  @relation("ExpenseCategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children  ExpenseCategory[] @relation("ExpenseCategoryParent")
 
   @@unique([year, name])
 }
