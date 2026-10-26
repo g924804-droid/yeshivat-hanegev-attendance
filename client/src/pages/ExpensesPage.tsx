@@ -69,7 +69,8 @@ export function ExpensesPage() {
   const [editing, setEditing] = useState<Expense | 'new' | null>(null);
   const [categoryModal, setCategoryModal] = useState<Category | 'new' | null>(null);
   const [showImport, setShowImport] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   async function loadOverview(y = year) {
     try {
@@ -97,6 +98,7 @@ export function ExpensesPage() {
   }, [year]);
   useEffect(() => {
     setExpenses(null);
+    setSelected(new Set());
     loadExpenses(categoryId);
     writePref('expenses.category', categoryId);
   }, [categoryId]);
@@ -135,34 +137,28 @@ export function ExpensesPage() {
     }
   }
 
-  async function exportExcel() {
-    setExporting(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/expenses/exportExcel?year=${encodeURIComponent(year)}`, { credentials: 'include' });
-      if (res.status === 418) throw new Error(FILTER_BLOCKED_MESSAGE);
-      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || `הייצוא נכשל (${res.status})`);
-      const url = URL.createObjectURL(await res.blob());
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `הוצאות ${year}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (err: any) {
-      setError(err.message || 'שגיאה בייצוא');
-    } finally {
-      setExporting(false);
-    }
+  const allShownSelected = shown.length > 0 && shown.every((e) => selected.has(e.id));
+  function toggleRow(id: string) {
+    setSelected((s) => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+  function toggleAll() {
+    setSelected((s) => {
+      const n = new Set(s);
+      shown.forEach((e) => (allShownSelected ? n.delete(e.id) : n.add(e.id)));
+      return n;
+    });
   }
 
   if (!overview) {
-    return <Layout title="פנקס הוצאות">{error ? <p className="text-red-700">{error}</p> : 'טוען...'}</Layout>;
+    return <Layout title="פנקס הוצאות" wide>{error ? <p className="text-red-700">{error}</p> : 'טוען...'}</Layout>;
   }
 
   return (
-    <Layout title="פנקס הוצאות">
+    <Layout title="פנקס הוצאות" wide>
       {/* שנה וכלים */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <select className="input w-auto" value={year} onChange={(e) => setYear(e.target.value)}>
@@ -176,8 +172,8 @@ export function ExpensesPage() {
         <button className="btn-outline py-2" onClick={() => setShowImport(true)}>
           <Upload size={16} /> ייבוא מאקסל
         </button>
-        <button className="btn-outline py-2" onClick={exportExcel} disabled={exporting || !overview.categories.length}>
-          <FileSpreadsheet size={16} /> {exporting ? 'מייצא...' : 'ייצוא לאקסל'}
+        <button className="btn-outline py-2" onClick={() => setShowExport(true)} disabled={!overview.categories.length}>
+          <FileSpreadsheet size={16} /> ייצוא לאקסל / הדפסת חשבוניות
         </button>
       </div>
 
@@ -250,12 +246,28 @@ export function ExpensesPage() {
               </div>
             </div>
 
+            {selected.size > 0 && (
+              <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl bg-gold/15 px-4 py-2 text-[15px]">
+                <span className="font-semibold text-navy">סומנו {selected.size} שורות</span>
+                <button className="btn-outline py-1.5" onClick={() => setShowExport(true)}>
+                  <FileSpreadsheet size={15} /> ייצוא / הדפסת חשבוניות של המסומנות
+                </button>
+                <button className="text-sm text-slate-600 hover:underline" onClick={() => setSelected(new Set())}>
+                  ניקוי סימון
+                </button>
+              </div>
+            )}
+
+            {/* בלי גלילה לצדדים: הטקסט נשבר לשורות, והתאריך העברי מתחת ללועזי */}
             <div className="card p-0 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-slate-600">
+              <table className="w-full text-[15px] leading-snug">
+                <thead className="bg-navy text-white">
                   <tr>
-                    {[...(withTopic ? ['נושא הפעילות'] : []), 'תאריך', 'תאריך עברי', 'שם בקבלה / שם הרב', 'פרוט', 'אופן תשלום', 'סכום לתשלום', 'חשבונית', 'פרטי חשבון', 'תאריך תשלום', 'קבלה', ''].map((h) => (
-                      <th key={h} className="px-3 py-2.5 text-right font-medium whitespace-nowrap">
+                    <th className="px-2 py-3 w-8">
+                      <input type="checkbox" className="h-4 w-4 accent-gold cursor-pointer" checked={allShownSelected} onChange={toggleAll} title="סימון הכל" />
+                    </th>
+                    {[...(withTopic ? ['נושא הפעילות'] : []), 'תאריך', 'שם בקבלה / שם הרב', 'פרוט', 'אופן תשלום', 'סכום', 'חשבונית', 'פרטי חשבון', 'תאריך תשלום', 'קבלה / הערות', ''].map((h) => (
+                      <th key={h} className="px-2.5 py-3 text-right font-bold">
                         {h}
                       </th>
                     ))}
@@ -277,10 +289,17 @@ export function ExpensesPage() {
                   ) : (
                     shown.map((e, i) => {
                       const firstOfTopic = !!e.topic && shown[i - 1]?.topic !== e.topic;
+                      const isSel = selected.has(e.id);
                       return (
-                      <tr key={e.id} className={`border-t hover:bg-slate-50/60 align-top ${firstOfTopic && i > 0 ? 'border-slate-300' : 'border-slate-100'}`}>
+                      <tr
+                        key={e.id}
+                        className={`border-t align-top ${isSel ? 'bg-gold/10' : 'hover:bg-slate-50/60'} ${firstOfTopic && i > 0 ? 'border-slate-300' : 'border-slate-100'}`}
+                      >
+                        <td className="px-2 py-2.5">
+                          <input type="checkbox" className="h-4 w-4 accent-gold cursor-pointer" checked={isSel} onChange={() => toggleRow(e.id)} />
+                        </td>
                         {withTopic && (
-                          <td className="px-3 py-2">
+                          <td className="px-2.5 py-2.5 min-w-[110px]">
                             {firstOfTopic && (
                               <>
                                 <p className="font-bold text-navy">{e.topic}</p>
@@ -289,27 +308,29 @@ export function ExpensesPage() {
                             )}
                           </td>
                         )}
-                        <td className="px-3 py-2 whitespace-nowrap">{fmtDate(e.date)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{e.date ? heDate(e.date) : e.hebrewDate}</td>
-                        <td className="px-3 py-2 font-medium text-navy">{e.payee}</td>
-                        <td className="px-3 py-2">{e.details}</td>
-                        <td className="px-3 py-2">{e.paymentMethod}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-medium">{e.amount !== null ? shekel(e.amount) : ''}</td>
-                        <td className="px-3 py-2">
+                        <td className="px-2.5 py-2.5 whitespace-nowrap">
+                          {fmtDate(e.date)}
+                          <p className="text-xs text-slate-500">{e.date ? heDate(e.date) : e.hebrewDate}</p>
+                        </td>
+                        <td className="px-2.5 py-2.5 font-medium text-navy min-w-[110px]">{e.payee}</td>
+                        <td className="px-2.5 py-2.5 min-w-[120px]">{e.details}</td>
+                        <td className="px-2.5 py-2.5">{e.paymentMethod}</td>
+                        <td className="px-2.5 py-2.5 whitespace-nowrap font-semibold">{e.amount !== null ? shekel(e.amount) : ''}</td>
+                        <td className="px-2.5 py-2.5">
                           <FileLinks files={e.files.filter((f) => f.kind === 'invoice')} text={e.invoiceText} url={e.invoiceUrl} />
                         </td>
-                        <td className="px-3 py-2">
+                        <td className="px-2.5 py-2.5 min-w-[110px] break-words">
                           {e.accountDetails ||
                             (isTransfer(e.paymentMethod) && <span className="badge bg-red-100 text-red-700">חסרים פרטי חשבון</span>)}
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap">
+                        <td className="px-2.5 py-2.5 whitespace-nowrap">
                           {e.paymentDate ? fmtDate(e.paymentDate) : <span className="text-slate-400 text-xs">טרם שולם</span>}
                         </td>
-                        <td className="px-3 py-2">
+                        <td className="px-2.5 py-2.5">
                           <FileLinks files={e.files.filter((f) => f.kind === 'receipt')} text={e.receiptText} url={e.receiptUrl} />
-                          {e.notes && <p className="text-xs text-slate-400 mt-1">{e.notes}</p>}
+                          {e.notes && <p className="text-xs text-slate-500 mt-1">{e.notes}</p>}
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap">
+                        <td className="px-1.5 py-2 whitespace-nowrap">
                           <button className="p-1.5 rounded-lg hover:bg-slate-100 text-navy" title="עריכה" onClick={() => setEditing(e)}>
                             <Pencil size={15} />
                           </button>
@@ -364,7 +385,204 @@ export function ExpensesPage() {
           }}
         />
       )}
+      {showExport && (
+        <ExportModal
+          year={year}
+          categories={overview.categories}
+          currentCategoryId={categoryId}
+          selectedIds={Array.from(selected)}
+          onClose={() => setShowExport(false)}
+        />
+      )}
     </Layout>
+  );
+}
+
+const EXPORT_COLUMNS = [
+  { key: 'topic', title: 'נושא הפעילות' },
+  { key: 'date', title: 'תאריך' },
+  { key: 'hebrewDate', title: 'תאריך עברי' },
+  { key: 'payee', title: 'שם בקבלה / שם הרב' },
+  { key: 'details', title: 'פרוט' },
+  { key: 'method', title: 'אופן תשלום' },
+  { key: 'amount', title: 'סכום לתשלום' },
+  { key: 'invoice', title: 'חשבונית' },
+  { key: 'account', title: 'פרטי חשבון' },
+  { key: 'paymentDate', title: 'תאריך תשלום' },
+  { key: 'receipt', title: 'קבלה' },
+  { key: 'notes', title: 'הערות' },
+];
+
+async function download(path: string, fallbackName: string): Promise<Response> {
+  const res = await fetch(path, { credentials: 'include' });
+  if (res.status === 418) throw new Error(FILTER_BLOCKED_MESSAGE);
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || `ההורדה נכשלה (${res.status})`);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return res;
+}
+
+function ExportModal({
+  year,
+  categories,
+  currentCategoryId,
+  selectedIds,
+  onClose,
+}: {
+  year: string;
+  categories: Category[];
+  currentCategoryId: string;
+  selectedIds: string[];
+  onClose: () => void;
+}) {
+  const [onlySelected, setOnlySelected] = useState(selectedIds.length > 0);
+  const [cats, setCats] = useState<Set<string>>(new Set(categories.map((c) => c.id)));
+  const [cols, setCols] = useState<Set<string>>(new Set(EXPORT_COLUMNS.map((c) => c.key)));
+  const [summary, setSummary] = useState(true);
+  const [kinds, setKinds] = useState<Set<string>>(new Set(['invoice']));
+  const [busy, setBusy] = useState<'excel' | 'pdf' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const toggle = (set: Set<string>, setter: (s: Set<string>) => void, key: string) => {
+    const n = new Set(set);
+    n.has(key) ? n.delete(key) : n.add(key);
+    setter(n);
+  };
+
+  function query() {
+    const p = new URLSearchParams({ year });
+    if (onlySelected) {
+      p.set('categoryIds', currentCategoryId);
+      p.set('expenseIds', selectedIds.join(','));
+    } else p.set('categoryIds', Array.from(cats).join(','));
+    return p;
+  }
+
+  async function excel() {
+    setBusy('excel');
+    setError(null);
+    setNote(null);
+    try {
+      const p = query();
+      p.set('columns', Array.from(cols).join(','));
+      p.set('summary', summary ? '1' : '0');
+      await download(`/api/expenses/exportExcel?${p}`, `הוצאות ${year}.xlsx`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function pdf() {
+    setBusy('pdf');
+    setError(null);
+    setNote(null);
+    try {
+      const p = query();
+      p.set('kinds', Array.from(kinds).join(','));
+      const res = await download(`/api/expenses/printFiles?${p}`, `חשבוניות ${year}.pdf`);
+      const included = Number(res.headers.get('X-Files-Included') || 0);
+      const missing = Number(res.headers.get('X-Files-Missing') || 0);
+      setNote(
+        `צורפו ${included} קבצים לקובץ אחד — אפשר לפתוח ולהדפיס בבת אחת.` +
+          (missing ? ` ${missing} קישורים לא נפתחו (כנראה לא משותפים בדרייב "לכל מי שיש לו את הקישור") — אותם צריך להדפיס בנפרד או להעלות את הקובץ להוצאה.` : '')
+      );
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const nothing = onlySelected ? !selectedIds.length : !cats.size;
+  const box = 'h-4 w-4 accent-navy cursor-pointer';
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-navy text-lg">ייצוא והדפסה — {year}</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
+            <X size={18} />
+          </button>
+        </div>
+
+        <section className="space-y-2">
+          <p className="font-bold text-navy">מה לייצא?</p>
+          {selectedIds.length > 0 && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="radio" checked={onlySelected} onChange={() => setOnlySelected(true)} />
+              רק {selectedIds.length} השורות שסימנתי בטבלה
+            </label>
+          )}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" checked={!onlySelected} onChange={() => setOnlySelected(false)} />
+            קטגוריות שלמות:
+          </label>
+          {!onlySelected && (
+            <div className="grid grid-cols-2 gap-1.5 pr-6">
+              {categories.map((c) => (
+                <label key={c.id} className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" className={box} checked={cats.has(c.id)} onChange={() => toggle(cats, setCats, c.id)} />
+                  {c.name} <span className="text-slate-400 text-sm">({c.count})</span>
+                </label>
+              ))}
+              <button
+                className="col-span-2 text-sm text-blue-700 hover:underline text-right"
+                onClick={() => setCats(cats.size === categories.length ? new Set() : new Set(categories.map((c) => c.id)))}
+              >
+                {cats.size === categories.length ? 'ביטול הכל' : 'סימון הכל'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-2 border-t pt-3">
+          <p className="font-bold text-navy">אקסל — אילו עמודות?</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {EXPORT_COLUMNS.map((c) => (
+              <label key={c.key} className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" className={box} checked={cols.has(c.key)} onChange={() => toggle(cols, setCols, c.key)} />
+                {c.title}
+              </label>
+            ))}
+            <label className="flex items-center gap-2 cursor-pointer col-span-2">
+              <input type="checkbox" className={box} checked={summary} onChange={() => setSummary(!summary)} />
+              גיליון סיכום תקציבים
+            </label>
+          </div>
+          <button className="btn-primary w-full" onClick={excel} disabled={!!busy || nothing || !cols.size}>
+            <FileSpreadsheet size={16} /> {busy === 'excel' ? 'מייצא...' : 'הורדת אקסל'}
+          </button>
+        </section>
+
+        <section className="space-y-2 border-t pt-3">
+          <p className="font-bold text-navy">הדפסה — כל הקבצים ב-PDF אחד</p>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" className={box} checked={kinds.has('invoice')} onChange={() => toggle(kinds, setKinds, 'invoice')} />
+              חשבוניות
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" className={box} checked={kinds.has('receipt')} onChange={() => toggle(kinds, setKinds, 'receipt')} />
+              קבלות
+            </label>
+          </div>
+          <button className="btn-gold w-full" onClick={pdf} disabled={!!busy || nothing || !kinds.size}>
+            <Paperclip size={16} /> {busy === 'pdf' ? 'מאחד קבצים... (יכול לקחת קצת זמן)' : 'הורדת PDF להדפסה'}
+          </button>
+        </section>
+
+        {note && <p className="text-sm text-green-800 bg-green-50 rounded-lg px-3 py-2">{note}</p>}
+        {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+      </div>
+    </div>
   );
 }
 
@@ -384,7 +602,7 @@ function FileLinks({ files, text, url }: { files: ExpenseFile[]; text?: string |
       {url ? (
         <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-700 hover:underline" title="קישור מהאקסל">
           <Paperclip size={13} className="shrink-0" />
-          <span className="truncate max-w-[150px]">{text || 'קישור'}</span>
+          <span className="truncate max-w-[130px]">{text || 'קישור'}</span>
         </a>
       ) : (
         text && <span className="text-slate-600">{text}</span>
@@ -392,7 +610,7 @@ function FileLinks({ files, text, url }: { files: ExpenseFile[]; text?: string |
       {files.map((f) => (
         <a key={f.id} href={`/api/expenses/files/${f.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-700 hover:underline">
           <Paperclip size={13} className="shrink-0" />
-          <span className="truncate max-w-[150px]">{f.fileName}</span>
+          <span className="truncate max-w-[130px]">{f.fileName}</span>
         </a>
       ))}
     </div>

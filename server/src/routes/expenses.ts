@@ -1,6 +1,8 @@
 import { Router, Request } from 'express';
 import multer from 'multer';
 import ExcelJS from 'exceljs';
+import axios from 'axios';
+import { PDFDocument } from 'pdf-lib';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requireExpensesAccess } from '../middleware/auth';
 import { hebrewDate } from '../lib/hebrewDate';
@@ -512,19 +514,69 @@ router.post('/import', upload.single('file'), async (req, res) => {
 
 // ---------- ייצוא לאקסל — גיליון לכל קטגוריה, באותו מבנה כמו הקובץ המקורי ----------
 
-router.get('/exportExcel', async (req, res) => {
-  try {
-    const year = String(req.query.year || '') || currentSchoolYear();
-    const categories = await prisma.expenseCategory.findMany({
-      where: { year },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      include: {
-        expenses: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-          include: { files: { select: { id: true, kind: true, fileName: true } } },
+// פרמטר רשימה מה-query: "a,b,c" ← ['a','b','c'] (ריק = לא סונן)
+const listParam = (v: unknown) =>
+  String(v || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+// שם גיליון חוקי באקסל: בלי תווים אסורים, בלי גרש בהתחלה/בסוף (שנה ג' ← שנה ג׳), עד 31 תווים, ייחודי
+function sheetName(name: string, used: Set<string>): string {
+  let base = name.replace(/[*?:\\/[\]]/g, ' ').replace(/'/g, '׳').trim().slice(0, 31) || 'גיליון';
+  let n = base;
+  for (let i = 2; used.has(n.toLowerCase()); i++) n = `${base.slice(0, 31 - String(i).length - 1)} ${i}`;
+  used.add(n.toLowerCase());
+  return n;
+}
+
+const EXPORT_COLUMNS = [
+  { key: 'topic', title: 'נושא הפעילות', width: 18 },
+  { key: 'date', title: 'תאריך', width: 12 },
+  { key: 'hebrewDate', title: 'תאריך עברי', width: 20 },
+  { key: 'payee', title: 'שם בקבלה / שם הרב', width: 22 },
+  { key: 'details', title: 'פרוט', width: 22 },
+  { key: 'method', title: 'אופן תשלום', width: 12 },
+  { key: 'amount', title: 'סכום לתשלום', width: 14 },
+  { key: 'invoice', title: 'חשבונית', width: 24 },
+  { key: 'account', title: 'פרטי חשבון', width: 22 },
+  { key: 'paymentDate', title: 'תאריך תשלום', width: 14 },
+  { key: 'receipt', title: 'קבלה', width: 24 },
+  { key: 'notes', title: 'הערות', width: 30 },
+] as const;
+
+/** קטגוריות השנה עם ההוצאות, מסוננות לפי categoryIds / expenseIds מה-query (ריק = הכל) */
+async function loadForExport(query: any, withFileData = false) {
+  const year = String(query.year || '') || currentSchoolYear();
+  const categoryIds = listParam(query.categoryIds);
+  const expenseIds = listParam(query.expenseIds);
+  const all = await prisma.expenseCategory.findMany({
+    where: { year },
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    include: {
+      expenses: {
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        include: {
+          files: {
+            select: { id: true, kind: true, fileName: true, fileMime: true, fileData: withFileData },
+            orderBy: { createdAt: 'asc' },
+          },
         },
       },
-    });
+    },
+  });
+  const selected = all
+    .filter((c) => !categoryIds.length || categoryIds.includes(c.id))
+    .map((c) => ({ ...c, expenses: expenseIds.length ? c.expenses.filter((e) => expenseIds.includes(e.id)) : c.expenses }))
+    .filter((c) => !expenseIds.length || c.expenses.length);
+  return { year, all, selected, filteredRows: expenseIds.length > 0 };
+}
+
+router.get('/exportExcel', async (req, res) => {
+  try {
+    const { year, all: categories, selected, filteredRows } = await loadForExport(req.query);
+    const wanted = listParam(req.query.columns);
+    const withSummary = req.query.summary !== '0';
     const base = process.env.APP_URL || `https://${req.get('host')}`;
     const wb = new ExcelJS.Workbook();
     const ownUsed = (c: (typeof categories)[number]) => c.expenses.reduce((s, e) => s + (e.amount || 0), 0);
@@ -532,61 +584,55 @@ router.get('/exportExcel', async (req, res) => {
     const used = (c: (typeof categories)[number]) =>
       ownUsed(c) + categories.filter((ch) => ch.parentId === c.id).reduce((s, ch) => s + ownUsed(ch), 0);
     const topLevel = categories.filter((c) => !c.parentId);
+    const sheetNames = new Set<string>();
 
-    const summary = wb.addWorksheet('סיכום');
-    summary.views = [{ rightToLeft: true }];
-    summary.columns = [
-      { header: 'קטגוריה', key: 'name', width: 24 },
-      { header: 'תקציב שנתי', key: 'budget', width: 14 },
-      { header: 'נוצל', key: 'used', width: 14 },
-      { header: 'יתרה', key: 'left', width: 14 },
-    ];
-    for (const c of categories) {
-      const parent = c.parentId && categories.find((p) => p.id === c.parentId);
+    if (withSummary) {
+      const summary = wb.addWorksheet(sheetName('סיכום', sheetNames));
+      summary.views = [{ rightToLeft: true }];
+      summary.columns = [
+        { header: 'קטגוריה', key: 'name', width: 28 },
+        { header: 'תקציב שנתי', key: 'budget', width: 14 },
+        { header: 'נוצל', key: 'used', width: 14 },
+        { header: 'יתרה', key: 'left', width: 14 },
+      ];
+      for (const c of categories.filter((c) => selected.some((s) => s.id === c.id))) {
+        const parent = c.parentId && categories.find((p) => p.id === c.parentId);
+        summary.addRow({
+          name: parent ? `${c.name} (יורד מ${parent.name})` : c.name,
+          budget: c.budget,
+          used: used(c),
+          left: c.budget - used(c),
+        });
+      }
       summary.addRow({
-        name: parent ? `${c.name} (יורד מ${parent.name})` : c.name,
-        budget: c.budget,
-        used: used(c),
-        left: c.budget - used(c),
-      });
+        name: 'סה"כ כל הקטגוריות',
+        budget: topLevel.reduce((s, c) => s + c.budget, 0),
+        used: topLevel.reduce((s, c) => s + used(c), 0),
+        left: topLevel.reduce((s, c) => s + c.budget - used(c), 0),
+      }).font = { bold: true };
+      summary.getRow(1).font = { bold: true };
+      ['budget', 'used', 'left'].forEach((k) => (summary.getColumn(k).numFmt = '₪#,##0.00'));
     }
-    summary.addRow({
-      name: 'סה"כ',
-      budget: topLevel.reduce((s, c) => s + c.budget, 0),
-      used: topLevel.reduce((s, c) => s + used(c), 0),
-      left: topLevel.reduce((s, c) => s + c.budget - used(c), 0),
-    }).font = { bold: true };
-    summary.getRow(1).font = { bold: true };
-    ['budget', 'used', 'left'].forEach((k) => (summary.getColumn(k).numFmt = '₪#,##0.00'));
 
-    for (const c of categories) {
-      const ws = wb.addWorksheet(c.name.replace(/[*?:\\/[\]]/g, ' ').slice(0, 31));
+    for (const sel of selected) {
+      const c = categories.find((x) => x.id === sel.id)!; // התקציב והניצול — תמיד לפי כל ההוצאות
+      const ws = wb.addWorksheet(sheetName(c.name, sheetNames));
       ws.views = [{ rightToLeft: true, state: 'frozen', ySplit: 2 }];
       ws.addRow(['תקציב שנתי:', c.budget, 'עד כה נוצל', used(c), '', 'יתרה לניצול', c.budget - used(c)]).font = { bold: true };
       [2, 4, 7].forEach((i) => (ws.getRow(1).getCell(i).numFmt = '₪#,##0.00'));
-      const withTopic = c.expenses.some((e) => e.topic);
-      const columns: { title: string; width: number }[] = [
-        ...(withTopic ? [{ title: 'נושא הפעילות', width: 18 }] : []),
-        { title: 'תאריך', width: 12 },
-        { title: 'תאריך עברי', width: 20 },
-        { title: 'שם בקבלה / שם הרב', width: 22 },
-        { title: 'פרוט', width: 22 },
-        { title: 'אופן תשלום', width: 12 },
-        { title: 'סכום לתשלום', width: 14 },
-        { title: 'חשבונית', width: 24 },
-        { title: 'פרטי חשבון', width: 22 },
-        { title: 'תאריך תשלום', width: 14 },
-        { title: 'קבלה', width: 24 },
-        { title: 'הערות', width: 30 },
-      ];
+      const withTopic = sel.expenses.some((e) => e.topic);
+      const columns = EXPORT_COLUMNS.filter(
+        (x) => (!wanted.length || wanted.includes(x.key)) && (x.key !== 'topic' || withTopic)
+      );
       const header = ws.addRow(columns.map((x) => x.title));
       header.font = { bold: true, color: { argb: 'FFF1C40F' } };
       header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
       columns.forEach((x, i) => (ws.getColumn(i + 1).width = x.width));
       const at = (title: string) => columns.findIndex((x) => x.title === title) + 1;
+      const fmt = (title: string, numFmt: string, row: ExcelJS.Row) => at(title) && (row.getCell(at(title)).numFmt = numFmt);
 
       let prevTopic: string | null = null;
-      for (const e of c.expenses) {
+      for (const e of sel.expenses) {
         const values: Record<string, any> = {
           'נושא הפעילות': e.topic && e.topic !== prevTopic ? e.topic : '',
           'תאריך': e.date ? new Date(`${e.date}T00:00:00Z`) : '',
@@ -601,16 +647,17 @@ router.get('/exportExcel', async (req, res) => {
         };
         prevTopic = e.topic;
         const row = ws.addRow(columns.map((x) => values[x.title] ?? ''));
-        row.getCell(at('תאריך')).numFmt = 'dd/mm/yyyy';
-        row.getCell(at('תאריך תשלום')).numFmt = 'dd/mm/yyyy';
-        row.getCell(at('סכום לתשלום')).numFmt = '₪#,##0.00';
-        if (values['נושא הפעילות']) row.getCell(1).font = { bold: true };
+        fmt('תאריך', 'dd/mm/yyyy', row);
+        fmt('תאריך תשלום', 'dd/mm/yyyy', row);
+        fmt('סכום לתשלום', '₪#,##0.00', row);
+        if (at('נושא הפעילות') && values['נושא הפעילות']) row.getCell(1).font = { bold: true };
         // חשבונית/קבלה: קבצים שהועלו (נפתחים באתר) או הקישור מהאקסל המקורי
         const fileCells = [
           ['חשבונית', 'invoice', e.invoiceText, e.invoiceUrl],
           ['קבלה', 'receipt', e.receiptText, e.receiptUrl],
         ] as const;
         for (const [title, kind, text, link] of fileCells) {
+          if (!at(title)) continue;
           const files = e.files.filter((f) => f.kind === kind);
           const label = [text, ...files.map((f) => f.fileName)].filter(Boolean).join(', ');
           const href = files[0] ? `${base}/api/expenses/files/${files[0].id}` : link;
@@ -621,13 +668,115 @@ router.get('/exportExcel', async (req, res) => {
           } else cell.value = label;
         }
       }
+      // שורת סה"כ של השורות שיוצאו
+      if (at('סכום לתשלום')) {
+        const totalRow = ws.addRow([]);
+        totalRow.getCell(Math.max(1, at('סכום לתשלום') - 1)).value = filteredRows ? 'סה"כ השורות שנבחרו' : 'סה"כ';
+        totalRow.getCell(at('סכום לתשלום')).value = sel.expenses.reduce((s, e) => s + (e.amount || 0), 0);
+        totalRow.getCell(at('סכום לתשלום')).numFmt = '₪#,##0.00';
+        totalRow.font = { bold: true };
+      }
     }
+    if (!wb.worksheets.length) return res.status(400).json({ error: 'לא נבחר שום דבר לייצוא' });
 
     res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`הוצאות ${year}.xlsx`)}`);
     res.send(Buffer.from(await wb.xlsx.writeBuffer()));
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בייצוא' });
+  }
+});
+
+// מזהה קובץ בגוגל דרייב מתוך קישור שיתוף (‎/file/d/ID/…‎ או ‎?id=ID‎)
+function driveFileId(link: string): string | null {
+  const m = link.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:[^#]*&)?id=)([\w-]{10,})/);
+  return m ? m[1] : null;
+}
+
+/** מוריד קובץ מקישור דרייב (משותף לכל מי שיש לו קישור). רק דרייב — לא ניגשים לכתובות אחרות מהשרת. מחזיר null אם אין גישה / לא PDF או תמונה. */
+async function fetchLinkedFile(link: string): Promise<{ data: Buffer; mime: string } | null> {
+  const id = driveFileId(link);
+  if (!id) return null;
+  try {
+    const r = await axios.get(`https://drive.google.com/uc?export=download&id=${id}`, { responseType: 'arraybuffer', timeout: 20000, maxContentLength: 25 * 1024 * 1024 });
+    const data = Buffer.from(r.data);
+    const mime = String(r.headers['content-type'] || '').split(';')[0].trim();
+    if (data.subarray(0, 4).toString() === '%PDF') return { data, mime: 'application/pdf' };
+    if (mime.startsWith('image/')) return { data, mime };
+    return null; // דף התחברות של גוגל וכד' — הקובץ לא משותף
+  } catch {
+    return null;
+  }
+}
+
+/** מוסיף קובץ (PDF או תמונה) כעמודים למסמך המאוחד. מחזיר false אם לא הצליח. */
+async function appendToPdf(doc: PDFDocument, data: Buffer, mime: string): Promise<boolean> {
+  try {
+    if (mime === 'application/pdf' || data.subarray(0, 4).toString() === '%PDF') {
+      const src = await PDFDocument.load(data, { ignoreEncryption: true });
+      const pages = await doc.copyPages(src, src.getPageIndices());
+      pages.forEach((p) => doc.addPage(p));
+      return pages.length > 0;
+    }
+    const isPng = mime === 'image/png';
+    const isJpg = mime === 'image/jpeg' || mime === 'image/jpg';
+    if (!isPng && !isJpg) return false;
+    const img = isPng ? await doc.embedPng(data) : await doc.embedJpg(data);
+    const [W, H, M] = [595.28, 841.89, 28]; // A4 עם שוליים
+    const scale = Math.min((W - 2 * M) / img.width, (H - 2 * M) / img.height, 1);
+    const page = doc.addPage([W, H]);
+    page.drawImage(img, {
+      x: (W - img.width * scale) / 2,
+      y: (H - img.height * scale) / 2,
+      width: img.width * scale,
+      height: img.height * scale,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// PDF אחד עם כל החשבוניות (ו/או הקבלות) של מה שנבחר — להדפסה בבת אחת
+router.get('/printFiles', async (req, res) => {
+  try {
+    const { year, selected } = await loadForExport(req.query, true);
+    const kinds = listParam(req.query.kinds).filter((k) => k === 'invoice' || k === 'receipt');
+    if (!kinds.length) kinds.push('invoice');
+    const doc = await PDFDocument.create();
+    let included = 0;
+    let missing = 0;
+    for (const c of selected) {
+      for (const e of c.expenses) {
+        for (const kind of kinds) {
+          const files = e.files.filter((f) => f.kind === kind);
+          const link = kind === 'invoice' ? e.invoiceUrl : e.receiptUrl;
+          let ok = false;
+          for (const f of files) if (await appendToPdf(doc, Buffer.from(f.fileData as any), f.fileMime)) ok = true;
+          if (!ok && link) {
+            const fetched = await fetchLinkedFile(link);
+            if (fetched && (await appendToPdf(doc, fetched.data, fetched.mime))) ok = true;
+          }
+          if (ok) included++;
+          else if (files.length || link) missing++; // היה קובץ/קישור אבל לא הצלחנו לצרף
+        }
+      }
+    }
+    if (!doc.getPageCount()) {
+      return res.status(404).json({
+        error: missing
+          ? `לא הצלחתי לצרף אף קובץ (${missing} קישורים לא נגישים — צריך לשתף אותם בדרייב "לכל מי שיש לו את הקישור" או להעלות את הקובץ להוצאה)`
+          : 'אין חשבוניות מצורפות בשורות שנבחרו',
+      });
+    }
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`חשבוניות ${year}.pdf`)}`);
+    res.set('X-Files-Included', String(included));
+    res.set('X-Files-Missing', String(missing));
+    res.set('Access-Control-Expose-Headers', 'X-Files-Included, X-Files-Missing');
+    res.send(Buffer.from(await doc.save()));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה ביצירת קובץ החשבוניות' });
   }
 });
 
