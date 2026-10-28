@@ -4,6 +4,7 @@ import { getFullSchedule } from './scheduleData';
 import { lessonsForDate } from './scheduleRules';
 import { getCancelledKeys } from './lessonCancellations';
 import { requiredPeriods, lessonPeriodTimes, recordPeriod } from './lessonPeriods';
+import { findTeacherIds } from './teacherScope';
 
 /** period/periods — בשיעור כפול (שעה וחצי וכו') כל 45 דק' הן שיבוץ נפרד שצריך סימון משלו */
 type RequiredSlot = { date: string; time: string; trackId: string; lessonId: string; period: number; periods: number };
@@ -13,14 +14,14 @@ type RequiredSlot = { date: string; time: string; trackId: string; lessonId: str
  * לפי המערכת בפועל באותו תאריך — שיעור קבוע שהוחלף זמנית (למשל בכנס) לא דורש נוכחות תלמידות.
  */
 async function getRequiredAttendanceSlots(teacherName: string, month: string): Promise<RequiredSlot[]> {
-  const teacherRecords = await airtableFetch(TABLES.teachers, {
-    filterByFormula: `{${FIELDS.teachers.name}} = "${teacherName}"`,
-  });
-  const teacherId = teacherRecords[0]?.id;
-  if (!teacherId) return [];
+  // אותה התאמת שמות כמו בשאר המערכת — במערכת השעות השמות כתובים "המורה X", ולכן השוואה
+  // מדויקת (שהייתה כאן) תפסה רק 2 מורות מתוך 30, ולשאר הבדיקה פשוט לא רצה
+  const teacherIds = await findTeacherIds(teacherName);
+  if (!teacherIds.length) return [];
+  const isMine = (lesson: { teacher?: string[] }) => (lesson.teacher || []).some((id) => teacherIds.includes(id));
 
   const { lessons } = await getFullSchedule();
-  if (!lessons.some((l) => (l.teacher || []).includes(teacherId))) return [];
+  if (!lessons.some(isMine)) return [];
 
   const [year, monthNum] = month.split('-').map(Number);
   const daysInMonth = new Date(year, monthNum, 0).getDate();
@@ -34,7 +35,7 @@ async function getRequiredAttendanceSlots(teacherName: string, month: string): P
     const date = `${month}-${String(d).padStart(2, '0')}`;
     if (date > today) continue; // לא דורשים נוכחות לימים עתידיים
     for (const lesson of lessonsForDate(lessons, date)) {
-      if (!(lesson.teacher || []).includes(teacherId)) continue;
+      if (!isMine(lesson)) continue;
       if (cancelled.has(`${date}|${lesson.id}`)) continue;
       const trackIds = lesson.track || [];
       const periods = requiredPeriods(lesson.time, date);

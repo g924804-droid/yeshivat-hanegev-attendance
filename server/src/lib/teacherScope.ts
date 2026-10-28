@@ -27,6 +27,25 @@ function normalizeTeacherName(s: string): string {
     .trim();
 }
 
+/** מילים של שם, בלי הבדלי כתיב של יו"ד/וי"ו כפולה ("טוייטו" = "טויטו") */
+function nameWords(s: string): string[] {
+  return s
+    .replace(/[-–־]/g, ' ')
+    .replace(/יי/g, 'י')
+    .replace(/וו/g, 'ו')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * כל המילים של השם הקצר מופיעות בשם הארוך — למשל במערכת השעות "אפרת דיין" ובמערכת
+ * "אפרת טויטו דיין" (שם נעורים + שם נישואין). לפחות 2 מילים, כדי ששם פרטי לבד לא יתאים.
+ */
+function wordsSubset(a: string, b: string): boolean {
+  const [short, long] = [nameWords(a), nameWords(b)].sort((x, y) => x.length - y.length);
+  return short.length >= 2 && short.every((w) => long.includes(w));
+}
+
 /** מזהי המורות (ברשומת Airtable) שהשם שלהן תואם, במדויק או חלקית אחרי ניקוי תארים/רווחים. */
 export async function findTeacherIds(teacherName: string): Promise<string[]> {
   const target = normalizeTeacherName(teacherName);
@@ -35,7 +54,9 @@ export async function findTeacherIds(teacherName: string): Promise<string[]> {
   return allTeachers
     .filter((t) => {
       const raw = normalizeTeacherName(t.fields[FIELDS.teachers.name] || '');
-      return raw && (raw === target || raw.includes(target) || target.includes(raw));
+      // רשומת מורה עם שם של אות או שתיים (יש אחת כזו: "ה") הייתה "מתאימה" לכל שם שמכיל אותה
+      if (raw.length < 3) return false;
+      return raw === target || raw.includes(target) || target.includes(raw) || wordsSubset(raw, target);
     })
     .map((t) => t.id);
 }
