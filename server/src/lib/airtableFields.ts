@@ -41,6 +41,8 @@ export const FIELDS = {
     // קודש עם אותה מורה) לא מתערבבת לרשומה אחת.
     lesson: 'כיתה',
     teacher: 'מורה',
+    // בשיעור כפול (שעה וחצי = 2×45 דק'): איזה חלק — 1, 2... ריק = 1. ראו lib/lessonPeriods.ts
+    period: 'שעה בשיעור',
   },
   grades: {
     studentLinked: 'שם התלמידה ומשפחה',

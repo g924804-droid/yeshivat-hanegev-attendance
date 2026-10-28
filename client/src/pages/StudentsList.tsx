@@ -15,8 +15,9 @@ type Student = {
   status: string | null;
   avgGrade: number | null;
 };
-type Lesson = { id: string; className: string; time: string; room: string; teacherName: string };
-type MissingSlot = { date: string; time: string; lessonId: string };
+// periods — שיעור ארוך (שעה וחצי וכו') = כמה שיעורים של 45 דק', וכל אחד מסומן בנפרד
+type Lesson = { id: string; className: string; time: string; room: string; teacherName: string; periods: number; periodTimes: string[] };
+type MissingSlot = { date: string; time: string; lessonId: string; period: number; periods: number };
 
 const STATUS_OPTIONS = ['נוכחת', 'חסרה', 'איחור'];
 const STATUS_COLOR: Record<string, string> = {
@@ -50,6 +51,7 @@ export function StudentsList() {
   const [students, setStudents] = useState<Student[]>([]);
   const [schedule, setSchedule] = useState<Lesson[]>([]);
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
+  const [activePeriod, setActivePeriod] = useState(1);
   const [hebrewDate, setHebrewDate] = useState('');
   const [trackName, setTrackName] = useState('');
   // תאריך בר-בחירה, לא נעול ל"היום" — כדי שאפשר יהיה לחזור אחורה ולמלא נוכחות שהוחמצה
@@ -63,28 +65,30 @@ export function StudentsList() {
 
   // מקבל תאריך מפורש (לא סומך על ה-state) כדי שקפיצה ליום אחר (חצים/בחירת תאריך/לחיצה על
   // "תאריך חסר") תמיד תביא את הנתונים של היום הנכון, בלי מרוץ בין קריאה ישנה לחדשה.
-  async function load(targetDate: string, lessonId?: string | null) {
+  async function load(targetDate: string, lessonId?: string | null, period?: number) {
     try {
       const data = await api.get<{
         track: { name: string };
         students: Student[];
         schedule: Lesson[];
         activeLessonId: string | null;
+        activePeriod: number;
         hebrewDate: string;
-      }>('/students/getStudentsByTrack', { trackId, date: targetDate, lessonId: lessonId || undefined });
+      }>('/students/getStudentsByTrack', { trackId, date: targetDate, lessonId: lessonId || undefined, period: period || undefined });
       setTrackName(data.track.name);
       setStudents(data.students);
       setSchedule(data.schedule);
       setActiveLessonId(data.activeLessonId);
+      setActivePeriod(data.activePeriod || 1);
       setHebrewDate(data.hebrewDate);
     } catch (err: any) {
       setError(err.message);
     }
   }
 
-  function goToDate(targetDate: string, lessonId?: string) {
+  function goToDate(targetDate: string, lessonId?: string, period?: number) {
     setDate(targetDate);
-    load(targetDate, lessonId);
+    load(targetDate, lessonId, period);
   }
 
   useEffect(() => {
@@ -96,9 +100,9 @@ export function StudentsList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackId]);
 
-  function selectLesson(lessonId: string) {
-    if (lessonId === activeLessonId) return;
-    load(date, lessonId);
+  function selectLesson(lessonId: string, period = 1) {
+    if (lessonId === activeLessonId && period === activePeriod) return;
+    load(date, lessonId, period);
   }
 
   function refreshMissing() {
@@ -118,8 +122,9 @@ export function StudentsList() {
         date,
         existingAttendanceId: student.attendanceId || undefined,
         lessonId: activeLessonId || undefined,
+        period: activePeriod,
       });
-      await load(date, activeLessonId);
+      await load(date, activeLessonId, activePeriod);
       refreshMissing();
     } catch (err: any) {
       setError(err.message);
@@ -135,9 +140,10 @@ export function StudentsList() {
         trackId,
         date,
         lessonId: activeLessonId || undefined,
+        period: activePeriod,
         status: 'נוכחת',
       });
-      await load(date, activeLessonId);
+      await load(date, activeLessonId, activePeriod);
       refreshMissing();
     } catch (err: any) {
       setError(err.message);
@@ -146,6 +152,7 @@ export function StudentsList() {
     }
   }
 
+  const activeLesson = schedule.find((l) => l.id === activeLessonId);
   const isToday = date === todayStr();
   const dayOfWeek = DOW_HE[new Date(`${date}T00:00:00`).getDay()];
 
@@ -184,11 +191,12 @@ export function StudentsList() {
           <div className="flex flex-wrap gap-2">
             {missingSlots.map((s) => (
               <button
-                key={`${s.date}-${s.lessonId}`}
-                onClick={() => goToDate(s.date, s.lessonId)}
+                key={`${s.date}-${s.lessonId}-${s.period}`}
+                onClick={() => goToDate(s.date, s.lessonId, s.period)}
                 className="badge cursor-pointer bg-white border border-amber-400 text-amber-900 hover:bg-amber-100"
               >
                 {displayDate(s.date)} · {s.time}
+                {s.periods > 1 && ` (שעה ${s.period} מתוך ${s.periods})`}
               </button>
             ))}
           </div>
@@ -244,11 +252,13 @@ export function StudentsList() {
                 <button
                   key={l.id}
                   onClick={() => selectLesson(l.id)}
+                  title={l.periods > 1 ? `שיעור כפול — ${l.periods} סימוני נוכחות` : undefined}
                   className={`badge cursor-pointer transition-colors flex items-center gap-1.5 ${
                     active ? 'bg-navy text-white' : 'bg-navy-50 text-navy hover:bg-navy-100'
                   }`}
                 >
                   <span>{l.time}</span>
+                  {l.periods > 1 && <span className="opacity-80">×{l.periods}</span>}
                   {label && <span className="opacity-80">{label}</span>}
                   {l.teacherName && (
                     <span className="flex items-center gap-0.5 opacity-80">
@@ -266,6 +276,26 @@ export function StudentsList() {
           </div>
         ) : (
           <p className="text-slate-400 text-sm">אין שיעור רשום למסלול הזה בתאריך הזה</p>
+        )}
+        {activeLesson && activeLesson.periods > 1 && (
+          <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
+            <p className="text-sm text-amber-900 mb-2">
+              זה שיעור כפול — יש לסמן נוכחות {activeLesson.periods === 2 ? 'פעמיים' : `${activeLesson.periods} פעמים`}, פעם לכל 45 דקות:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {activeLesson.periodTimes.map((t, i) => (
+                <button
+                  key={i}
+                  onClick={() => selectLesson(activeLesson.id, i + 1)}
+                  className={`badge cursor-pointer transition-colors ${
+                    activePeriod === i + 1 ? 'bg-amber-500 text-white' : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
+                  }`}
+                >
+                  שעה {i + 1} · {t}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 

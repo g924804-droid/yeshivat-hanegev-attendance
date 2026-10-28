@@ -20,6 +20,13 @@ import { getMissingAttendanceSlots } from '../lib/teacherAttendanceCheck';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { buildAttendanceSummary, buildAttendanceExcel } from '../lib/studentAttendanceReport';
 import { getAttendanceIssues, assignRecordsToLesson, deleteAttendanceRecords } from '../lib/studentAttendanceIssues';
+import { lessonPeriodCount, lessonPeriodTimes, recordPeriod } from '../lib/lessonPeriods';
+
+/** חלק מבוקש בשיעור (1, 2...) — מוגבל למספר החלקים של השיעור */
+function clampPeriod(raw: unknown, periods: number): number {
+  const n = Math.floor(Number(raw));
+  return n >= 1 && n <= periods ? n : 1;
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -81,7 +88,7 @@ router.get('/getMissingAttendanceForTrack', requirePermission('studentAttendance
     const slots = await getMissingAttendanceSlots(req.user!.name, month);
     const missing = slots
       .filter((s) => s.trackId === trackId)
-      .map((s) => ({ date: s.date, time: s.time, lessonId: s.lessonId }));
+      .map((s) => ({ date: s.date, time: s.time, lessonId: s.lessonId, period: s.period, periods: s.periods }));
 
     res.json({ missing });
   } catch (err: any) {
@@ -151,6 +158,9 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
       requestedLessonId && todaysLessons.some((l) => l.id === requestedLessonId)
         ? requestedLessonId
         : todaysLessons[0]?.id || null;
+    // שיעור כפול: כל 45 דק' מסומנות בנפרד ("שעה 1", "שעה 2")
+    const activeLesson = todaysLessons.find((l) => l.id === activeLessonId);
+    const activePeriod = clampPeriod(req.query.period, lessonPeriodCount(activeLesson?.time));
 
     const dayAttendance = await airtableFetch(TABLES.attendance, {
       filterByFormula: dateEqualsFormula(FIELDS.attendance.date, date),
@@ -162,7 +172,10 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
       const attendanceRecord = dayAttendance.find((a) => {
         if (!(a.fields[FIELDS.attendance.student] || []).includes(s.id)) return false;
         if (!activeLessonId) return true; // אין שיעור מוגדר ליום הזה — נוכחות כללית לפי תאריך בלבד
-        return (a.fields[FIELDS.attendance.lesson] || []).includes(activeLessonId);
+        return (
+          (a.fields[FIELDS.attendance.lesson] || []).includes(activeLessonId) &&
+          recordPeriod(a.fields[FIELDS.attendance.period]) === activePeriod
+        );
       });
       const statusEn = attendanceRecord?.fields[FIELDS.attendance.status];
       const studentGrades = allGrades.filter((g) =>
@@ -198,8 +211,11 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
         time: l.time,
         room: l.room,
         teacherName: l.teacherName,
+        periods: lessonPeriodCount(l.time),
+        periodTimes: lessonPeriodTimes(l.time),
       })),
       activeLessonId,
+      activePeriod,
       hebrewDate,
     });
   } catch (err: any) {
@@ -209,13 +225,14 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
 
 router.post('/markStudentAttendance', requirePermission('studentAttendance'), async (req, res) => {
   try {
-    const { studentId, status, notes, date, existingAttendanceId, lessonId } = req.body as {
+    const { studentId, status, notes, date, existingAttendanceId, lessonId, period } = req.body as {
       studentId: string;
       status: string;
       notes?: string;
       date?: string;
       existingAttendanceId?: string;
       lessonId?: string;
+      period?: number;
     };
     if (!studentId || !status) return res.status(400).json({ error: 'חסר מזהה תלמידה או סטטוס' });
 
@@ -226,6 +243,8 @@ router.post('/markStudentAttendance', requirePermission('studentAttendance'), as
       [FIELDS.attendance.notes]: notes || '',
     };
     if (lessonId) fields[FIELDS.attendance.lesson] = [lessonId];
+    // חלק 1 נשאר ריק (כמו כל הרשומות הישנות) — כותבים את העמודה רק לחלק 2 ומעלה
+    if (lessonId && Number(period) > 1) fields[FIELDS.attendance.period] = Math.floor(Number(period));
     if (req.user!.role === 'מורה') {
       const teacherIds = await findTeacherIds(req.user!.name);
       if (teacherIds[0]) fields[FIELDS.attendance.teacher] = [teacherIds[0]];
@@ -247,12 +266,14 @@ router.post('/markStudentAttendance', requirePermission('studentAttendance'), as
  */
 router.post('/bulkMarkAttendance', requirePermission('studentAttendance'), async (req, res) => {
   try {
-    const { trackId, date, lessonId, status } = req.body as {
+    const { trackId, date, lessonId, status, period } = req.body as {
       trackId: string;
       date: string;
       lessonId?: string;
       status?: string;
+      period?: number;
     };
+    const part = lessonId && Number(period) > 1 ? Math.floor(Number(period)) : 1;
     if (!trackId || !date) return res.status(400).json({ error: 'חסר מסלול או תאריך' });
     const markStatus = status || 'נוכחת';
 
@@ -275,7 +296,10 @@ router.post('/bulkMarkAttendance', requirePermission('studentAttendance'), async
       const alreadyMarked = dayAttendance.some((a) => {
         if (!(a.fields[FIELDS.attendance.student] || []).includes(studentId)) return false;
         if (!lessonId) return true;
-        return (a.fields[FIELDS.attendance.lesson] || []).includes(lessonId);
+        return (
+          (a.fields[FIELDS.attendance.lesson] || []).includes(lessonId) &&
+          recordPeriod(a.fields[FIELDS.attendance.period]) === part
+        );
       });
       if (alreadyMarked) continue;
 
@@ -285,6 +309,7 @@ router.post('/bulkMarkAttendance', requirePermission('studentAttendance'), async
         [FIELDS.attendance.status]: STUDENT_STATUS_HE_TO_EN[markStatus] || markStatus,
       };
       if (lessonId) fields[FIELDS.attendance.lesson] = [lessonId];
+      if (part > 1) fields[FIELDS.attendance.period] = part;
       if (teacherLink) fields[FIELDS.attendance.teacher] = teacherLink;
       toCreate.push(fields);
     }

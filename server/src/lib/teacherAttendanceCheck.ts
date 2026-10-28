@@ -3,8 +3,10 @@ import { FIELDS } from './airtableFields';
 import { getFullSchedule } from './scheduleData';
 import { lessonsForDate } from './scheduleRules';
 import { getCancelledKeys } from './lessonCancellations';
+import { requiredPeriods, lessonPeriodTimes, recordPeriod } from './lessonPeriods';
 
-type RequiredSlot = { date: string; time: string; trackId: string; lessonId: string };
+/** period/periods — בשיעור כפול (שעה וחצי וכו') כל 45 דק' הן שיבוץ נפרד שצריך סימון משלו */
+type RequiredSlot = { date: string; time: string; trackId: string; lessonId: string; period: number; periods: number };
 
 /**
  * לפי מערכת השעות: לכל יום בחודש שהמורה לימדה בו (יום בשבוע תואם), את/ה המסלול והשיעור שלימדה בו.
@@ -35,14 +37,19 @@ async function getRequiredAttendanceSlots(teacherName: string, month: string): P
       if (!(lesson.teacher || []).includes(teacherId)) continue;
       if (cancelled.has(`${date}|${lesson.id}`)) continue;
       const trackIds = lesson.track || [];
-      const time = lesson.time || '';
-      trackIds.forEach((trackId) => slots.push({ date, time, trackId, lessonId: lesson.id }));
+      const periods = requiredPeriods(lesson.time, date);
+      const times = periods > 1 ? lessonPeriodTimes(lesson.time) : [lesson.time || ''];
+      for (let period = 1; period <= periods; period++) {
+        trackIds.forEach((trackId) =>
+          slots.push({ date, time: times[period - 1] || lesson.time || '', trackId, lessonId: lesson.id, period, periods })
+        );
+      }
     }
   }
 
   const seen = new Set<string>();
   return slots.filter((s) => {
-    const key = `${s.date}|${s.trackId}|${s.lessonId}`;
+    const key = `${s.date}|${s.trackId}|${s.lessonId}|${s.period}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -75,17 +82,25 @@ export async function getMissingAttendanceSlots(
     filterByFormula: `FIND("${month}", {${FIELDS.attendance.date}})`,
   });
 
-  const covered = new Set<string>(); // `${date}|${trackId}`
+  const covered = new Set<string>(); // `${date}|${trackId}` — חלק 1 / שיעור רגיל, כמו תמיד
+  const coveredPeriod = new Set<string>(); // `${date}|${lessonId}|${period}` — חלקים 2+ של שיעור כפול
   for (const rec of attendance) {
     const date = rec.fields[FIELDS.attendance.date];
     const studentIds: string[] = rec.fields[FIELDS.attendance.student] || [];
+    const period = recordPeriod(rec.fields[FIELDS.attendance.period]);
+    for (const lessonId of rec.fields[FIELDS.attendance.lesson] || []) coveredPeriod.add(`${date}|${lessonId}|${period}`);
+    if (period > 1) continue;
     for (const [trackId, studentSet] of trackStudents) {
       if (studentIds.some((sid) => studentSet.has(sid))) covered.add(`${date}|${trackId}`);
     }
   }
 
   return slots
-    .filter((slot) => !covered.has(`${slot.date}|${slot.trackId}`))
+    .filter((slot) =>
+      slot.period === 1
+        ? !covered.has(`${slot.date}|${slot.trackId}`)
+        : !coveredPeriod.has(`${slot.date}|${slot.lessonId}|${slot.period}`)
+    )
     .sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
 }
 

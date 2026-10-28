@@ -4,6 +4,7 @@ import { FIELDS } from './airtableFields';
 import { getFullSchedule, ParsedLesson } from './scheduleData';
 import { hebrewDate } from './hebrewDate';
 import { familyFirstName } from './studentName';
+import { recordPeriod } from './lessonPeriods';
 
 /** אחוז ההיעדרויות המקסימלי המותר בכל שיעור (חיסורים, ואיחורים אם נספרים). */
 export const ABSENCE_LIMIT_PCT = 20;
@@ -144,7 +145,7 @@ export async function buildAttendanceSummary(opts: {
       status,
       notes: [rec.fields[FIELDS.attendance.notes], rec.fields['סיבת העדרות']].filter(Boolean).join(' · '),
     };
-    const key = `${studentId}|${lesson.id}|${date}`;
+    const key = `${studentId}|${lesson.id}|${date}|${recordPeriod(rec.fields[FIELDS.attendance.period])}`; // שיעור כפול: כל חלק נספר בנפרד
     const prev = byKey.get(key);
     if (!prev || prev.created < r.created) byKey.set(key, r);
   }
