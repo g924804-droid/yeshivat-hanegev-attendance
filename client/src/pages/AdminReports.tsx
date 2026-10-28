@@ -1171,6 +1171,12 @@ function EditEmployeeModal({
 
 function ReceiptsTab() {
   const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
+  // ברירת מחדל: החודש הנוכחי; ריק = כל החודשים
+  const [month, setMonth] = useState(currentMonth());
+  const shown = month ? receipts.filter((r) => r.month === month) : receipts;
+  const total = shown.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  // קבלות שממתינות לאישור בחודשים אחרים — שלא ייעלמו מהעין כשמסננים לחודש אחד
+  const pendingElsewhere = month ? receipts.filter((r) => r.month !== month && r.status === 'ממתין') : [];
 
   async function load() {
     const data = await api.get<{ receipts: ReceiptRow[] }>('/receipts/getAllReceipts');
@@ -1187,6 +1193,31 @@ function ReceiptsTab() {
 
   return (
     <div className="card overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <label className="text-sm text-slate-600">חודש:</label>
+        <input type="month" className="input w-auto py-1.5" value={month} onChange={(e) => setMonth(e.target.value)} />
+        {month ? (
+          <button className="text-sm text-navy underline" onClick={() => setMonth('')}>
+            כל החודשים
+          </button>
+        ) : (
+          <button className="text-sm text-navy underline" onClick={() => setMonth(currentMonth())}>
+            החודש הנוכחי
+          </button>
+        )}
+        <span className="text-sm text-slate-500 mr-auto">
+          {shown.length} קבלות · סה"כ {total.toLocaleString('he-IL')} ₪
+        </span>
+      </div>
+      {pendingElsewhere.length > 0 && (
+        <p className="mb-3 text-sm text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+          יש עוד {pendingElsewhere.length} קבלות שממתינות לאישור בחודשים אחרים (
+          {Array.from(new Set(pendingElsewhere.map((r) => r.month))).sort().join(', ')}) —{' '}
+          <button className="underline font-medium" onClick={() => setMonth('')}>
+            הצגת כל החודשים
+          </button>
+        </p>
+      )}
       <table className="w-full text-sm text-center">
         <thead>
           <tr className="text-slate-500 border-b">
@@ -1200,7 +1231,7 @@ function ReceiptsTab() {
           </tr>
         </thead>
         <tbody>
-          {receipts.map((r) => (
+          {shown.map((r) => (
             <tr key={r.id} className="border-b last:border-0 hover:bg-slate-50">
               <td className="py-2">
                 {r.description}
@@ -1232,7 +1263,7 @@ function ReceiptsTab() {
           ))}
         </tbody>
       </table>
-      {receipts.length === 0 && <p className="text-center text-slate-400 py-6">אין קבלות</p>}
+      {shown.length === 0 && <p className="text-center text-slate-400 py-6">{month ? 'אין קבלות בחודש הזה' : 'אין קבלות'}</p>}
     </div>
   );
 }
