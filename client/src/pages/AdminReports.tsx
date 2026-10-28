@@ -94,6 +94,7 @@ type ReminderStatus = {
   emailConfigured: boolean;
   lastReminderMonth: string | null;
   nextSendDate: string;
+  nextSendKind?: 'early' | 'final';
   recipients: number;
   missingEmail: string[];
 };
@@ -654,7 +655,8 @@ function EmployeesTab() {
           <Mail size={15} />
           {reminderStatus.emailConfigured ? (
             <span>
-              תזכורת אוטומטית במייל תישלח ב-<strong>{reminderStatus.nextSendDate.split('-').reverse().join('/')}</strong> ל-
+              {reminderStatus.nextSendKind === 'final' ? 'תזכורת אחרונה ("עדיין לא מילאת")' : 'תזכורת אוטומטית'} במייל תישלח ב-
+              <strong>{reminderStatus.nextSendDate.split('-').reverse().join('/')}</strong> ל-
               {reminderStatus.recipients} עובדות שעוד לא הגישו דוח
               {reminderStatus.lastReminderMonth && ` · נשלחה לאחרונה: ${reminderStatus.lastReminderMonth.split('-').reverse().join('/')}`}
             </span>
