@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, LogOut as LogOutIcon, Plus, Trash2, Pencil, FileBarChart, Save, X, Receipt, Paperclip, Upload } from 'lucide-react';
+import { Play, Square, Plus, Trash2, Pencil, FileBarChart, Save, X, Receipt, Paperclip, Upload } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
-import { cn, currentMonth, safeFixed, todayStr, DOW_HE } from '../lib/utils';
+import { cn, currentMonth, safeFixed, todayStr, DOW_HE, academicHours } from '../lib/utils';
+import { notifyTimerChanged } from '../components/TimerStrip';
 import { useUrlState } from '../lib/useUrlState';
 
 type AttendanceRecord = {
@@ -52,6 +53,9 @@ export function Dashboard() {
   const [month, setMonth] = useUrlState('month', currentMonth());
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  // שעות אקדמיות (45 דק') — רק למורות, לפי התפקיד של מי שהנוכחות שלה מוצגת
+  const [employeeRole, setEmployeeRole] = useState<string | null>(null);
+  const isTeacher = employeeRole === 'מורה';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -76,12 +80,13 @@ export function Dashboard() {
   async function load() {
     setLoading(true);
     try {
-      const data = await api.get<{ records: AttendanceRecord[]; holidays: Holiday[] }>('/attendance/getMyAttendance', {
+      const data = await api.get<{ records: AttendanceRecord[]; holidays: Holiday[]; employeeRole?: string }>('/attendance/getMyAttendance', {
         month,
         ...(targetUserId ? { userId: targetUserId } : {}),
       });
       setRecords(data.records);
       setHolidays(data.holidays);
+      setEmployeeRole(data.employeeRole || null);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -135,6 +140,7 @@ export function Dashboard() {
         await api.post('/attendance/clockOut', { recordId: todayRecord!.id, clockOut: now });
       }
       await load();
+      notifyTimerChanged();
     } catch (err: any) {
       setError(err.message);
     }
@@ -147,6 +153,7 @@ export function Dashboard() {
       await api.post('/attendance/clockOut', { recordId: todayRecord!.id, clockOut: now, lessonsCount });
       setShowLessonsPrompt(false);
       await load();
+      notifyTimerChanged();
     } catch (err: any) {
       setError(err.message);
     }
@@ -165,13 +172,22 @@ export function Dashboard() {
   const totalHours = records.reduce((s, r) => s + (r.type === 'רגיל' ? r.totalHours : 0), 0);
   const totalOvertime = records.reduce((s, r) => s + r.overtimeHours, 0);
 
+  // "הפעלת טיימר" / "עצירת טיימר" — ברור יותר מ"כניסה"/"יציאה" מה הכפתור עושה
   const clockLabel: Record<typeof clockState, string> = {
-    in1: 'כניסה',
-    out1: 'יציאה',
-    in2: 'כניסה (משמרת 2)',
-    out2: 'יציאה (משמרת 2)',
+    in1: 'הפעלת טיימר',
+    out1: 'עצירת טיימר',
+    in2: 'הפעלת טיימר (משמרת 2)',
+    out2: 'עצירת טיימר (משמרת 2)',
     done: 'היום הושלם',
   };
+  const clockHint: Record<typeof clockState, string> = {
+    in1: 'מתחיל לספור את זמן העבודה מעכשיו (רושם שעת כניסה)',
+    out1: 'עוצר את ספירת הזמן ורושם שעת יציאה',
+    in2: 'מתחיל ספירה נוספת להיום — משמרת שנייה',
+    out2: 'עוצר את ספירת הזמן של המשמרת השנייה',
+    done: 'שתי המשמרות של היום כבר נרשמו',
+  };
+  const runningSince = clockState === 'out1' ? todayRecord?.clockIn : clockState === 'out2' ? todayRecord?.clockIn2 : null;
 
   return (
     <Layout title="נוכחות מורות">
@@ -180,14 +196,20 @@ export function Dashboard() {
           <div>
             <p className="text-slate-500 text-sm">שעון נוכחות — היום</p>
             <p className="text-2xl font-bold text-navy">{today}</p>
+            {runningSince && !targetUserId && (
+              <p className="text-sm text-green-700 font-medium mt-1 flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-green-600 animate-pulse" /> הטיימר פועל מ-{runningSince}
+              </p>
+            )}
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleClock}
               disabled={clockState === 'done'}
+              title={clockHint[clockState]}
               className={cn(clockState.startsWith('in') ? 'btn-primary' : 'btn-gold')}
             >
-              {clockState.startsWith('in') ? <LogIn size={18} /> : <LogOutIcon size={18} />}
+              {clockState.startsWith('in') ? <Play size={18} fill="currentColor" /> : <Square size={16} fill="currentColor" />}
               {clockLabel[clockState]}
             </button>
             <button className="btn-outline" onClick={() => setShowAbsence(true)}>
@@ -233,6 +255,11 @@ export function Dashboard() {
           <div className="text-slate-500">
             סה"כ שעות: <span className="font-bold text-navy">{safeFixed(totalHours)}</span>
           </div>
+          {isTeacher && (
+            <div className="text-slate-500" title="שעה אקדמית = 45 דקות">
+              שעות אקדמיות: <span className="font-bold text-navy">{academicHours(totalHours)}</span>
+            </div>
+          )}
           <div className="text-slate-500">
             שעות עודפות: <span className="font-bold text-navy">{safeFixed(totalOvertime)}</span>
           </div>
@@ -253,6 +280,7 @@ export function Dashboard() {
                   <th>כניסה 2</th>
                   <th>יציאה 2</th>
                   <th>שעות</th>
+                  {isTeacher && <th title="שעה אקדמית = 45 דקות">אקדמיות</th>}
                   <th>עודפות</th>
                   <th>שיעורים</th>
                   <th></th>
@@ -271,6 +299,7 @@ export function Dashboard() {
                         key={editKey}
                         record={record || draftAttendanceRecord(date)}
                         employeeId={targetUserId}
+                        academicCol={isTeacher}
                         onCancel={() => setEditingId(null)}
                         onSaved={() => { setEditingId(null); load(); }}
                       />
@@ -322,6 +351,7 @@ export function Dashboard() {
                             )}
                           </div>
                         </td>
+                        {isTeacher && <td className="text-slate-500">{academicHours(record.totalHours)}</td>}
                         <td>{safeFixed(record.overtimeHours)}</td>
                         <td>{record.lessonsCount}</td>
                         <td>
@@ -343,7 +373,7 @@ export function Dashboard() {
                       <tr key={date} className="bg-amber-50 text-amber-800">
                         <td className="py-2">{date}</td>
                         <td>{dow}</td>
-                        <td colSpan={8}>{holiday.name} {holiday.type === 'half' ? '(חצי יום)' : ''}</td>
+                        <td colSpan={isTeacher ? 9 : 8}>{holiday.name} {holiday.type === 'half' ? '(חצי יום)' : ''}</td>
                         <td>
                           <button onClick={() => setEditingId(date)} className="p-1.5 rounded-lg hover:bg-amber-100">
                             <Pencil size={14} />
@@ -358,7 +388,7 @@ export function Dashboard() {
                     <tr key={date} className="border-b last:border-0 text-slate-300">
                       <td className="py-2">{date}</td>
                       <td>{dow}</td>
-                      <td colSpan={8}>—</td>
+                      <td colSpan={isTeacher ? 9 : 8}>—</td>
                       <td>
                         <button onClick={() => setEditingId(date)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500">
                           <Pencil size={14} />
@@ -436,11 +466,14 @@ function EditRow({
   employeeId,
   onCancel,
   onSaved,
+  academicCol,
 }: {
   record: AttendanceRecord;
   employeeId?: string;
   onCancel: () => void;
   onSaved: () => void;
+  /** בטבלה של מורה יש עמודת "אקדמיות" נוספת */
+  academicCol?: boolean;
 }) {
   const [form, setForm] = useState(record);
   const [saving, setSaving] = useState(false);
@@ -481,7 +514,7 @@ function EditRow({
             />
           </td>
         ))}
-        <td colSpan={2} className="text-slate-400 text-xs">מחושב אוטומטית</td>
+        <td colSpan={academicCol ? 3 : 2} className="text-slate-400 text-xs">מחושב אוטומטית</td>
         <td>
           <input
             type="number"
@@ -502,7 +535,7 @@ function EditRow({
         </td>
       </tr>
       <tr className="bg-slate-50">
-        <td colSpan={11} className="pb-2 px-2">
+        <td colSpan={academicCol ? 12 : 11} className="pb-2 px-2">
           {form.type === 'מחלה' && (
             <div className="mb-2 bg-white border rounded-lg px-2 py-1.5 w-fit">
               <p className="text-xs font-semibold mb-1">אישור מחלה (חובה להגשת הדוח החודשי)</p>
@@ -762,6 +795,41 @@ type ReceiptRow = {
   fileName: string | null;
 };
 
+/** פרטי חשבון להעברה — חובה למי שמגישה קבלה, נשמרים לחודשים הבאים */
+type BankDetails = { bankAccountHolder: string; bankName: string; bankBranch: string; bankAccountNumber: string };
+const EMPTY_BANK: BankDetails = { bankAccountHolder: '', bankName: '', bankBranch: '', bankAccountNumber: '' };
+const BANK_FIELDS: { key: keyof BankDetails; label: string; inputMode?: 'numeric' }[] = [
+  { key: 'bankAccountHolder', label: 'שם בעל/ת החשבון' },
+  { key: 'bankName', label: 'בנק' },
+  { key: 'bankBranch', label: 'סניף', inputMode: 'numeric' },
+  { key: 'bankAccountNumber', label: 'מספר חשבון', inputMode: 'numeric' },
+];
+const bankComplete = (b: BankDetails) => BANK_FIELDS.every((f) => b[f.key]?.trim());
+const toBank = (b: Partial<Record<keyof BankDetails, string | null>> | null | undefined): BankDetails => ({
+  bankAccountHolder: b?.bankAccountHolder || '',
+  bankName: b?.bankName || '',
+  bankBranch: b?.bankBranch || '',
+  bankAccountNumber: b?.bankAccountNumber || '',
+});
+
+function BankFields({ value, onChange }: { value: BankDetails; onChange: (b: BankDetails) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {BANK_FIELDS.map((f) => (
+        <div key={f.key}>
+          <label className="label">{f.label} *</label>
+          <input
+            className="input"
+            inputMode={f.inputMode}
+            value={value[f.key]}
+            onChange={(e) => onChange({ ...value, [f.key]: e.target.value })}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const RECEIPT_STATUS_STYLE: Record<ReceiptRow['status'], string> = {
   ממתין: 'bg-slate-100 text-slate-600',
   אושר: 'bg-green-100 text-green-800',
@@ -771,14 +839,37 @@ const RECEIPT_STATUS_STYLE: Record<ReceiptRow['status'], string> = {
 function ReceiptsCard() {
   const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [bank, setBank] = useState<BankDetails>(EMPTY_BANK);
+  const [bankDraft, setBankDraft] = useState<BankDetails | null>(null); // לא ריק = במצב עריכה
+  const [bankError, setBankError] = useState<string | null>(null);
+  const [bankSaved, setBankSaved] = useState(false);
 
   async function load() {
     const data = await api.get<{ receipts: ReceiptRow[] }>('/receipts/getMyReceipts');
     setReceipts(data.receipts);
   }
+  async function loadBank() {
+    const data = await api.get<{ bank: Partial<BankDetails> }>('/receipts/bankDetails');
+    setBank(toBank(data.bank));
+  }
   useEffect(() => {
     load();
+    loadBank().catch(() => {});
   }, []);
+
+  async function saveBank() {
+    if (!bankDraft) return;
+    setBankError(null);
+    try {
+      const r = await api.put<{ bank: Partial<BankDetails> }>('/receipts/bankDetails', bankDraft);
+      setBank(toBank(r.bank));
+      setBankDraft(null);
+      setBankSaved(true);
+      setTimeout(() => setBankSaved(false), 2000);
+    } catch (err: any) {
+      setBankError(err.message);
+    }
+  }
   const pendingCount = receipts.filter((r) => r.status === 'ממתין').length;
 
   return (
@@ -790,6 +881,38 @@ function ReceiptsCard() {
         <button className="btn-outline text-sm py-2" onClick={() => setShowAdd(true)}>
           <Plus size={16} /> הגשת קבלה
         </button>
+      </div>
+      {/* פרטי חשבון להעברה — נשמרים לחודש הבא, ואפשר לעדכן כאן בכל רגע */}
+      <div className={`mb-4 rounded-xl border px-4 py-3 ${bankComplete(bank) || !receipts.length ? 'bg-slate-50 border-slate-200' : 'bg-red-50 border-red-200'}`}>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <p className="font-semibold text-navy text-sm">פרטי חשבון להעברה</p>
+          {!bankDraft && (
+            <button className="text-sm text-navy underline" onClick={() => setBankDraft(bank)}>
+              {bankComplete(bank) ? 'עדכון' : 'מילוי פרטים'}
+            </button>
+          )}
+        </div>
+        {bankDraft ? (
+          <div className="space-y-2">
+            <BankFields value={bankDraft} onChange={setBankDraft} />
+            {bankError && <p className="text-sm text-red-700">{bankError}</p>}
+            <div className="flex gap-2">
+              <button className="btn-primary text-sm py-1.5" onClick={saveBank} disabled={!bankComplete(bankDraft)}>
+                שמירה
+              </button>
+              <button className="btn-outline text-sm py-1.5" onClick={() => { setBankDraft(null); setBankError(null); }}>
+                ביטול
+              </button>
+            </div>
+          </div>
+        ) : bankComplete(bank) ? (
+          <p className="text-sm text-slate-700">
+            {bank.bankAccountHolder} · בנק {bank.bankName} · סניף {bank.bankBranch} · חשבון {bank.bankAccountNumber}
+            {bankSaved && <span className="text-green-600 mr-2">נשמר</span>}
+          </p>
+        ) : (
+          <p className={`text-sm ${receipts.length ? "text-red-700" : "text-slate-500"}`}>מי שמגישה קבלה חייבת למלא פרטי חשבון — הם נשמרים לחודשים הבאים.</p>
+        )}
       </div>
       {pendingCount > 0 && (
         <p className="mb-3 text-sm font-semibold text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
@@ -821,10 +944,12 @@ function ReceiptsCard() {
 
       {showAdd && (
         <AddReceiptModal
+          bank={bank}
           onClose={() => setShowAdd(false)}
           onSaved={() => {
             setShowAdd(false);
             load();
+            loadBank().catch(() => {});
           }}
         />
       )}
@@ -832,7 +957,8 @@ function ReceiptsCard() {
   );
 }
 
-function AddReceiptModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function AddReceiptModal({ bank: savedBank, onClose, onSaved }: { bank: BankDetails; onClose: () => void; onSaved: () => void }) {
+  const [bank, setBank] = useState<BankDetails>(savedBank);
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -852,6 +978,7 @@ function AddReceiptModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
       fd.append('month', month);
       fd.append('receiptDate', todayStr());
       if (file) fd.append('receiptFile', file);
+      for (const f of BANK_FIELDS) fd.append(f.key, bank[f.key]);
       await api.postForm('/receipts/submitReceipt', fd);
       onSaved();
     } catch (err: any) {
@@ -872,10 +999,15 @@ function AddReceiptModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
           <input type="month" className="input" value={month} onChange={(e) => setMonth(e.target.value)} />
         </div>
         <input type="file" className="input" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        <div className="border-t pt-3">
+          <p className="font-semibold text-navy text-sm mb-1">פרטי חשבון להעברה</p>
+          <p className="text-xs text-slate-500 mb-2">נשמרים אוטומטית לחודש הבא — אפשר לשנות כאן אם השתנו</p>
+          <BankFields value={bank} onChange={setBank} />
+        </div>
         {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
         <div className="flex gap-2 justify-end pt-2">
           <button className="btn-outline" onClick={onClose}>ביטול</button>
-          <button className="btn-primary" onClick={submit} disabled={busy || !description || !amount}>שליחה</button>
+          <button className="btn-primary" onClick={submit} disabled={busy || !description || !amount || !bankComplete(bank)}>שליחה</button>
         </div>
       </div>
     </div>

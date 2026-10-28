@@ -22,6 +22,15 @@ import { buildAttendanceSummary, buildAttendanceExcel } from '../lib/studentAtte
 import { getAttendanceIssues, assignRecordsToLesson, deleteAttendanceRecords } from '../lib/studentAttendanceIssues';
 import { lessonPeriodCount, lessonPeriodTimes, recordPeriod } from '../lib/lessonPeriods';
 
+/** היום לפי שעון ישראל (YYYY-MM-DD) — השרת רץ ב-UTC, ובערב זה כבר יום אחר */
+function israelToday(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+}
+
+/** הגנה: אין סימון נוכחות לשיעור שעוד לא התקיים (תאריך עתידי) — מונע טעויות של בחירת יום לא נכון */
+const FUTURE_DATE_ERROR = 'אי אפשר לסמן נוכחות לתאריך שעוד לא הגיע';
+const isFutureDate = (date?: string) => !!date && date > israelToday();
+
 /** חלק מבוקש בשיעור (1, 2...) — מוגבל למספר החלקים של השיעור */
 function clampPeriod(raw: unknown, periods: number): number {
   const n = Math.floor(Number(raw));
@@ -216,6 +225,7 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
       })),
       activeLessonId,
       activePeriod,
+      isFuture: isFutureDate(date),
       hebrewDate,
     });
   } catch (err: any) {
@@ -235,6 +245,7 @@ router.post('/markStudentAttendance', requirePermission('studentAttendance'), as
       period?: number;
     };
     if (!studentId || !status) return res.status(400).json({ error: 'חסר מזהה תלמידה או סטטוס' });
+    if (isFutureDate(date)) return res.status(400).json({ error: FUTURE_DATE_ERROR });
 
     const fields: Record<string, any> = {
       [FIELDS.attendance.date]: date || new Date().toISOString().slice(0, 10),
@@ -275,6 +286,7 @@ router.post('/bulkMarkAttendance', requirePermission('studentAttendance'), async
     };
     const part = lessonId && Number(period) > 1 ? Math.floor(Number(period)) : 1;
     if (!trackId || !date) return res.status(400).json({ error: 'חסר מסלול או תאריך' });
+    if (isFutureDate(date)) return res.status(400).json({ error: FUTURE_DATE_ERROR });
     const markStatus = status || 'נוכחת';
 
     const allStudentsRaw = await airtableFetch(TABLES.students);

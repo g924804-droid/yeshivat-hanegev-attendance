@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { LogOut, Home } from 'lucide-react';
 import { useAuth } from '../lib/permissions';
+import { TimerStrip } from './TimerStrip';
 
 /** wide — לעמודים עם טבלאות רחבות: משתמש בכל רוחב המסך במקום עמודה צרה באמצע */
 export function Layout({ title, children, wide }: { title: string; children: ReactNode; wide?: boolean }) {
@@ -45,6 +46,7 @@ export function Layout({ title, children, wide }: { title: string; children: Rea
           </div>
         </div>
       </header>
+      <TimerStrip />
       <main className={`${width} mx-auto px-4 py-6`}>{children}</main>
     </div>
   );

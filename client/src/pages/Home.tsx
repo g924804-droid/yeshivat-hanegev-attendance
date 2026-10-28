@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../lib/permissions';
 import { api } from '../lib/api';
+import { TimerStrip } from '../components/TimerStrip';
 
 type ContractRow = { id: string; status: string };
 
@@ -110,6 +111,7 @@ export function Home() {
           </div>
         </div>
       </header>
+      <TimerStrip />
 
       <main className="max-w-5xl mx-auto px-4 py-8">
         <h2 className="text-slate-500 font-medium mb-4">מודולים</h2>

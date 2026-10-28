@@ -6,7 +6,7 @@ import { SignaturePad, SignaturePadHandle } from '../components/SignaturePad';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import { DayEditModal, DayRecord } from '../components/DayEditModal';
-import { safeFixed, DOW_HE, currentMonth, formatHours } from '../lib/utils';
+import { safeFixed, DOW_HE, currentMonth, formatHours, academicHours } from '../lib/utils';
 
 type Report = {
   id: string;
@@ -55,6 +55,8 @@ export function MonthlyReport() {
   const [report, setReport] = useState<Report | null>(null);
   const [days, setDays] = useState<Day[]>([]);
   const [employeeName, setEmployeeName] = useState<string | null>(null);
+  // שעות אקדמיות (45 דק') — רק בדוח של מורה
+  const [isTeacher, setIsTeacher] = useState(false);
   const [missingReceipt, setMissingReceipt] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -74,6 +76,7 @@ export function MonthlyReport() {
       report: Report;
       days: Day[];
       employeeName: string;
+      employeeRole?: string;
       missingReceipt: boolean;
       attachments: Attachment[];
     }>(
@@ -83,6 +86,7 @@ export function MonthlyReport() {
     setReport(data.report);
     setDays(data.days);
     setEmployeeName(data.employeeName);
+    setIsTeacher(data.employeeRole === 'מורה');
     setMissingReceipt(data.missingReceipt);
     setAttachments(data.attachments || []);
     setNote(data.report.employeeNote || '');
@@ -199,6 +203,7 @@ export function MonthlyReport() {
         {[
           ['ימי עבודה', report.totalWorkDays],
           ['סה"כ שעות', safeFixed(report.totalHours)],
+          ...(isTeacher ? [["שעות אקדמיות (45 דק')", academicHours(report.totalHours)]] : []),
           ['שעות עודפות', safeFixed(report.totalOvertime)],
           ['ימי מחלה', report.sickDays],
           ['ימי חופשה', report.vacationDays],
@@ -234,6 +239,7 @@ export function MonthlyReport() {
               <th>יום</th>
               <th>מצב</th>
               <th>שעות</th>
+              {isTeacher && <th title="שעה אקדמית = 45 דקות">אקדמיות</th>}
               <th>עודפות</th>
               <th>שיעורים</th>
               {canEdit && <th></th>}
@@ -275,6 +281,7 @@ export function MonthlyReport() {
                       '—'
                     )}
                   </td>
+                  {isTeacher && <td className="text-slate-500">{d.record ? academicHours(d.record.totalHours) : '—'}</td>}
                   <td>{d.record ? safeFixed(d.record.overtimeHours) : '—'}</td>
                   <td>{d.record?.lessonsCount || '—'}</td>
                   {canEdit && (

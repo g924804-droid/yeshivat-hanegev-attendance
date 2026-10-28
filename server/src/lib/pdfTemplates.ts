@@ -86,6 +86,10 @@ function attachmentImagesHtml(files: ReportFile[]): string {
     .join('');
 }
 
+/** שעה אקדמית = 45 דקות. מוצג רק למורות — כך רואים כמה שעות לימוד היו בחודש. */
+const isTeacher = (u: { role: string }) => u.role === 'מורה';
+const academicHours = (hours: number) => Math.round(((hours * 60) / 45) * 100) / 100;
+
 function reportSectionHtml(
   employee: User,
   report: MonthlyReport,
@@ -122,6 +126,7 @@ function reportSectionHtml(
     <div class="summary">
       <div class="stat"><div class="label">ימי עבודה</div><div class="value">${report.totalWorkDays}</div></div>
       <div class="stat"><div class="label">סה"כ שעות</div><div class="value">${report.totalHours.toFixed(2)}</div></div>
+      ${isTeacher(employee) ? `<div class="stat"><div class="label">שעות אקדמיות (45 דק')</div><div class="value">${academicHours(report.totalHours).toFixed(2)}</div></div>` : ''}
       <div class="stat"><div class="label">שעות עודפות</div><div class="value">${report.totalOvertime.toFixed(2)}</div></div>
       <div class="stat"><div class="label">ימי מחלה</div><div class="value">${report.sickDays}</div></div>
       <div class="stat"><div class="label">ימי חופשה</div><div class="value">${report.vacationDays}</div></div>
@@ -225,7 +230,7 @@ export function summaryPdfHtml(
             .join(' · ');
           return `<tr class="${isFlagged ? 'special-row' : ''}">
         <td>${r.employee.name}</td><td>${r.status}</td><td>${r.totalWorkDays}</td>
-        <td>${r.totalHours.toFixed(2)}</td><td>${r.totalOvertime.toFixed(2)}</td>
+        <td>${r.totalHours.toFixed(2)}${isTeacher(r.employee) ? `<br><small>${academicHours(r.totalHours).toFixed(2)} אקד'</small>` : ''}</td><td>${r.totalOvertime.toFixed(2)}</td>
         <td>${r.sickDays}</td><td>${r.vacationDays}</td><td>${r.absenceDays}</td>
         <td>${
           r.specialRateHours > 0

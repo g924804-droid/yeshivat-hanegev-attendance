@@ -4,7 +4,7 @@ import { CheckCircle2, Download, RefreshCw, Users, FileText, FileSignature, Rece
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useAuth } from '../lib/permissions';
-import { currentMonth, safeFixed, formatHours, compareByFamilyName, familyName, givenName } from '../lib/utils';
+import { currentMonth, safeFixed, formatHours, academicHours, compareByFamilyName, familyName, givenName } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
 import { printMonthlyReport } from '../lib/printReport';
 import { confirmAndDeleteContract } from '../lib/deleteContract';
@@ -27,7 +27,18 @@ type ReportRow = {
   specialRateDetails: { date: string; hours: number; notes: string | null }[];
   employeeNote: string | null;
   attachments: { id: string; fileName: string; fileMime: string }[];
-  employee: { id: string; name: string; lastName: string | null; department: string | null };
+  employee: {
+    id: string;
+    name: string;
+    lastName: string | null;
+    department: string | null;
+    role?: string;
+    employmentType?: string | null;
+    bankAccountHolder?: string | null;
+    bankName?: string | null;
+    bankBranch?: string | null;
+    bankAccountNumber?: string | null;
+  };
 };
 
 type MissingEmployee = { id: string; name: string; lastName: string | null; department: string | null };
@@ -87,8 +98,16 @@ type ReceiptRow = {
   status: string;
   month: string;
   fileName: string | null;
-  employee: { name: string };
+  employee: { name: string; bankAccountHolder?: string | null; bankName?: string | null; bankBranch?: string | null; bankAccountNumber?: string | null };
 };
+
+/** פרטי חשבון להעברה בשורה אחת — לחשבת השכר; null אם לא מולאו */
+function bankLine(e: { bankAccountHolder?: string | null; bankName?: string | null; bankBranch?: string | null; bankAccountNumber?: string | null }): string | null {
+  if (!e.bankAccountNumber) return null;
+  return [e.bankAccountHolder, e.bankName && `בנק ${e.bankName}`, e.bankBranch && `סניף ${e.bankBranch}`, `חשבון ${e.bankAccountNumber}`]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 type ReminderStatus = {
   emailConfigured: boolean;
@@ -385,6 +404,11 @@ function ReportsTab() {
                         <span className="font-bold text-navy">{familyName(row.name, row.lastName)}</span>{' '}
                         <span className="text-slate-600">{givenName(row.name, row.lastName)}</span>
                       </div>
+                      {r && r.employee.employmentType === 'נגד קבלה' && (
+                        <div className={`text-[11px] mt-0.5 ${bankLine(r.employee) ? 'text-slate-600' : 'text-red-600'}`}>
+                          {bankLine(r.employee) || 'לא מילאה פרטי חשבון'}
+                        </div>
+                      )}
                       {r && (r.isNewEmployee || r.hasNewContract || r.pendingReceipts > 0) && (
                         <div className="flex flex-wrap gap-1 mt-0.5">
                           {r.isNewEmployee && (
@@ -429,7 +453,14 @@ function ReportsTab() {
                     <td>
                       <span className={`badge ${STATUS_STYLE[row.status]}`}>{row.status === 'חסר' ? 'לא התחיל/ה' : row.status}</span>
                     </td>
-                    <td className="font-medium">{r ? safeFixed(r.totalHours) : '—'}</td>
+                    <td className="font-medium">
+                      {r ? safeFixed(r.totalHours) : '—'}
+                      {r && r.employee.role === 'מורה' && (
+                        <div className="text-[11px] text-slate-500 font-normal" title="שעה אקדמית = 45 דקות">
+                          {academicHours(r.totalHours)} אקד'
+                        </div>
+                      )}
+                    </td>
                     <td>{r ? safeFixed(r.totalOvertime) : '—'}</td>
                     <td>{r ? r.sickDays || '' : '—'}</td>
                     <td>{r ? r.vacationDays || '' : '—'}</td>
@@ -1161,6 +1192,7 @@ function ReceiptsTab() {
           <tr className="text-slate-500 border-b">
             <th className="py-2"><Receipt size={14} className="inline" /> תיאור</th>
             <th>עובד</th>
+            <th>פרטי חשבון</th>
             <th>חודש</th>
             <th>סכום</th>
             <th>סטטוס</th>
@@ -1182,6 +1214,9 @@ function ReceiptsTab() {
                 )}
               </td>
               <td>{r.employee.name}</td>
+              <td className={`text-xs ${bankLine(r.employee) ? 'text-slate-700' : 'text-red-600'}`}>
+                {bankLine(r.employee) || 'לא מולאו'}
+              </td>
               <td>{r.month}</td>
               <td>{r.amount} ₪</td>
               <td>{r.status}</td>

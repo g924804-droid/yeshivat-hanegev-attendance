@@ -42,6 +42,12 @@ model User {
   // כפתור "ניהול" בדף הבית — מיועד למזכירה שממלאת נוכחות תלמידות בשביל כמה מסלולים/מורות.
   canManageAllStudentTracks Boolean @default(false)
   noMonthlyReminder   Boolean  @default(false) // לא לשלוח לה את מייל התזכורת החודשית
+  // פרטי חשבון להעברה — חובה למי שמגישה קבלה; נשמרים לחודשים הבאים והיא יכולה לעדכן בכל רגע.
+  // חשבת השכר רואה אותם במסך הניהול (קבלות ודוחות).
+  bankAccountHolder   String?
+  bankName            String?
+  bankBranch          String?
+  bankAccountNumber   String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

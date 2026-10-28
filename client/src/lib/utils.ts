@@ -232,6 +232,11 @@ export function toHebrewDateString(date: Date): string {
   return `${dayStr} ב${month} ${yearStr}`;
 }
 
+/** שעה אקדמית = 45 דקות — מוצג למורות בלבד, כדי לראות כמה שעות לימוד היו בחודש. */
+export function academicHours(hours: number | null | undefined): string {
+  return safeFixed(((hours || 0) * 60) / 45);
+}
+
 /** 5 → "5 שעות", 2.5 → "2.5 שעות" — במפורש "שעות", כדי שלא ייקרא כסכום בשקלים. */
 export function formatHours(hours: number): string {
   return `${Number((hours || 0).toFixed(2))} שעות`;

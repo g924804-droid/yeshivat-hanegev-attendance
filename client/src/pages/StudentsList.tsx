@@ -52,6 +52,8 @@ export function StudentsList() {
   const [schedule, setSchedule] = useState<Lesson[]>([]);
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
   const [activePeriod, setActivePeriod] = useState(1);
+  // הגנה: לתאריך שעוד לא הגיע אי אפשר לסמן נוכחות (גם השרת חוסם)
+  const [isFuture, setIsFuture] = useState(false);
   const [hebrewDate, setHebrewDate] = useState('');
   const [trackName, setTrackName] = useState('');
   // תאריך בר-בחירה, לא נעול ל"היום" — כדי שאפשר יהיה לחזור אחורה ולמלא נוכחות שהוחמצה
@@ -73,6 +75,7 @@ export function StudentsList() {
         schedule: Lesson[];
         activeLessonId: string | null;
         activePeriod: number;
+        isFuture?: boolean;
         hebrewDate: string;
       }>('/students/getStudentsByTrack', { trackId, date: targetDate, lessonId: lessonId || undefined, period: period || undefined });
       setTrackName(data.track.name);
@@ -80,6 +83,7 @@ export function StudentsList() {
       setSchedule(data.schedule);
       setActiveLessonId(data.activeLessonId);
       setActivePeriod(data.activePeriod || 1);
+      setIsFuture(!!data.isFuture);
       setHebrewDate(data.hebrewDate);
     } catch (err: any) {
       setError(err.message);
@@ -181,6 +185,11 @@ export function StudentsList() {
       </div>
 
       {error && <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
+      {isFuture && (
+        <div className="mb-4 text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-2">
+          התאריך הזה עוד לא הגיע — אי אפשר לסמן נוכחות לשיעור שעוד לא התקיים.
+        </div>
+      )}
 
       {/* תאריכים/שעות שעדיין חסרה בהם נוכחות תלמידות — כדי שלא תצטרך לחפש בלוח שנה */}
       {missingSlots.length > 0 && (
@@ -329,7 +338,7 @@ export function StudentsList() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <button onClick={markAllPresent} disabled={busy || !students.length} className="btn-primary text-sm py-2">
+        <button onClick={markAllPresent} disabled={busy || !students.length || isFuture} className="btn-primary text-sm py-2">
           <CheckCheck size={16} /> סמן הכל נוכחות
         </button>
       </div>
@@ -356,7 +365,7 @@ export function StudentsList() {
                       <button
                         key={opt}
                         onClick={() => mark(s, opt)}
-                        disabled={markingId === s.id}
+                        disabled={markingId === s.id || isFuture}
                         className={`badge transition-transform flex items-center gap-1 font-bold ${
                           markingId === s.id
                             ? 'opacity-40 cursor-wait'

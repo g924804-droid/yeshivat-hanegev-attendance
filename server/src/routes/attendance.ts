@@ -214,6 +214,29 @@ router.get('/sickNote/:id', async (req, res) => {
   }
 });
 
+/**
+ * מצב הטיימר (כניסה בלי יציאה) של המשתמשת המחוברת להיום — לפס שמוצג בראש כל המסכים, כדי
+ * שלא ישכחו לעצור אותו. רק לעצמה, גם אצל מנהלת.
+ */
+router.get('/timerStatus', async (req, res) => {
+  try {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+    const r = await prisma.attendanceRecord.findFirst({
+      where: { employeeId: req.user!.id, date: today },
+      select: { clockIn: true, clockOut: true, clockIn2: true, clockOut2: true, type: true },
+    });
+    const running =
+      r?.clockIn2 && !r.clockOut2
+        ? { since: r.clockIn2, shift: 2 }
+        : r?.clockIn && !r.clockOut
+          ? { since: r.clockIn, shift: 1 }
+          : null;
+    res.json({ date: today, running });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה' });
+  }
+});
+
 router.get('/getMyAttendance', async (req, res) => {
   try {
     const employeeId = (isAttendanceManagerOrAdmin(req) && (req.query.userId as string)) || req.user!.id;
@@ -245,7 +268,7 @@ router.get('/getMyAttendance', async (req, res) => {
       dailyRequiredHours: employee.dailyRequiredHours,
     };
 
-    res.json({ records, holidays, weeklySchedule });
+    res.json({ records, holidays, weeklySchedule, employeeRole: employee.role });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת נוכחות' });
   }

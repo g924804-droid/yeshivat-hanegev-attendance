@@ -23,6 +23,49 @@ const LIST_SELECT = {
   createdAt: true,
 } as const;
 
+const BANK_SELECT = { bankAccountHolder: true, bankName: true, bankBranch: true, bankAccountNumber: true } as const;
+const BANK_FIELDS = Object.keys(BANK_SELECT) as (keyof typeof BANK_SELECT)[];
+const BANK_LABELS: Record<(typeof BANK_FIELDS)[number], string> = {
+  bankAccountHolder: 'שם בעל/ת החשבון',
+  bankName: 'בנק',
+  bankBranch: 'סניף',
+  bankAccountNumber: 'מספר חשבון',
+};
+
+/** פרטי חשבון מהבקשה — רק שדות שנשלחו (מחרוזת), חתוכים ובלי רווחים מיותרים */
+function bankFromBody(body: any): Partial<Record<(typeof BANK_FIELDS)[number], string>> {
+  const out: Partial<Record<(typeof BANK_FIELDS)[number], string>> = {};
+  for (const f of BANK_FIELDS) if (typeof body?.[f] === 'string') out[f] = body[f].trim().slice(0, 100);
+  return out;
+}
+
+/** מה חסר בפרטי החשבון (שמות בעברית) — ריק = הכל מלא */
+function missingBank(bank: Partial<Record<(typeof BANK_FIELDS)[number], string | null>>): string[] {
+  return BANK_FIELDS.filter((f) => !bank[f]?.trim()).map((f) => BANK_LABELS[f]);
+}
+
+// פרטי החשבון של המשתמשת — מוצגים לה תמיד מעל הקבלות, וממולאים מראש בהגשת קבלה
+router.get('/bankDetails', async (req, res) => {
+  try {
+    const bank = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: BANK_SELECT });
+    res.json({ bank });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת פרטי החשבון' });
+  }
+});
+
+router.put('/bankDetails', async (req, res) => {
+  try {
+    const data = bankFromBody(req.body);
+    const missing = missingBank(data);
+    if (missing.length) return res.status(400).json({ error: `חסר: ${missing.join(', ')}` });
+    const bank = await prisma.user.update({ where: { id: req.user!.id }, data, select: BANK_SELECT });
+    res.json({ success: true, bank });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירת פרטי החשבון' });
+  }
+});
+
 router.post('/submitReceipt', upload.single('receiptFile'), async (req, res) => {
   try {
     const { description, receiptDate, amount } = req.body;
@@ -32,6 +75,12 @@ router.post('/submitReceipt', upload.single('receiptFile'), async (req, res) => 
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
     const blocker = await getReceiptBlocker(employee, month);
     if (blocker) return res.status(400).json({ error: blocker });
+
+    // חובה פרטי חשבון להעברה — מה שנשלח עכשיו, ואם לא נשלח: מה שכבר שמור מהפעם הקודמת
+    const bankUpdate = bankFromBody(req.body);
+    const missing = missingBank({ ...employee, ...bankUpdate });
+    if (missing.length) return res.status(400).json({ error: `יש למלא פרטי חשבון להעברה — חסר: ${missing.join(', ')}` });
+    if (Object.keys(bankUpdate).length) await prisma.user.update({ where: { id: employee.id }, data: bankUpdate });
 
     const receipt = await prisma.receipt.create({
       data: {
@@ -69,7 +118,7 @@ router.get('/getAllReceipts', requireAdmin, async (req, res) => {
   try {
     const receipts = await prisma.receipt.findMany({
       orderBy: { createdAt: 'desc' },
-      select: { ...LIST_SELECT, employee: { select: { name: true } } },
+      select: { ...LIST_SELECT, employee: { select: { name: true, ...BANK_SELECT } } },
     });
     res.json({ receipts });
   } catch (err: any) {

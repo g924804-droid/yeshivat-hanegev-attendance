@@ -198,7 +198,7 @@ router.get('/getMonthlyReport', async (req, res) => {
       orderBy: { createdAt: 'asc' },
     });
 
-    res.json({ report, days, employeeName: employee.name, missingReceipt, attachments });
+    res.json({ report, days, employeeName: employee.name, employeeRole: employee.role, missingReceipt, attachments });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת הדוח' });
   }
