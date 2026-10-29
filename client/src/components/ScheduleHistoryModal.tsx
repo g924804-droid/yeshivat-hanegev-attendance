@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FileSpreadsheet, X } from 'lucide-react';
+import { FileSpreadsheet, X, RotateCcw } from 'lucide-react';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { addDays, localIsoDate } from '../lib/scheduleRules';
 
@@ -40,7 +40,18 @@ function longDate(date: string): string {
   return new Date(`${date}T00:00:00`).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-export function ScheduleHistoryModal({ tracks, trackFilter, onClose }: { tracks: Ref[]; trackFilter: string; onClose: () => void }) {
+export function ScheduleHistoryModal({
+  tracks,
+  trackFilter,
+  onClose,
+  onChanged,
+}: {
+  tracks: Ref[];
+  trackFilter: string;
+  onClose: () => void;
+  /** אחרי ביטול שינויים — לרענן את מערכת השעות שמאחורי החלון */
+  onChanged?: () => void;
+}) {
   const [history, setHistory] = useState<HistoryRow[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -52,12 +63,50 @@ export function ScheduleHistoryModal({ tracks, trackFilter, onClose }: { tracks:
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // ביטול שינויים שנעשו בטעות — בחירה של שורה אחת או כמה
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [reverting, setReverting] = useState(false);
+  const [revertMsg, setRevertMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  function loadHistory() {
     api
       .get<{ history: HistoryRow[] }>('/schedule/getScheduleHistory')
       .then((d) => setHistory(d.history))
       .catch((err) => setLoadError(err.message));
-  }, []);
+  }
+  useEffect(loadHistory, []);
+
+  const toggle = (ids: string[], on: boolean) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      ids.forEach((id) => (on ? n.add(id) : n.delete(id)));
+      return n;
+    });
+
+  async function revert(ids: string[]) {
+    const n = ids.length;
+    const msg =
+      n === 1
+        ? 'לבטל את השינוי הזה? השיעור יחזור בדיוק למצב שהיה לפניו (שיעור שנוסף יימחק, שיעור שנמחק יחזור).'
+        : `לבטל ${n} שינויים? כל שיעור יחזור למצב שהיה לפני השינוי המוקדם ביותר שסימנת.`;
+    if (!confirm(msg)) return;
+    setReverting(true);
+    setRevertMsg(null);
+    try {
+      const r = await api.post<{ reverted: number; errors: string[] }>('/schedule/revertChanges', { ids });
+      setRevertMsg({
+        ok: !r.errors.length,
+        text: `הוחזרו ${r.reverted} שיעורים למצב הקודם${r.errors.length ? ` — לא הצליח: ${r.errors.join('; ')}` : ''}`,
+      });
+      setSelected(new Set());
+      loadHistory();
+      onChanged?.();
+    } catch (err: any) {
+      setRevertMsg({ ok: false, text: err.message || 'שגיאה בביטול' });
+    } finally {
+      setReverting(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim();
@@ -159,19 +208,44 @@ export function ScheduleHistoryModal({ tracks, trackFilter, onClose }: { tracks:
           </select>
         </div>
 
+        {selected.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-2 rounded-xl bg-amber-50 border border-amber-300 px-3 py-2 text-sm">
+            <span className="font-semibold text-amber-900">סומנו {selected.size} שינויים</span>
+            <button className="btn-primary bg-red-600 hover:bg-red-700 py-1.5 text-sm" onClick={() => revert(Array.from(selected))} disabled={reverting}>
+              <RotateCcw size={14} /> {reverting ? 'מבטל...' : 'ביטול השינויים המסומנים'}
+            </button>
+            <button className="text-slate-600 underline" onClick={() => setSelected(new Set())}>
+              ניקוי סימון
+            </button>
+          </div>
+        )}
+        {revertMsg && (
+          <p className={`mb-2 text-sm rounded-lg px-3 py-2 ${revertMsg.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>{revertMsg.text}</p>
+        )}
+
         <div className="overflow-y-auto flex-1">
           {loadError && <p className="text-red-700 text-sm">{loadError}</p>}
           {!history && !loadError && <p className="text-slate-500 text-sm">טוען...</p>}
           {history && byDate.length === 0 && <p className="text-slate-500 text-sm">אין שינויים בטווח שנבחר</p>}
           {byDate.map(([date, rows]) => (
             <div key={date} className="mb-4">
-              <div className="sticky top-0 bg-white font-semibold text-navy text-sm border-b-2 border-gold pb-1 mb-1">
+              <div className="sticky top-0 bg-white font-semibold text-navy text-sm border-b-2 border-gold pb-1 mb-1 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer"
+                  title="סימון כל השינויים של היום הזה"
+                  checked={rows.every((r) => selected.has(r.id))}
+                  onChange={(e) => toggle(rows.map((r) => r.id), e.target.checked)}
+                />
                 {longDate(date)} <span className="text-slate-400 font-normal">· {rows.length} שינויים</span>
               </div>
               <table className="w-full text-sm">
                 <tbody>
                   {rows.map((h) => (
-                    <tr key={h.id} className="border-b border-slate-100 align-top">
+                    <tr key={h.id} className={`border-b border-slate-100 align-top ${selected.has(h.id) ? 'bg-amber-50' : ''}`}>
+                      <td className="py-2 pl-1 w-6">
+                        <input type="checkbox" className="h-4 w-4 cursor-pointer" checked={selected.has(h.id)} onChange={(e) => toggle([h.id], e.target.checked)} />
+                      </td>
                       <td className="py-2 pl-2 w-14 text-slate-400 text-xs">{h.changedTime}</td>
                       <td className="py-2 pl-2 w-16">
                         <span className={`badge ${ACTION_STYLE[h.changeType] || 'bg-slate-100'}`}>{h.action}</span>
@@ -205,6 +279,16 @@ export function ScheduleHistoryModal({ tracks, trackFilter, onClose }: { tracks:
                         ) : null}
                       </td>
                       <td className="py-2 w-28 text-xs text-slate-500">{h.changedBy}</td>
+                      <td className="py-2 w-16 text-left">
+                        <button
+                          className="inline-flex items-center gap-1 text-xs text-red-600 hover:bg-red-50 rounded px-1.5 py-0.5"
+                          title="החזרת השיעור למצב שלפני השינוי הזה"
+                          onClick={() => revert([h.id])}
+                          disabled={reverting}
+                        >
+                          <RotateCcw size={12} /> ביטול
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

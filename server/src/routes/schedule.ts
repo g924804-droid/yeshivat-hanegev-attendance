@@ -250,6 +250,103 @@ router.post('/restoreLesson', async (req, res) => {
   }
 });
 
+// השדות שאפשר לכתוב בשיעור (בלי שדות מחושבים/lookup שנשמרו ב-previousData)
+const LESSON_WRITABLE = [
+  FIELDS.lessons.className,
+  FIELDS.lessons.subject,
+  FIELDS.lessons.dayOfWeek,
+  FIELDS.lessons.time,
+  FIELDS.lessons.track,
+  FIELDS.lessons.teacher,
+  FIELDS.lessons.room,
+  FIELDS.lessons.year,
+  FIELDS.lessons.notes,
+  FIELDS.lessons.fromDate,
+  FIELDS.lessons.toDate,
+];
+const LINKED = new Set<string>([FIELDS.lessons.track, FIELDS.lessons.teacher]);
+
+function writableLessonFields(prev: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const f of LESSON_WRITABLE) {
+    const v = prev[f];
+    out[f] = v === undefined || v === '' ? (LINKED.has(f) ? [] : null) : v;
+  }
+  return out;
+}
+
+/**
+ * ביטול שינויים מההיסטוריה (שינוי שנעשה בטעות): כל שיעור חוזר למצב שלפני השינוי המוקדם ביותר
+ * שנבחר עבורו — שיעור שעודכן מקבל בחזרה את הנתונים הקודמים, שיעור שנמחק נוצר מחדש, ושיעור
+ * שנוסף נמחק. גם הביטול עצמו נרשם בהיסטוריה (וגם אותו אפשר לבטל).
+ */
+router.post('/revertChanges', async (req, res) => {
+  try {
+    const { ids } = req.body as { ids?: string[] };
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'לא נבחרו שינויים' });
+    const entries = await prisma.scheduleHistory.findMany({ where: { id: { in: ids.slice(0, 500) } }, orderBy: { changedAt: 'asc' } });
+    const earliest = new Map<string, (typeof entries)[number]>();
+    for (const e of entries) if (e.lessonId && !earliest.has(e.lessonId)) earliest.set(e.lessonId, e);
+
+    const errors: string[] = [];
+    let reverted = 0;
+    for (const [lessonId, e] of earliest) {
+      const label = `${e.className || ''} ${e.dayOfWeek || ''} ${e.time || ''}`.trim();
+      try {
+        const current = (await airtableFetch(TABLES.lessons, { filterByFormula: `RECORD_ID()="${lessonId}"`, maxRecords: 1 }))[0];
+        let description: string;
+        let changeType: string;
+        let newId = lessonId;
+        if (e.changeType === 'create') {
+          if (current) {
+            await airtableDelete(TABLES.lessons, lessonId);
+            await prisma.lessonRotation.deleteMany({ where: { lessonId } }).catch(() => {});
+          }
+          description = `ביטול שינוי — נמחק שיעור שנוסף: ${label}`;
+          changeType = 'delete';
+        } else {
+          if (!e.previousData) throw new Error('אין נתונים קודמים לשחזור');
+          const fields = writableLessonFields(JSON.parse(e.previousData));
+          if (current) {
+            await airtableUpdate(TABLES.lessons, lessonId, fields);
+            description = `ביטול שינוי — שיעור הוחזר למצב הקודם: ${label}`;
+            changeType = 'update';
+          } else {
+            const created = await airtableCreate(TABLES.lessons, fields);
+            newId = created.id;
+            description = `ביטול שינוי — שיעור שנמחק נוצר מחדש: ${label}`;
+            changeType = 'create';
+          }
+        }
+        await prisma.scheduleHistory
+          .create({
+            data: {
+              description,
+              changedBy: req.user!.name,
+              changeType,
+              lessonId: newId,
+              className: e.className,
+              dayOfWeek: e.dayOfWeek,
+              time: e.time,
+              room: e.room,
+              fromDate: e.fromDate,
+              toDate: e.toDate,
+              previousData: current && changeType !== 'create' ? JSON.stringify(current.fields) : null,
+            },
+          })
+          .catch((err) => console.error('שגיאה ברישום היסטוריה (הביטול עצמו בוצע):', err.message));
+        reverted++;
+      } catch (err: any) {
+        errors.push(`${label}: ${err.message}`);
+      }
+    }
+    invalidateScheduleCache();
+    res.json({ success: true, reverted, errors });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בביטול השינויים' });
+  }
+});
+
 router.get('/getScheduleHistory', async (req, res) => {
   try {
     res.json({ history: await getReadableHistory() });

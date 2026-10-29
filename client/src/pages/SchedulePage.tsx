@@ -530,7 +530,11 @@ export function SchedulePage() {
       )}
 
       {showHistory && (
-        <ScheduleHistoryModal tracks={tracks} trackFilter={trackFilter} onClose={() => setShowHistory(false)} />
+        <ScheduleHistoryModal
+          onChanged={() => {
+            load();
+            loadCancellations();
+          }} tracks={tracks} trackFilter={trackFilter} onClose={() => setShowHistory(false)} />
       )}
     </Layout>
   );
