@@ -34,19 +34,18 @@ function assertConfigured() {
 /**
  * Airtable מגביל ל-5 בקשות לשנייה לכל בסיס. בלי תיאום, בקשות מקבילות (למשל מסך
  * התצוגה + כניסת עובד/ת באותו רגע) חוצות את המכסה ומחזירות 429 שדולף למשתמש כמו
- * "Request failed with status code 429". התור הבא מרווח בין תחילת בקשה לבקשה,
+ * "Request failed with status code 429". התור הבא מרווח בין *תחילת* בקשה לבקשה,
  * וה-retry מטפל במקרה שבכל זאת מתקבל 429 (למשל ממקור חיצוני שמריץ בו-זמנית).
+ * בעבר התור חיכה גם שהבקשה הקודמת *תסתיים* (1–3 שניות כל אחת) — כך כל הבקשות רצו בטור,
+ * ומסך שצריך 5–6 טבלאות חיכה 10–15 שניות. עכשיו הן רצות במקביל, עדיין בקצב המותר.
  */
 const MIN_REQUEST_INTERVAL_MS = 210; // ~4.7 בקשות/שנייה, מתחת למכסה של Airtable
 let queueTail: Promise<void> = Promise.resolve();
 
 function throttle<T>(fn: () => Promise<T>): Promise<T> {
-  const run = queueTail.then(() => fn());
-  queueTail = run.then(
-    () => new Promise((resolve) => setTimeout(resolve, MIN_REQUEST_INTERVAL_MS)),
-    () => new Promise((resolve) => setTimeout(resolve, MIN_REQUEST_INTERVAL_MS))
-  );
-  return run;
+  const slot = queueTail;
+  queueTail = slot.then(() => new Promise((resolve) => setTimeout(resolve, MIN_REQUEST_INTERVAL_MS)));
+  return slot.then(() => fn());
 }
 
 /**
@@ -68,11 +67,77 @@ async function requestWithRetry<T>(fn: () => Promise<T>, retriesLeft = 2): Promi
   }
 }
 
+/**
+ * מטמון קצר לטבלאות "עזר" שמשתנות לעיתים רחוקות (מסלולים, תלמידות, מורות, שיעורים, ציונים),
+ * כשהן נטענות במלואן (בלי סינון). כל כתיבה דרך המערכת לטבלה מנקה את המטמון שלה מיד; שינוי
+ * ישירות ב-Airtable יופיע תוך דקה. אחרי דקה מחזירים את מה שיש ומרעננים ברקע — כך המסכים
+ * נפתחים מיד במקום לחכות 2–3 שניות לכל טבלה. נוכחות/תשלומים לא נשמרים במטמון.
+ */
+const CACHEABLE_TABLES = new Set<string>([TABLES.tracks, TABLES.students, TABLES.teachers, TABLES.lessons, TABLES.grades]);
+const CACHE_FRESH_MS = 60_000;
+const CACHE_MAX_STALE_MS = 10 * 60_000;
+const tableCache = new Map<string, { data: AirtableRecord[]; at: number; refreshing?: Promise<AirtableRecord[]> }>();
+
+// מונה כתיבות לכל טבלה — טעינה שהתחילה לפני כתיבה לא נשמרת במטמון (אולי חסרה בה הכתיבה)
+const tableGeneration = new Map<string, number>();
+
+function invalidateTable(tableId: string) {
+  tableCache.delete(tableId);
+  tableGeneration.set(tableId, (tableGeneration.get(tableId) || 0) + 1);
+}
+
+function refreshTable(tableId: string): Promise<AirtableRecord[]> {
+  const entry = tableCache.get(tableId);
+  if (entry?.refreshing) return entry.refreshing;
+  const startedAt = Date.now();
+  const generation = tableGeneration.get(tableId) || 0;
+  const refreshing: Promise<AirtableRecord[]> = fetchAllPages(tableId, {}).then(
+    (data) => {
+      if ((tableGeneration.get(tableId) || 0) === generation) tableCache.set(tableId, { data, at: startedAt });
+      return data;
+    },
+    (err) => {
+      const current = tableCache.get(tableId);
+      if (current?.refreshing === refreshing) {
+        if (current.at) tableCache.set(tableId, { data: current.data, at: current.at });
+        else tableCache.delete(tableId);
+      }
+      throw err;
+    }
+  );
+  tableCache.set(tableId, { data: entry?.data || [], at: entry?.at || 0, refreshing });
+  return refreshing;
+}
+
+/** טעינה מוקדמת בעליית השרת — כדי שגם הכניסה הראשונה תהיה מהירה */
+export function warmAirtableCache(): void {
+  if (!API_KEY) return;
+  for (const t of CACHEABLE_TABLES) refreshTable(t).catch(() => {});
+}
+
 export async function airtableFetch(
   tableId: string,
   params: { filterByFormula?: string; fields?: string[]; maxRecords?: number; sort?: { field: string; direction?: 'asc' | 'desc' }[] } = {}
 ): Promise<AirtableRecord[]> {
   assertConfigured();
+  const unfiltered = !params.filterByFormula && !params.fields && !params.maxRecords && !params.sort;
+  if (unfiltered && CACHEABLE_TABLES.has(tableId)) {
+    const entry = tableCache.get(tableId);
+    const age = entry && entry.at ? Date.now() - entry.at : Infinity;
+    if (entry && age < CACHE_FRESH_MS) return entry.data.slice();
+    if (entry && entry.at && age < CACHE_MAX_STALE_MS) {
+      refreshTable(tableId).catch(() => {}); // מרעננים ברקע, מחזירים מיד את מה שיש
+      return entry.data.slice();
+    }
+    return (await refreshTable(tableId)).slice();
+  }
+  return fetchAllPages(tableId, params);
+}
+
+async function fetchAllPages(
+  tableId: string,
+  params: { filterByFormula?: string; fields?: string[]; maxRecords?: number; sort?: { field: string; direction?: 'asc' | 'desc' }[] }
+): Promise<AirtableRecord[]> {
   const records: AirtableRecord[] = [];
   let offset: string | undefined;
 
@@ -111,6 +176,7 @@ export async function airtableGetRecord(tableId: string, recordId: string): Prom
 export async function airtableCreate(tableId: string, fields: Record<string, any>): Promise<AirtableRecord> {
   assertConfigured();
   const { data } = await requestWithRetry(() => client.post(`/${tableId}`, { fields }));
+  invalidateTable(tableId);
   return data;
 }
 
@@ -121,12 +187,14 @@ export async function airtableUpdate(
 ): Promise<AirtableRecord> {
   assertConfigured();
   const { data } = await requestWithRetry(() => client.patch(`/${tableId}/${recordId}`, { fields }));
+  invalidateTable(tableId);
   return data;
 }
 
 export async function airtableDelete(tableId: string, recordId: string): Promise<void> {
   assertConfigured();
   await requestWithRetry(() => client.delete(`/${tableId}/${recordId}`));
+  invalidateTable(tableId);
 }
 
 /** יצירת מספר רשומות בבת אחת ("סמן הכל נוכחות") — Airtable מקבל עד 10 רשומות בבקשה אחת. */
@@ -141,6 +209,7 @@ export async function airtableBatchCreate(
     const { data } = await requestWithRetry(() => client.post(`/${tableId}`, { records: chunk }));
     results.push(...data.records);
   }
+  invalidateTable(tableId);
   return results;
 }
 
@@ -154,6 +223,7 @@ export async function airtableBatchUpdate(
     const chunk = records.slice(i, i + 10);
     await requestWithRetry(() => client.patch(`/${tableId}`, { records: chunk }));
   }
+  invalidateTable(tableId);
 }
 
 /** מחיקת מספר רשומות בבת אחת — Airtable מקבל עד 10 מזהים בבקשה אחת. */
@@ -166,6 +236,7 @@ export async function airtableBatchDelete(tableId: string, recordIds: string[]):
       .join('&');
     await requestWithRetry(() => client.delete(`/${tableId}?${qs}`));
   }
+  invalidateTable(tableId);
 }
 
 /** upsert רשומת נוכחות עובד ב-Airtable, לפי מזהה מערכת (systemId = מזהה הרשומה ב-DB המקומי). */

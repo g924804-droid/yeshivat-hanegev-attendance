@@ -10,6 +10,8 @@ type Track = { id: string; name: string; description: string; studentCount: numb
 export function StudentTracks() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // עד שהנתונים מגיעים — "טוען", לא "אין מסלולים" (שהופיע לרגע ואז התחלף)
+  const [loaded, setLoaded] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
   // דוחות הנוכחות מכסים את כל התלמידות — רק למי שרואה את כל המסלולים (כמו בשרת)
@@ -19,7 +21,8 @@ export function StudentTracks() {
     api
       .get<{ tracks: Track[] }>('/students/getTracks')
       .then((r) => setTracks(r.tracks))
-      .catch((err) => setError(err.message));
+      .catch((err) => setError(err.message))
+      .finally(() => setLoaded(true));
   }, []);
 
   return (
@@ -56,7 +59,8 @@ export function StudentTracks() {
           </button>
         ))}
       </div>
-      {tracks.length === 0 && !error && <p className="text-slate-400 text-center py-10">אין מסלולים זמינים</p>}
+      {!loaded && !error && <p className="text-slate-400 text-center py-10 animate-pulse">טוען מסלולים...</p>}
+      {loaded && tracks.length === 0 && !error && <p className="text-slate-400 text-center py-10">אין מסלולים זמינים</p>}
     </Layout>
   );
 }

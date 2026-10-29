@@ -23,6 +23,7 @@ import displayRoutes from './routes/display';
 import announcementsRoutes from './routes/announcements';
 import settingsRoutes from './routes/settings';
 import expensesRoutes from './routes/expenses';
+import { warmAirtableCache } from './lib/airtable';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -87,6 +88,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 app.listen(PORT, () => {
   console.log(`שרת מערכת נוכחות ישיבת הנגב פועל על פורט ${PORT}`);
   warmUpBrowser();
+  warmAirtableCache(); // מסלולים/תלמידות/מורות/שיעורים מוכנים כבר לכניסה הראשונה
   // בודקים כל שעה אם היום הוא היום האחרון בחודש — מספיק תדיר כדי לתפוס את זה גם אחרי
   // עליית שרת מחדש, בלי צורך בספריית cron נפרדת עבור בדיקה כל כך פשוטה.
   checkAndSendMonthlyReminder();

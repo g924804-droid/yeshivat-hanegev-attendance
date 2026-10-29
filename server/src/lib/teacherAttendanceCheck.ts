@@ -70,7 +70,13 @@ export async function getMissingAttendanceSlots(
   // שדה "תלמידות" בטבלת המסלולים הוא טקסט מחושב, לא שדה מקושר אמיתי (ולפעמים חסר לגמרי) —
   // אותו תיקון שכבר נעשה ב-students.ts וב-teacherScope.ts: מקור האמת הוא שדה "מסלולים" של
   // כל תלמידה בעצמה, לא ההפך.
-  const allStudents = await airtableFetch(TABLES.students);
+  const [allStudents, attendance] = await Promise.all([
+    airtableFetch(TABLES.students),
+    airtableFetch(TABLES.attendance, {
+      filterByFormula: `FIND("${month}", {${FIELDS.attendance.date}})`,
+      fields: [FIELDS.attendance.date, FIELDS.attendance.student, FIELDS.attendance.lesson, FIELDS.attendance.period],
+    }),
+  ]);
   const trackStudents = new Map<string, Set<string>>();
   for (const trackId of trackIds) {
     const ids = allStudents
@@ -79,9 +85,6 @@ export async function getMissingAttendanceSlots(
     trackStudents.set(trackId, new Set(ids));
   }
 
-  const attendance = await airtableFetch(TABLES.attendance, {
-    filterByFormula: `FIND("${month}", {${FIELDS.attendance.date}})`,
-  });
 
   const covered = new Set<string>(); // `${date}|${trackId}` — חלק 1 / שיעור רגיל, כמו תמיד
   const coveredPeriod = new Set<string>(); // `${date}|${lessonId}|${period}` — חלקים 2+ של שיעור כפול

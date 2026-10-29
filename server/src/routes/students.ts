@@ -3,7 +3,6 @@ import {
   airtableFetch,
   airtableCreate,
   airtableUpdate,
-  airtableGetRecord,
   airtableBatchCreate,
   TABLES,
   STUDENT_STATUS_HE_TO_EN,
@@ -107,18 +106,15 @@ router.get('/getMissingAttendanceForTrack', requirePermission('studentAttendance
 
 router.get('/getTracks', requirePermission('studentAttendance'), async (req, res) => {
   try {
-    const tracks = await airtableFetch(TABLES.tracks);
-    let visible = tracks;
-    if (!canSeeAllStudentTracks(req.user!)) {
-      const trackIds = await getTeacherTrackIds(req.user!.name);
-      visible = tracks.filter((t) => trackIds.has(t.id));
-    }
-
-    const allStudents = await airtableFetch(TABLES.students);
     const today = new Date().toISOString().slice(0, 10);
-    const todaysAttendance = await airtableFetch(TABLES.attendance, {
-      filterByFormula: dateEqualsFormula(FIELDS.attendance.date, today),
-    });
+    // במקביל — כל טבלה ב-Airtable לוקחת 1–3 שניות, ובטור זה הצטבר למסך ריק ארוך
+    const [tracks, myTrackIds, allStudents, todaysAttendance] = await Promise.all([
+      airtableFetch(TABLES.tracks),
+      canSeeAllStudentTracks(req.user!) ? Promise.resolve(null) : getTeacherTrackIds(req.user!.name),
+      airtableFetch(TABLES.students),
+      airtableFetch(TABLES.attendance, { filterByFormula: dateEqualsFormula(FIELDS.attendance.date, today) }),
+    ]);
+    const visible = myTrackIds ? tracks.filter((t) => myTrackIds.has(t.id)) : tracks;
 
     const result = visible.map((t) => {
       const studentIds = getStudentIdsByTrack(t.id, allStudents);
@@ -148,18 +144,25 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
     const requestedLessonId = (req.query.lessonId as string) || undefined;
     if (!trackId) return res.status(400).json({ error: 'חסר מזהה מסלול' });
 
-    const track = await airtableGetRecord(TABLES.tracks, trackId);
+    // במקביל — כל טבלה ב-Airtable לוקחת 1–3 שניות, ובטור זה הצטבר להמתנה של 10+ שניות
+    const [tracks, allStudentsRaw, trackLessons, myTeacherIds, dayAttendance, allGrades, hebrewDate] = await Promise.all([
+      airtableFetch(TABLES.tracks),
+      airtableFetch(TABLES.students),
+      getTrackLessonsForDate(trackId, date),
+      canSeeAllStudentTracks(req.user!) ? Promise.resolve(null) : findTeacherIds(req.user!.name),
+      airtableFetch(TABLES.attendance, { filterByFormula: dateEqualsFormula(FIELDS.attendance.date, date) }),
+      airtableFetch(TABLES.grades),
+      getHebrewDateLabel(date).catch(() => ''),
+    ]);
+    const track = tracks.find((t) => t.id === trackId);
     if (!track) return res.status(404).json({ error: 'מסלול לא נמצא' });
 
-    const allStudentsRaw = await airtableFetch(TABLES.students);
     const studentIds = getStudentIdsByTrack(trackId, allStudentsRaw);
     const allStudents = allStudentsRaw.filter((s) => studentIds.includes(s.id));
 
-    let todaysLessons = await getTrackLessonsForDate(trackId, date);
-    if (!canSeeAllStudentTracks(req.user!)) {
-      const teacherIds = await findTeacherIds(req.user!.name);
-      todaysLessons = todaysLessons.filter((l) => (l.teacher || []).some((id) => teacherIds.includes(id)));
-    }
+    const todaysLessons = myTeacherIds
+      ? trackLessons.filter((l) => (l.teacher || []).some((id) => myTeacherIds.includes(id)))
+      : trackLessons;
 
     // אם יש כמה שיעורים באותו יום (למשל קודש שני שיעורים, או חשבות שכר שלושה) — ברירת
     // המחדל היא הראשון כרונולוגית; המורה יכולה לעבור לשיעורים הבאים דרך התגיות למעלה.
@@ -171,11 +174,6 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
     const activeLesson = todaysLessons.find((l) => l.id === activeLessonId);
     const activePeriod = clampPeriod(req.query.period, lessonPeriodCount(activeLesson?.time));
 
-    const dayAttendance = await airtableFetch(TABLES.attendance, {
-      filterByFormula: dateEqualsFormula(FIELDS.attendance.date, date),
-    });
-
-    const allGrades = await airtableFetch(TABLES.grades);
 
     const students = allStudents.map((s) => {
       const attendanceRecord = dayAttendance.find((a) => {
@@ -209,7 +207,6 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
       };
     });
 
-    const hebrewDate = await getHebrewDateLabel(date).catch(() => '');
 
     res.json({
       track: { id: track.id, name: track.fields[FIELDS.tracks.name] },

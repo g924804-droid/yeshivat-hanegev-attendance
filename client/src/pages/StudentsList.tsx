@@ -64,6 +64,8 @@ export function StudentsList() {
   const [busy, setBusy] = useState(false);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [missingSlots, setMissingSlots] = useState<MissingSlot[]>([]);
+  // עד הטעינה הראשונה — "טוען", לא "אין שיעור"/"אין תלמידות" שמתחלפים אחרי שנייה
+  const [loaded, setLoaded] = useState(false);
 
   // מקבל תאריך מפורש (לא סומך על ה-state) כדי שקפיצה ליום אחר (חצים/בחירת תאריך/לחיצה על
   // "תאריך חסר") תמיד תביא את הנתונים של היום הנכון, בלי מרוץ בין קריאה ישנה לחדשה.
@@ -84,9 +86,11 @@ export function StudentsList() {
       setActiveLessonId(data.activeLessonId);
       setActivePeriod(data.activePeriod || 1);
       setIsFuture(!!data.isFuture);
+      setLoaded(true);
       setHebrewDate(data.hebrewDate);
     } catch (err: any) {
       setError(err.message);
+      setLoaded(true);
     }
   }
 
@@ -284,7 +288,9 @@ export function StudentsList() {
             })}
           </div>
         ) : (
-          <p className="text-slate-400 text-sm">אין שיעור רשום למסלול הזה בתאריך הזה</p>
+          <p className={`text-slate-400 text-sm ${loaded ? '' : 'animate-pulse'}`}>
+            {loaded ? 'אין שיעור רשום למסלול הזה בתאריך הזה' : 'טוען שיעורים...'}
+          </p>
         )}
         {activeLesson && activeLesson.periods > 1 && (
           <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
@@ -400,7 +406,9 @@ export function StudentsList() {
             ))}
           </tbody>
         </table>
-        {filteredStudents.length === 0 && <p className="text-center text-slate-400 py-6">אין תלמידות להצגה</p>}
+        {filteredStudents.length === 0 && (
+          <p className={`text-center text-slate-400 py-6 ${loaded ? '' : 'animate-pulse'}`}>{loaded ? 'אין תלמידות להצגה' : 'טוען תלמידות...'}</p>
+        )}
       </div>
     </Layout>
   );
