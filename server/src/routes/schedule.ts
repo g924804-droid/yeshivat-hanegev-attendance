@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma';
 import { getReadableHistory, buildScheduleExcel } from '../lib/scheduleHistory';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { getCancellations, cancelLessons, restoreLesson } from '../lib/lessonCancellations';
+import { lessonsForDate } from '../lib/scheduleRules';
 
 const router = Router();
 router.use(requireAuth);
@@ -176,6 +177,65 @@ router.post('/cancelLessons', async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בביטול שיעור' });
+  }
+});
+
+/** כל התאריכים מ-from עד to (כולל), בלי שבתות */
+function datesInRange(from: string, to: string): string[] {
+  const out: string[] = [];
+  const d = new Date(`${from}T12:00:00Z`);
+  const end = new Date(`${to}T12:00:00Z`);
+  while (d <= end && out.length < 400) {
+    if (d.getUTCDay() !== 6) out.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+/**
+ * ביטול יום שלם (או כמה ימים — חופשה/חג/תוכנית): כל השיעורים של אותם תאריכים לפי המערכת בפועל,
+ * של כל המסלולים או של מסלול אחד. במקום לבטל שיעור-שיעור. המורות לא יתבקשו למלא עליהם נוכחות.
+ */
+router.post('/cancelDays', async (req, res) => {
+  try {
+    const { from, to, reason, trackId } = req.body as { from?: string; to?: string; reason?: string; trackId?: string };
+    const end = to || from;
+    if (!isIsoDate(from) || !isIsoDate(end) || end! < from!) return res.status(400).json({ error: 'יש לבחור תאריך (ועד תאריך)' });
+    const dates = datesInRange(from!, end!);
+    if (dates.length > 62) return res.status(400).json({ error: 'אפשר לבטל עד חודשיים בבת אחת' });
+    const { lessons } = await getFullSchedule();
+    const why = reason?.trim().slice(0, 200) || null;
+    let count = 0;
+    for (const date of dates) {
+      const ids = lessonsForDate(lessons, date)
+        .filter((l) => !trackId || (l.track || []).includes(trackId))
+        .map((l) => l.id);
+      if (!ids.length) continue;
+      await cancelLessons(ids, date, why, req.user!.name);
+      count += ids.length;
+    }
+    res.json({ success: true, cancelled: count, days: dates.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בביטול היום' });
+  }
+});
+
+/** החזרת יום שלם שבוטל — מוחק את כל ביטולי השיעורים של התאריך (או רק של מסלול אחד) */
+router.post('/restoreDay', async (req, res) => {
+  try {
+    const { date, trackId } = req.body as { date?: string; trackId?: string };
+    if (!isIsoDate(date)) return res.status(400).json({ error: 'חסר תאריך' });
+    let lessonIds: string[] | undefined;
+    if (trackId) {
+      const { lessons } = await getFullSchedule();
+      lessonIds = lessonsForDate(lessons, date!).filter((l) => (l.track || []).includes(trackId)).map((l) => l.id);
+    }
+    const r = await prisma.lessonCancellation.deleteMany({
+      where: { date: date!, ...(lessonIds ? { lessonId: { in: lessonIds } } : {}) },
+    });
+    res.json({ success: true, restored: r.count });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בהחזרת היום' });
   }
 });
 

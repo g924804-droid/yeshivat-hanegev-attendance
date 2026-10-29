@@ -60,6 +60,8 @@ export function SchedulePage() {
   const [duplicatingLesson, setDuplicatingLesson] = useState<Lesson | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [cancelling, setCancelling] = useState<{ lesson: Lesson; date: string } | null>(null);
+  // ביטול יום שלם (חופש/חג/תוכנית) — התאריך שנבחר
+  const [cancellingDay, setCancellingDay] = useState<string | null>(null);
   // תצוגה קומפקטית: עמודות וכרטיסי שיעור צרים וקטנים יותר, כדי שכל השבוע ייכנס בלי גלילה
   // אופקית במסכים רגילים. נשמר ב-localStorage כדי שהבחירה תישאר גם ברענון/כניסה הבאה.
   const [compact, setCompact] = useState(() => localStorage.getItem('scheduleCompact') === '1');
@@ -110,6 +112,52 @@ export function SchedulePage() {
     loadCancellations();
   }
 
+  // יום שכל השיעורים שלו (במסלול המסונן, אם יש) בוטלו
+  function dayStatus(day: string) {
+    const list = filtered.filter((l) => l.dayOfWeek === day);
+    const n = list.filter((l) => cancelled.has(`${dates[day]}|${l.id}`)).length;
+    return { total: list.length, cancelled: n, all: list.length > 0 && n === list.length };
+  }
+  async function restoreDay(day: string) {
+    const label = trackFilter ? ` במסלול ${trackName([trackFilter])}` : '';
+    if (!confirm(`להחזיר את כל השיעורים של יום ${day} ${shortDate(dates[day])}${label}?`)) return;
+    await api.post('/schedule/restoreDay', { date: dates[day], trackId: trackFilter || undefined });
+    loadCancellations();
+  }
+  function dayHeader(day: string) {
+    const st = dayStatus(day);
+    return (
+      <>
+        {day} <span className="font-normal text-slate-400">{shortDate(dates[day])}</span>
+        {dates[day] === todayIso && (
+          <span className={`block font-normal text-gold-dark ${compact ? 'text-[9px]' : 'text-xs'}`}>היום</span>
+        )}
+        {st.all ? (
+          <span className="flex items-center justify-center gap-1 mt-0.5 flex-wrap">
+            <span className="badge bg-red-600 text-white text-[10px]">יום מבוטל</span>
+            <button
+              onClick={() => restoreDay(day)}
+              className="text-[10px] font-normal text-navy underline inline-flex items-center gap-0.5"
+              title="החזרת כל השיעורים של היום"
+            >
+              <RotateCcw size={10} /> החזרה
+            </button>
+          </span>
+        ) : (
+          st.total > 0 && (
+            <button
+              onClick={() => setCancellingDay(dates[day])}
+              className={`mt-0.5 mx-auto flex items-center gap-1 font-normal text-red-600 hover:bg-red-50 rounded px-1.5 ${compact ? 'text-[9px]' : 'text-[11px]'}`}
+              title="ביטול כל השיעורים של היום — חופש / חג / תוכנית"
+            >
+              <Ban size={compact ? 9 : 11} /> ביטול היום
+            </button>
+          )
+        )}
+      </>
+    );
+  }
+
   const filtered = useMemo(
     () => (trackFilter ? weekLessons.filter((l) => l.track?.includes(trackFilter)) : weekLessons),
     [weekLessons, trackFilter]
@@ -148,10 +196,7 @@ export function SchedulePage() {
                     dates[day] === todayIso ? 'bg-gold/15' : 'bg-slate-50'
                   }`}
                 >
-                  {day} <span className="font-normal text-slate-400">{shortDate(dates[day])}</span>
-                  {dates[day] === todayIso && (
-                    <span className={`block font-normal text-gold-dark ${compact ? 'text-[9px]' : 'text-xs'}`}>היום</span>
-                  )}
+                  {dayHeader(day)}
                 </th>
               ))}
               {/* עמודת שעה כפולה, צמודה ליום שלישי — נוחות ויזואלית כשמסתכלים על שלישי בלי לחפש
@@ -168,10 +213,7 @@ export function SchedulePage() {
                     dates[day] === todayIso ? 'bg-gold/15' : 'bg-slate-50'
                   }`}
                 >
-                  {day} <span className="font-normal text-slate-400">{shortDate(dates[day])}</span>
-                  {dates[day] === todayIso && (
-                    <span className={`block font-normal text-gold-dark ${compact ? 'text-[9px]' : 'text-xs'}`}>היום</span>
-                  )}
+                  {dayHeader(day)}
                 </th>
               ))}
             </tr>
@@ -460,6 +502,19 @@ export function SchedulePage() {
         />
       )}
 
+      {cancellingDay && (
+        <CancelDayModal
+          date={cancellingDay}
+          tracks={tracks}
+          defaultTrackId={trackFilter}
+          lessonsOn={(date, trackId) => lessonsForDate(lessons, date).filter((l) => !trackId || (l.track || []).includes(trackId))}
+          onClose={() => setCancellingDay(null)}
+          onSaved={() => {
+            setCancellingDay(null);
+            loadCancellations();
+          }}
+        />
+      )}
       {cancelling && (
         <CancelLessonModal
           lesson={cancelling.lesson}
@@ -967,6 +1022,106 @@ function LessonModal({
 }
 
 const CANCEL_REASONS = ['המורה לא הגיעה — משתחררות', 'המורה לא הגיעה', 'משתחררות מוקדם', 'אירוע / כנס'];
+const DAY_CANCEL_REASONS = ['חופש', 'חג', 'תוכנית', 'טיול', 'כנס'];
+
+/**
+ * ביטול יום שלם — או כמה ימים ברצף (חופשה) — במקום לבטל שיעור-שיעור. כל השיעורים של
+ * התאריכים (של כל המסלולים או של מסלול אחד) מסומנים כמבוטלים, והמורות לא יתבקשו למלא עליהם נוכחות.
+ */
+function CancelDayModal({
+  date,
+  tracks,
+  defaultTrackId,
+  lessonsOn,
+  onClose,
+  onSaved,
+}: {
+  date: string;
+  tracks: Ref[];
+  defaultTrackId: string;
+  lessonsOn: (date: string, trackId: string) => Lesson[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [to, setTo] = useState(date);
+  const [reason, setReason] = useState(DAY_CANCEL_REASONS[0]);
+  const [trackId, setTrackId] = useState(defaultTrackId);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const dayCount = lessonsOn(date, trackId).length;
+  const multi = to > date;
+
+  async function save() {
+    setBusy(true);
+    setError('');
+    try {
+      await api.post('/schedule/cancelDays', { from: date, to, reason, trackId: trackId || undefined });
+      onSaved();
+    } catch (err: any) {
+      setError(err.message || 'שגיאה בביטול');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3 max-h-[85vh] overflow-y-auto">
+        <h3 className="font-bold text-navy text-lg">ביטול יום שלם</h3>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="label">מתאריך</label>
+            <div className="input bg-slate-50">{shortDate(date)}</div>
+          </div>
+          <div>
+            <label className="label">עד תאריך (לחופשה)</label>
+            <input type="date" className="input" min={date} value={to} onChange={(e) => setTo(e.target.value || date)} />
+          </div>
+        </div>
+        <div>
+          <label className="label">סיבה (תוצג במערכת ובמסך התצוגה)</label>
+          <div className="flex flex-wrap gap-1 mb-2">
+            {DAY_CANCEL_REASONS.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setReason(r)}
+                className={`badge border cursor-pointer ${reason === r ? 'bg-navy text-white border-navy' : 'bg-white text-slate-600 border-slate-200'}`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="למשל: חופשת סוכות" />
+        </div>
+        <div>
+          <label className="label">לאילו מסלולים</label>
+          <select className="input" value={trackId} onChange={(e) => setTrackId(e.target.value)}>
+            <option value="">כל המסלולים</option>
+            {tracks.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="text-sm bg-red-50 text-red-800 rounded-xl px-3 py-2">
+          {multi
+            ? `יבוטלו כל השיעורים מ-${shortDate(date)} עד ${shortDate(to)}`
+            : `יבוטלו ${dayCount} שיעורים ב-${shortDate(date)}`}
+          {trackId ? ` במסלול ${tracks.find((t) => t.id === trackId)?.name || ''}` : ' בכל המסלולים'}. המורות לא יתבקשו למלא עליהם נוכחות.
+          אפשר להחזיר בכל רגע בכפתור "החזרה" בכותרת היום.
+        </p>
+        {error && <div className="text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
+        <div className="flex gap-2 justify-end pt-2">
+          <button className="btn-outline" onClick={onClose}>סגירה</button>
+          <button className="btn-primary bg-red-600 hover:bg-red-700" onClick={save} disabled={busy || (!multi && !dayCount)}>
+            <Ban size={14} /> {multi ? 'ביטול הימים' : 'ביטול היום'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** ביטול שיעור בתאריך אחד — מוצג כמבוטל במערכת ובמסך התצוגה, והמורה לא תתבקש למלא עליו נוכחות. */
 function CancelLessonModal({
