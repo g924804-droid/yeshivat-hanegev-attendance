@@ -27,13 +27,15 @@ function normalizeTeacherName(s: string): string {
     .trim();
 }
 
-/** מילים של שם, בלי הבדלי כתיב של יו"ד/וי"ו כפולה ("טוייטו" = "טויטו") */
+/**
+ * מילים של שם, בלי הבדלי כתיב מלא/חסר: יו"ד ווי"ו לא נספרות בהשוואה — "זגדון" = "זיגדון",
+ * "טוייטו" = "טויטו". (ההתאמה דורשת לפחות 2 מילים, כך שזה לא מבלבל בין מורות שונות.)
+ */
 function nameWords(s: string): string[] {
   return s
-    .replace(/[-–־]/g, ' ')
-    .replace(/יי/g, 'י')
-    .replace(/וו/g, 'ו')
+    .replace(/[-–־'"׳״]/g, ' ')
     .split(/\s+/)
+    .map((w) => w.replace(/[יו]/g, ''))
     .filter(Boolean);
 }
 
