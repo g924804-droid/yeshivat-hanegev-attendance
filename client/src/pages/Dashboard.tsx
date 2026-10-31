@@ -169,8 +169,17 @@ export function Dashboard() {
     }
   }
 
-  const totalHours = records.reduce((s, r) => s + (r.type === 'רגיל' ? r.totalHours : 0), 0);
-  const totalOvertime = records.reduce((s, r) => s + r.overtimeHours, 0);
+  // בדיוק כמו בדוח החודשי: רק ימים שכבר עברו (לא ימים שמולאו מראש), בלי שבת וחג מלא,
+  // ימי עבודה רגילים וחצי יום — כדי שהסכום כאן ובדוח שמגישים יהיה זהה
+  const countedRecords = records.filter((r) => {
+    if (r.date > today) return false;
+    if (new Date(`${r.date}T00:00:00`).getDay() === 6) return false;
+    if (holidays.some((h) => h.date === r.date && h.type === 'full')) return false;
+    return r.type === 'רגיל' || r.type === 'חצי יום';
+  });
+  const totalHours = countedRecords.reduce((s, r) => s + r.totalHours, 0);
+  const totalOvertime = countedRecords.reduce((s, r) => s + r.overtimeHours, 0);
+  const futureHours = records.filter((r) => r.date > today).reduce((s, r) => s + r.totalHours, 0);
 
   // "הפעלת טיימר" / "עצירת טיימר" — ברור יותר מ"כניסה"/"יציאה" מה הכפתור עושה
   const clockLabel: Record<typeof clockState, string> = {
@@ -253,7 +262,12 @@ export function Dashboard() {
 
         <div className="flex gap-4 mb-4 text-sm">
           <div className="text-slate-500">
-            סה"כ שעות: <span className="font-bold text-navy">{safeFixed(totalHours)}</span>
+            סה"כ שעות עד היום: <span className="font-bold text-navy">{safeFixed(totalHours)}</span>
+            {futureHours > 0 && (
+              <span className="text-xs text-amber-700 mr-1" title="שעות שמולאו לימים שעוד לא הגיעו — ייספרו בדוח רק כשהיום יגיע">
+                (+{safeFixed(futureHours)} לימים שעוד לא הגיעו)
+              </span>
+            )}
           </div>
           {isTeacher && (
             <div className="text-slate-500" title="שעה אקדמית = 45 דקות">
