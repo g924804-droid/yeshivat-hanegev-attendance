@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2, ChevronLeft, ChevronRight, Users, Ban, RotateCcw } from 'lucide-react';
+import { Plus, History, Monitor, Clock, Pencil, Copy, Trash2, Minimize2, Maximize2, ChevronLeft, ChevronRight, Users, Ban, RotateCcw, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { lessonsForDate, lessonAppliesOnDate, currentWeekSunday, weekDates, addDays, localIsoDate, timesOverlap } from '../lib/scheduleRules';
 import { useUrlState } from '../lib/useUrlState';
@@ -60,6 +60,9 @@ export function SchedulePage() {
   const [duplicatingLesson, setDuplicatingLesson] = useState<Lesson | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [cancelling, setCancelling] = useState<{ lesson: Lesson; date: string } | null>(null);
+  // הערה לשיעור ליום אחד בלבד — `${date}|${lessonId}` → טקסט
+  const [dayNotes, setDayNotes] = useState<Map<string, string>>(new Map());
+  const [noting, setNoting] = useState<{ lesson: Lesson; date: string } | null>(null);
   // ביטול יום שלם (חופש/חג/תוכנית) — התאריך שנבחר
   const [cancellingDay, setCancellingDay] = useState<string | null>(null);
   // תצוגה קומפקטית: עמודות וכרטיסי שיעור צרים וקטנים יותר, כדי שכל השבוע ייכנס בלי גלילה
@@ -99,6 +102,15 @@ export function SchedulePage() {
       setCancelled(new Map(r.cancellations.map((c) => [`${c.date}|${c.lessonId}`, c.reason || ''])));
     } catch {
       /* בלי ביטולים */
+    }
+    try {
+      const n = await api.get<{ notes: { lessonId: string; date: string; text: string }[] }>('/schedule/dayNotes', {
+        from: dates['ראשון'],
+        to: dates['שישי'],
+      });
+      setDayNotes(new Map(n.notes.map((x) => [`${x.date}|${x.lessonId}`, x.text])));
+    } catch {
+      /* בלי הערות */
     }
   }
   useEffect(() => {
@@ -291,6 +303,13 @@ export function SchedulePage() {
                             <button onClick={() => setEditingLesson(l)} title="עריכה" className="p-0.5 rounded hover:bg-black/10">
                               <Pencil size={compact ? 9 : 11} />
                             </button>
+                            <button
+                              onClick={() => setNoting({ lesson: l, date: dates[day] })}
+                              title="הערה לתאריך הזה בלבד (לא לכל השבועות)"
+                              className="p-0.5 rounded hover:bg-black/10"
+                            >
+                              <MessageSquare size={compact ? 9 : 11} />
+                            </button>
                             {isCancelled ? (
                               <button
                                 onClick={() => restore(l, dates[day])}
@@ -309,15 +328,15 @@ export function SchedulePage() {
                               </button>
                             )}
                           </div>
-                          {l.notes && (
+                          {(l.notes || dayNotes.get(cancelKey)) && (
                             <span
-                              title={l.notes}
+                              title={[dayNotes.get(cancelKey), l.notes].filter(Boolean).join(' · ')}
                               className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center text-[9px] font-black ring-1 ring-white"
                             >
                               !
                             </span>
                           )}
-                          <div className={`font-semibold truncate ${compact ? 'pl-8' : 'pl-11'} ${isCancelled ? 'line-through' : ''}`}>{l.subject || l.className}</div>
+                          <div className={`font-semibold truncate ${compact ? 'pl-10' : 'pl-14'} ${isCancelled ? 'line-through' : ''}`}>{l.subject || l.className}</div>
                           {isCancelled && (
                             <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-red-600 text-white px-1.5 py-0.5 text-[10px] font-bold max-w-full">
                               <Ban size={10} className="shrink-0" />
@@ -349,10 +368,22 @@ export function SchedulePage() {
                               כל שבועיים
                             </div>
                           )}
-                          {!compact && l.notes && (
-                            <div className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 max-w-full">
+                          {dayNotes.get(cancelKey) && (
+                            <button
+                              onClick={() => setNoting({ lesson: l, date: dates[day] })}
+                              title="הערה לתאריך הזה בלבד — לחיצה לעריכה"
+                              className="mt-0.5 flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 max-w-full text-right"
+                            >
                               <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
-                              <span className="truncate">{l.notes}</span>
+                              <span className="truncate">{dayNotes.get(cancelKey)}</span>
+                            </button>
+                          )}
+                          {!compact && l.notes && (
+                            <div
+                              className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-slate-100 border border-slate-300 text-slate-700 px-1.5 py-0.5 max-w-full"
+                              title="הערה קבועה — מופיעה בכל השבועות (עריכה בעיפרון)"
+                            >
+                              <span className="truncate">קבועה: {l.notes}</span>
                             </div>
                           )}
                         </div>
@@ -502,6 +533,18 @@ export function SchedulePage() {
         />
       )}
 
+      {noting && (
+        <DayNoteModal
+          lesson={noting.lesson}
+          date={noting.date}
+          initial={dayNotes.get(`${noting.date}|${noting.lesson.id}`) || ''}
+          onClose={() => setNoting(null)}
+          onSaved={() => {
+            setNoting(null);
+            loadCancellations();
+          }}
+        />
+      )}
       {cancellingDay && (
         <CancelDayModal
           date={cancellingDay}
@@ -992,7 +1035,10 @@ function LessonModal({
         )}
 
         <div>
-          <label className="label">הערה (לא חובה) — לשינוי/הוספה חד-פעמית, תופיע מודגשת במסך התצוגה</label>
+          <label className="label">הערה קבועה (לא חובה) — תופיע בכל השבועות של השיעור</label>
+          <p className="text-xs text-slate-500 mb-1">
+            להערה ליום אחד בלבד: סוגרים את החלון ולוחצים על סמל ההערה 💬 בשיעור, ביום הרצוי במערכת.
+          </p>
           <input
             className="input"
             placeholder="לדוגמה: הוחלף לשיעור העשרה"
@@ -1027,6 +1073,76 @@ function LessonModal({
 
 const CANCEL_REASONS = ['המורה לא הגיעה — משתחררות', 'המורה לא הגיעה', 'משתחררות מוקדם', 'אירוע / כנס'];
 const DAY_CANCEL_REASONS = ['חופש', 'חג', 'תוכנית', 'טיול', 'כנס'];
+
+/** הערה לשיעור בתאריך אחד בלבד — מופיעה במערכת ובמסך התצוגה רק באותו יום, והשיעור הקבוע לא משתנה */
+function DayNoteModal({
+  lesson,
+  date,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  lesson: Lesson;
+  date: string;
+  initial: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save(value: string) {
+    setBusy(true);
+    setError('');
+    try {
+      await api.post('/schedule/dayNote', { lessonId: lesson.id, date, text: value });
+      onSaved();
+    } catch (err: any) {
+      setError(err.message || 'שגיאה בשמירה');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3">
+        <h3 className="font-bold text-navy text-lg">הערה ליום אחד</h3>
+        <div className="text-sm bg-slate-50 rounded-xl px-3 py-2">
+          <div className="font-semibold">{lesson.subject || lesson.className}</div>
+          <div className="text-slate-500">
+            {lesson.dayOfWeek} {shortDate(date)} · {lesson.time}
+          </div>
+        </div>
+        <input
+          className="input"
+          autoFocus
+          placeholder="לדוגמה: השיעור יתקיים באולם"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && text.trim() && save(text)}
+        />
+        <p className="text-xs text-slate-500">ההערה תופיע רק ב-{shortDate(date)} — לא בשבועות אחרים.</p>
+        {error && <div className="text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
+        <div className="flex gap-2 justify-between pt-1">
+          {initial ? (
+            <button className="btn-outline text-red-600 border-red-200 hover:bg-red-50" onClick={() => save('')} disabled={busy}>
+              <Trash2 size={14} /> מחיקת ההערה
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button className="btn-outline" onClick={onClose}>ביטול</button>
+            <button className="btn-primary" onClick={() => save(text)} disabled={busy || !text.trim()}>
+              שמירה
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /**
  * ביטול יום שלם — או כמה ימים ברצף (חופשה) — במקום לבטל שיעור-שיעור. כל השיעורים של

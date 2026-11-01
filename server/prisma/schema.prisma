@@ -202,6 +202,20 @@ model LessonCancellation {
   @@index([date])
 }
 
+// הערה לשיעור בתאריך אחד בלבד (בניגוד להערה ב-Airtable, שמופיעה בכל השבועות). מוצגת במערכת
+// השעות ובמסך התצוגה רק באותו יום.
+model LessonDayNote {
+  id        String   @id @default(cuid())
+  lessonId  String // מזהה השיעור ב-Airtable
+  date      String // YYYY-MM-DD
+  text      String
+  createdBy String?
+  updatedAt DateTime @updatedAt
+
+  @@unique([lessonId, date])
+  @@index([date])
+}
+
 model Announcement {
   id        String   @id @default(cuid())
   text      String? // אפשר גם הודעה עם קובץ בלבד (פוסטר/PDF) בלי טקסט

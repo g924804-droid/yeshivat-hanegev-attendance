@@ -5,7 +5,7 @@ import { getFullSchedule, invalidateScheduleCache } from '../lib/scheduleData';
 import { prisma } from '../lib/prisma';
 import { getReadableHistory, buildScheduleExcel } from '../lib/scheduleHistory';
 import { requireAuth, requirePermission } from '../middleware/auth';
-import { getCancellations, cancelLessons, restoreLesson } from '../lib/lessonCancellations';
+import { getCancellations, cancelLessons, restoreLesson, getDayNotes, setDayNote } from '../lib/lessonCancellations';
 import { lessonsForDate } from '../lib/scheduleRules';
 
 const router = Router();
@@ -165,6 +165,29 @@ router.get('/cancellations', async (req, res) => {
     res.json({ cancellations: await getCancellations(from!, to!) });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת ביטולים' });
+  }
+});
+
+/** הערות לשיעורים ליום אחד בלבד — בטווח התאריכים של השבוע המוצג */
+router.get('/dayNotes', async (req, res) => {
+  try {
+    const { from, to } = req.query as Record<string, string | undefined>;
+    if (!isIsoDate(from) || !isIsoDate(to)) return res.status(400).json({ error: 'חסר טווח תאריכים' });
+    res.json({ notes: await getDayNotes(from!, to!) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת הערות' });
+  }
+});
+
+/** שמירת הערה לשיעור בתאריך אחד בלבד (טקסט ריק = מחיקה) — לא נוגעת בשיעור הקבוע */
+router.post('/dayNote', async (req, res) => {
+  try {
+    const { lessonId, date, text } = req.body as { lessonId?: string; date?: string; text?: string };
+    if (!lessonId || !isIsoDate(date)) return res.status(400).json({ error: 'חסרים פרטים' });
+    await setDayNote(lessonId, date!, String(text || ''), req.user!.name);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירת ההערה' });
   }
 });
 

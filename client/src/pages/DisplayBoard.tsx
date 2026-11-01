@@ -41,6 +41,7 @@ function WeekSlide({
   tracks,
   teacherName,
   cancelReason,
+  noteFor,
 }: {
   title: string;
   days: string[];
@@ -51,6 +52,8 @@ function WeekSlide({
   teacherName: (ids?: string[]) => string;
   /** סיבת הביטול אם השיעור בוטל ביום הזה השבוע ('' = בוטל בלי סיבה), אחרת undefined */
   cancelReason: (day: string, lessonId: string) => string | undefined;
+  /** ההערה שמוצגת לשיעור ביום הזה השבוע: הערה ליום הזה, אחרת ההערה הקבועה */
+  noteFor: (day: string, lesson: Lesson) => string | undefined;
 }) {
   return (
     <section className="h-full bg-white/80 rounded-2xl p-4 overflow-hidden shadow-md border border-amber-100 flex flex-col">
@@ -75,12 +78,13 @@ function WeekSlide({
                 <div className="flex flex-col gap-1">
                   {dayLessons.map((l) => {
                     const reason = cancelReason(day, l.id);
+                    const note = noteFor(day, l);
                     return (
                     <div
                       key={l.id}
                       className={`relative text-[11px] leading-tight rounded-md border overflow-hidden px-1.5 py-1 ${lessonColor(l, tracks)}`}
                     >
-                      {l.notes && (
+                      {note && (
                         <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-black ring-1 ring-white">
                           !
                         </span>
@@ -93,10 +97,10 @@ function WeekSlide({
                         {l.subject && `כיתה ${l.className} · `}
                         {teacherName(l.teacher)} {l.room ? `· חדר ${l.room}` : ''}
                       </div>
-                      {l.notes && (
+                      {note && (
                         <div className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1 py-0.5 max-w-full">
                           <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
-                          <span className="truncate">{l.notes}</span>
+                          <span className="truncate">{note}</span>
                         </div>
                       )}
                       {reason !== undefined && (
@@ -147,6 +151,8 @@ export function DisplayBoard() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   // שיעורים שבוטלו: `${date}|${lessonId}` → סיבה
   const [cancelled, setCancelled] = useState<Map<string, string>>(new Map());
+  // הערות ליום אחד בלבד: `${date}|${lessonId}` → טקסט
+  const [dayNotes, setDayNotes] = useState<Map<string, string>>(new Map());
   const [textAnnouncementIdx, setTextAnnouncementIdx] = useState(0);
   const [slideIdx, setSlideIdx] = useState(0);
   const [now, setNow] = useState(new Date());
@@ -180,6 +186,9 @@ export function DisplayBoard() {
     const load = () =>
       fetchJson<{ cancellations: { lessonId: string; date: string; reason: string | null }[] }>('/api/display/cancellations')
         .then((d) => setCancelled(new Map(d.cancellations.map((c) => [`${c.date}|${c.lessonId}`, c.reason || '']))))
+        .catch(() => {});
+      fetchJson<{ notes: { lessonId: string; date: string; text: string }[] }>('/api/display/dayNotes')
+        .then((d) => setDayNotes(new Map(d.notes.map((n) => [`${n.date}|${n.lessonId}`, n.text]))))
         .catch(() => {});
     load();
     const interval = setInterval(load, ANNOUNCEMENT_POLL_MS);
@@ -248,6 +257,8 @@ export function DisplayBoard() {
   );
   const weekSunday = currentWeekSunday(now);
   const weekCancelReason = (day: string, lessonId: string) => cancelled.get(`${weekDates(weekSunday)[day]}|${lessonId}`);
+  const weekNoteFor = (day: string, l: Lesson) => dayNotes.get(`${weekDates(weekSunday)[day]}|${l.id}`) || l.notes || undefined;
+  const todayNote = (l: Lesson) => dayNotes.get(`${todayIso}|${l.id}`) || l.notes || undefined;
   const weekLessons = useMemo(() => {
     const dates = weekDates(weekSunday);
     return DAYS.flatMap((day) => lessonsForDate(lessons, dates[day]));
@@ -400,7 +411,7 @@ export function DisplayBoard() {
                               key={item.lesson.id}
                               className={`relative rounded-lg border overflow-hidden px-2 py-1.5 ${lessonColor(item.lesson, tracks)}`}
                             >
-                              {item.lesson.notes && (
+                              {todayNote(item.lesson) && (
                                 <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs font-black shadow ring-2 ring-white animate-pulse">
                                   !
                                 </span>
@@ -422,10 +433,10 @@ export function DisplayBoard() {
                               <div className="opacity-80 text-xs leading-tight break-words">
                                 {teacherName(item.lesson.teacher)} {item.lesson.room ? `· חדר ${item.lesson.room}` : ''}
                               </div>
-                              {item.lesson.notes && (
+                              {todayNote(item.lesson) && (
                                 <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-200 border border-amber-400 text-amber-900 px-1.5 py-0.5 text-xs font-bold max-w-full">
                                   <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
-                                  <span className="break-words">{item.lesson.notes}</span>
+                                  <span className="break-words">{todayNote(item.lesson)}</span>
                                 </div>
                               )}
                             </div>
@@ -454,6 +465,7 @@ export function DisplayBoard() {
             tracks={tracks}
             teacherName={teacherName}
             cancelReason={weekCancelReason}
+            noteFor={weekNoteFor}
           />
         )}
 
@@ -467,6 +479,7 @@ export function DisplayBoard() {
             tracks={tracks}
             teacherName={teacherName}
             cancelReason={weekCancelReason}
+            noteFor={weekNoteFor}
           />
         )}
 

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getFullSchedule } from '../lib/scheduleData';
 import { prisma } from '../lib/prisma';
-import { getCancellations } from '../lib/lessonCancellations';
+import { getCancellations, getDayNotes } from '../lib/lessonCancellations';
 
 // ראוטר ציבורי (ללא requireAuth בכוונה) — מיועד למסך תצוגה גדול בישיבה
 // (מערכת שעות + הודעות), ללא מידע רגיש, כדי שאפשר יהיה לפתוח אותו בלי התחברות.
@@ -23,6 +23,16 @@ router.get('/cancellations', async (req, res) => {
     res.json({ cancellations: await getCancellations(day(-7), day(14)) });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת ביטולים' });
+  }
+});
+
+/** הערות ליום אחד בלבד — אותו טווח כמו הביטולים */
+router.get('/dayNotes', async (req, res) => {
+  try {
+    const day = (offset: number) => new Date(Date.now() + offset * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+    res.json({ notes: await getDayNotes(day(-7), day(14)) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת הערות' });
   }
 });
 

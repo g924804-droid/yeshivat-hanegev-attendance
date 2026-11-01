@@ -26,6 +26,30 @@ export async function cancelLessons(lessonIds: string[], date: string, reason: s
   }
 }
 
+export type DayNote = { lessonId: string; date: string; text: string };
+
+/** הערות ליום אחד בלבד, בטווח תאריכים (כולל) */
+export async function getDayNotes(from: string, to: string): Promise<DayNote[]> {
+  return prisma.lessonDayNote.findMany({
+    where: { date: { gte: from, lte: to } },
+    select: { lessonId: true, date: true, text: true },
+  });
+}
+
+/** שמירת הערה לשיעור בתאריך אחד; טקסט ריק = מחיקת ההערה */
+export async function setDayNote(lessonId: string, date: string, text: string, createdBy: string | null) {
+  const t = text.trim().slice(0, 300);
+  if (!t) {
+    await prisma.lessonDayNote.deleteMany({ where: { lessonId, date } });
+    return;
+  }
+  await prisma.lessonDayNote.upsert({
+    where: { lessonId_date: { lessonId, date } },
+    create: { lessonId, date, text: t, createdBy },
+    update: { text: t, createdBy },
+  });
+}
+
 export async function restoreLesson(lessonId: string, date: string) {
   await prisma.lessonCancellation.deleteMany({ where: { lessonId, date } });
 }
