@@ -231,7 +231,8 @@ export function Dashboard() {
           className="card flex flex-col items-center justify-center gap-2 hover:shadow-md transition-shadow"
         >
           <FileBarChart className="text-gold-dark" size={28} />
-          <span className="font-semibold text-navy">דוח חודשי</span>
+          <span className="font-semibold text-navy text-center">סיכום וחתימה — דוח חודשי</span>
+          <span className="text-xs text-gray-500 text-center">לחתימה והגשת הדוח בסוף החודש</span>
         </button>
       </div>
 

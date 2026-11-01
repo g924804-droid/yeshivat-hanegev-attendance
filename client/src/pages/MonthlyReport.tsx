@@ -175,7 +175,7 @@ export function MonthlyReport() {
   if (!report) return <Layout title="דוח חודשי">טוען...</Layout>;
 
   return (
-    <Layout title={`דוח חודשי — ${month}${employeeName && targetUserId ? ` — ${employeeName}` : ''}`}>
+    <Layout title={`סיכום וחתימה — דוח חודשי ${month}${employeeName && targetUserId ? ` — ${employeeName}` : ''}`}>
       <div className="flex items-center justify-between mb-4">
         <button onClick={() => navigate(-1)} className="btn-outline text-sm py-2">
           חזרה
