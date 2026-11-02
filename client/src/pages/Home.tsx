@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Receipt,
   LogOut,
+  FolderSearch,
 } from 'lucide-react';
 import { useAuth } from '../lib/permissions';
 import { api } from '../lib/api';
@@ -56,6 +57,12 @@ export function Home() {
       to: '/payments',
       icon: Wallet,
       label: 'תשלומים',
+      show: user.permissions.payments,
+    },
+    {
+      to: '/student-files',
+      icon: FolderSearch,
+      label: 'תיק תלמידה',
       show: user.permissions.payments,
     },
     {

@@ -12,7 +12,7 @@ export function Layout({ title, children, wide }: { title: string; children: Rea
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-navy text-white">
+      <header className="bg-navy text-white print:hidden">
         <div className={`${width} mx-auto px-4 py-3 flex items-center justify-between`}>
           <div className="flex items-center gap-3">
             <Link to="/" className="flex items-center gap-2 text-gold font-bold text-lg">
@@ -46,7 +46,9 @@ export function Layout({ title, children, wide }: { title: string; children: Rea
           </div>
         </div>
       </header>
-      <TimerStrip />
+      <div className="print:hidden">
+        <TimerStrip />
+      </div>
       <main className={`${width} mx-auto px-4 py-6`}>{children}</main>
     </div>
   );

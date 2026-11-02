@@ -338,3 +338,41 @@ model ExpenseFile {
 
   @@index([expenseId])
 }
+
+// תיק תלמידה — מה שלא נשמר בטבלת התלמידות ב-Airtable. studentId = מזהה הרשומה ב-Airtable.
+model StudentProfile {
+  studentId String   @id
+  status    String   @default("פעילה") // פעילה | בוגרת
+  gradYear  String? // מחזור / שנת סיום, למשל תשפ"ה
+  notes     String?
+  updatedAt DateTime @updatedAt
+}
+
+// סיכום שנת לימודים של תלמידה (בעיקר לבוגרות משנים קודמות) — כמה היה לשלם וכמה שולם
+model StudentYear {
+  id         String  @id @default(cuid())
+  studentId  String
+  schoolYear String // תשפ"ב
+  track      String?
+  amountDue  Float   @default(0)
+  amountPaid Float   @default(0)
+  notes      String?
+
+  @@unique([studentId, schoolYear])
+  @@index([studentId])
+}
+
+// חוב לימודי (מבחן / עבודה / השלמה שחסרים) — נסגר כשהושלם
+model StudentAcademicDebt {
+  id          String    @id @default(cuid())
+  studentId   String
+  schoolYear  String?
+  subject     String
+  description String?
+  done        Boolean   @default(false)
+  doneAt      DateTime?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([studentId])
+}
