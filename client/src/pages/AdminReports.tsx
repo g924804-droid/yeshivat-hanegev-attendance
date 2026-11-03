@@ -27,6 +27,13 @@ type ReportRow = {
   specialRateDetails: { date: string; hours: number; notes: string | null }[];
   employeeNote: string | null;
   attachments: { id: string; fileName: string; fileMime: string }[];
+  submittedAt: string | null;
+  submittedAtEstimated: boolean;
+  payrollDoneAt: string | null;
+  payrollDoneBy: string | null;
+  lastAttendanceChange: string | null;
+  changedAfterSubmit: boolean;
+  changedAfterPayroll: boolean;
   employee: {
     id: string;
     name: string;
@@ -266,6 +273,12 @@ function ReportsTab() {
     }
   }
 
+  async function togglePayroll(r: ReportRow) {
+    if (r.payrollDoneAt && !confirm('לבטל את הסימון "שכר הוכן"?')) return;
+    await api.post('/reports/markPayrollDone', { reportId: r.id, done: !r.payrollDoneAt });
+    await load();
+  }
+
   async function revertToDraft(id: string) {
     if (!confirm('לבטל את ההגשה ולהחזיר את הדוח לטיוטה? החתימה תימחק ואפשר יהיה להגיש מחדש.')) return;
     await api.post('/reports/revertReportToDraft', { reportId: id });
@@ -378,6 +391,7 @@ function ReportsTab() {
               <th>חופשה</th>
               <th>היעדרות</th>
               <th>⚠ שכר שונה</th>
+              <th>הגשה / שכר</th>
               <th></th>
             </tr>
           </thead>
@@ -391,7 +405,7 @@ function ReportsTab() {
                 <Fragment key={row.id}>
                   {showLetter && (
                     <tr className="bg-white">
-                      <td colSpan={10} className="pt-3 pb-1 pr-3 text-right">
+                      <td colSpan={11} className="pt-3 pb-1 pr-3 text-right">
                         <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gold/20 text-navy font-bold">
                           {letter}
                         </span>
@@ -479,6 +493,33 @@ function ReportsTab() {
                         </div>
                       ) : (
                         '—'
+                      )}
+                    </td>
+                    <td className="text-xs whitespace-nowrap">
+                      {r?.submittedAt && (
+                        <div className="text-slate-600" title={r.submittedAtEstimated ? 'משוער — הדוח הוגש לפני שהתחלנו לשמור תאריך הגשה' : 'תאריך ההגשה'}>
+                          הוגש {formatStamp(r.submittedAt)}
+                          {r.submittedAtEstimated ? ' ~' : ''}
+                        </div>
+                      )}
+                      {r && (r.changedAfterPayroll || r.changedAfterSubmit) && (
+                        <div
+                          className="mt-0.5 badge bg-red-100 border border-red-300 text-red-800 text-[11px]"
+                          title="המורה הוסיפה / שינתה / מחקה ימים בדוח אחרי ההגשה. כדאי לבדוק וללחוץ חישוב מחדש."
+                        >
+                          ⚠ שונה {r.changedAfterPayroll ? 'אחרי הכנת השכר' : 'אחרי ההגשה'} · {formatStamp(r.lastAttendanceChange!)}
+                        </div>
+                      )}
+                      {r && r.status !== 'טיוטה' && (
+                        <button
+                          className={`mt-1 block mx-auto text-[11px] rounded-full px-2 py-0.5 border ${
+                            r.payrollDoneAt ? 'bg-green-100 border-green-300 text-green-800' : 'bg-white border-slate-300 text-slate-500 hover:bg-slate-50'
+                          }`}
+                          onClick={() => togglePayroll(r)}
+                          title={r.payrollDoneAt ? `סומן ע"י ${r.payrollDoneBy || ''} — לחיצה מבטלת` : 'לסמן שהמשכורת של החודש הוכנה'}
+                        >
+                          {r.payrollDoneAt ? `✓ שכר הוכן ${formatStamp(r.payrollDoneAt)}` : 'סימון: שכר הוכן'}
+                        </button>
                       )}
                     </td>
                     <td className="py-1 pl-2">
@@ -1301,4 +1342,12 @@ function SyncTab() {
       )}
     </div>
   );
+}
+
+/** 3/11 14:05 — לפי שעון ישראל */
+function formatStamp(iso: string): string {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', timeZone: 'Asia/Jerusalem' });
+  const time = d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' });
+  return `${date} ${time}`;
 }

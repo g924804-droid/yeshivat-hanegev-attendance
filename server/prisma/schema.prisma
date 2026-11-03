@@ -116,6 +116,10 @@ model MonthlyReport {
   employeeNote      String? // הערה של העובד/ת לחשבת השכר, נכתבת לפני החתימה
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  submittedAt         DateTime? // מתי הוגש (בפעם האחרונה)
+  payrollDoneAt       DateTime? // חשבת השכר סימנה "שכר הוכן"
+  payrollDoneBy       String?
+  attendanceDeletedAt DateTime? // נמחק יום מהחודש — מחיקה לא משאירה updatedAt, אז נרשם כאן
 
   attachments ReportAttachment[]
 

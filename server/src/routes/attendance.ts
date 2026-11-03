@@ -359,6 +359,10 @@ router.delete('/deleteAttendance', async (req, res) => {
       return res.status(403).json({ error: 'אין הרשאה' });
     }
     await prisma.attendanceRecord.delete({ where: { id: recordId } });
+    await prisma.monthlyReport.updateMany({
+      where: { employeeId: record.employeeId, month: record.date.slice(0, 7) },
+      data: { attendanceDeletedAt: new Date() },
+    });
     await deleteAttendanceFromAirtable(recordId).catch((e) => console.error('Airtable delete failed:', e.message));
     res.json({ success: true });
   } catch (err: any) {

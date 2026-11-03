@@ -260,6 +260,7 @@ router.post('/submitMonthlyReport', async (req, res) => {
       where: { id: reportId },
       data: {
         status: 'הוגש',
+        submittedAt: new Date(),
         employeeSignature: signatureDataUrl,
         employeeNote: typeof employeeNote === 'string' && employeeNote.trim() ? employeeNote.trim().slice(0, 2000) : null,
       },
@@ -346,6 +347,20 @@ router.post('/approveReport', requireAdminOrAttendanceManager, async (req, res) 
   }
 });
 
+/** סימון "שכר הוכן" (או ביטול הסימון) — כדי לדעת למי כבר הוכנה משכורת, ולהתריע על שינוי אחרי זה */
+router.post('/markPayrollDone', requireAdminOrAttendanceManager, async (req, res) => {
+  try {
+    const { reportId, done } = req.body as { reportId: string; done: boolean };
+    const updated = await prisma.monthlyReport.update({
+      where: { id: reportId },
+      data: done ? { payrollDoneAt: new Date(), payrollDoneBy: req.user!.name } : { payrollDoneAt: null, payrollDoneBy: null },
+    });
+    res.json({ success: true, report: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בסימון' });
+  }
+});
+
 /**
  * חישוב מחדש של דוח שכבר הוגש/אושר — למשל אחרי שהמורה תיקנה ימים בבקשת ההנהלה. הסכומים
  * מתעדכנים לפי הימים כמו שהם עכשיו; הסטטוס והחתימה נשארים.
@@ -418,8 +433,29 @@ router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) =
     const pendingReceipts = pendingEmployees.map((e) => ({ id: e.id, name: e.name, count: pendingByEmployee.get(e.id)! }));
 
     const specialRateDetails = await getSpecialRateDetails(month);
+
+    // השינוי האחרון בימי הנוכחות של החודש (הוספה / עריכה / מחיקה) — להתראה על שינוי אחרי הגשה / הכנת שכר
+    const changes = await prisma.attendanceRecord.groupBy({
+      by: ['employeeId'],
+      where: { employeeId: { in: reports.map((r) => r.employeeId) }, date: { startsWith: month } },
+      _max: { updatedAt: true },
+    });
+    const lastEdit = new Map(changes.map((c) => [c.employeeId, c._max.updatedAt]));
+    const lastChange = (r: (typeof reports)[number]) => {
+      const t = [lastEdit.get(r.employeeId), r.attendanceDeletedAt].filter(Boolean).map((d) => d!.getTime());
+      return t.length ? new Date(Math.max(...t)) : null;
+    };
+    // דקה של סבילות — שמירה אחרונה רגע לפני ההגשה עצמה
+    const isAfter = (a: Date | null, b: Date | null) => !!a && !!b && a.getTime() > b.getTime() + 60_000;
+
     const reportsWithFlags = reports.map((r) => ({
       ...r,
+      // דוחות שהוגשו לפני שנשמר תאריך הגשה — התאריך המשוער הוא העדכון האחרון של הדוח
+      submittedAt: r.submittedAt || (r.status !== 'טיוטה' ? r.updatedAt : null),
+      submittedAtEstimated: !r.submittedAt && r.status !== 'טיוטה',
+      lastAttendanceChange: lastChange(r),
+      changedAfterSubmit: r.status !== 'טיוטה' && isAfter(lastChange(r), r.submittedAt || r.updatedAt),
+      changedAfterPayroll: isAfter(lastChange(r), r.payrollDoneAt),
       ...(flags.get(r.employeeId) || { isNewEmployee: false, hasNewContract: false }),
       pendingReceipts: pendingByEmployee.get(r.employeeId) || 0,
       specialRateDetails: specialRateDetails.get(r.employeeId) || [],
