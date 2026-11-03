@@ -522,12 +522,32 @@ router.post('/import', upload.single('file'), async (req, res) => {
 
     const students = await airtableFetch(TABLES.students);
     const byId = new Map<string, AirtableRecord>();
-    const byName = new Map<string, AirtableRecord>();
+    const byName = new Map<string, AirtableRecord[]>();
     for (const s of students) {
       const k = idKey(s.fields['תעודת זהות']);
       if (k && !byId.has(k)) byId.set(k, s);
       const n = studentName(s);
-      if (n && !byName.has(n)) byName.set(n, s);
+      if (n) byName.set(n, [...(byName.get(n) || []), s]);
+    }
+    // רשומה שכבר שויכה לשורה בקובץ — לא משייכים אותה שוב לתלמידה אחרת
+    const claimed = new Set<string>();
+
+    /**
+     * ת.ז. קובעת, לא השם: שורה עם ת.ז. מתאימה רק לתלמידה עם אותה ת.ז. — או לתלמידה יחידה באותו
+     * שם שאין לה ת.ז. בכלל (ואז הת.ז. נכתבת לה). שתי בנות עם אותו שם ות.ז. שונה = שתי תלמידות.
+     */
+    function findExisting(id: string, name: string): { record: AirtableRecord | null; problem?: string } {
+      if (id) {
+        const byIdRec = byId.get(id);
+        if (byIdRec) return { record: byIdRec };
+        const noId = (byName.get(name) || []).filter((s) => !idKey(s.fields['תעודת זהות']) && !claimed.has(s.id));
+        return { record: noId.length === 1 ? noId[0] : null };
+      }
+      const same = (byName.get(name) || []).filter((s) => !claimed.has(s.id));
+      if (same.length > 1) return { record: null, problem: `יש במערכת ${same.length} תלמידות בשם "${name}" — חובה לכתוב ת.ז.` };
+      if (same.length === 1 && idKey(same[0].fields['תעודת זהות']))
+        return { record: null, problem: `במערכת כבר יש "${name}" עם ת.ז. — יש לכתוב ת.ז. בשורה כדי לדעת אם זו אותה תלמידה` };
+      return { record: same[0] || null };
     }
 
     // מקבצים שורות לפי תלמידה (ת.ז., ואם אין — שם)
@@ -558,7 +578,13 @@ router.post('/import', upload.single('file'), async (req, res) => {
       const key = id ? `id:${id}` : `name:${name}`;
       let p = people.get(key);
       if (!p) {
-        const existing = (id && byId.get(id)) || (name && byName.get(name)) || null;
+        const found = findExisting(id, name);
+        if (found.problem) {
+          problems.push({ row: r._row, message: found.problem });
+          continue;
+        }
+        const existing = found.record;
+        if (existing) claimed.add(existing.id);
         p = { key, name: name || (existing ? studentName(existing) : ''), rows: [], existing, fields: {}, gradYear: '', notes: '', years: [], debts: [] };
         people.set(key, p);
       }
