@@ -18,7 +18,15 @@ type YearRow = { id: string; schoolYear: string; track: string | null; amountDue
 type Debt = { id: string; schoolYear: string | null; subject: string; description: string | null; done: boolean; doneAt: string | null };
 type StudentFile = {
   student: { id: string; name: string; fields: Record<string, string>; year: string; tracks: string[]; needsCompletion: boolean };
-  profile: { status: string; gradYear: string; notes: string };
+  profile: {
+    status: string;
+    gradYear: string;
+    notes: string;
+    birthDateHe: string;
+    birthDate: string;
+    teachingStudies: string;
+    openingDebt: number;
+  };
   years: YearRow[];
   yearsSummary: {
     schoolYear: string;
@@ -240,6 +248,8 @@ type ImportPreview = {
   existingCount: number;
   yearsCount: number;
   debtsCount: number;
+  financialDebtCount: number;
+  sheets: { name: string; rows: number; years: string[] }[];
   people: { name: string; idNumber: string; existing: boolean; gradYear: string; alumni: boolean; years: string[]; debts: number }[];
   problems: { row: string; message: string }[];
 };
@@ -309,16 +319,22 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
             />
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={markAlumni} onChange={(e) => { setMarkAlumni(e.target.checked); setPreview(null); }} />
-              לסמן את כולן כבוגרות
+              לסמן כבוגרות גם כשאין מחזור (מחזור שעוד לומד — תמיד פעילות)
             </label>
           </div>
           {error && <div className="mt-3 text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
 
           {preview && (
             <div className="mt-4">
+              {preview.sheets.length > 1 && (
+                <div className="text-xs text-gray-600 mb-2">
+                  גיליונות שנקראו: {preview.sheets.map((s) => `${s.name} (${s.rows})`).join(' · ')}
+                </div>
+              )}
               <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm">
                 ייווצרו <b>{preview.newCount}</b> תלמידות חדשות, יעודכנו <b>{preview.existingCount}</b> קיימות · {preview.yearsCount} שנות לימוד ·{' '}
                 {preview.debtsCount} חובות לימודיים
+                {preview.financialDebtCount ? ` · ${preview.financialDebtCount} עם חוב כספי` : ''}
               </div>
               {!!preview.problems.length && (
                 <div className="mt-2 bg-amber-50 text-amber-800 rounded-xl px-4 py-2 text-sm">
@@ -475,6 +491,24 @@ function StudentFileView({ id }: { id: string }) {
               <span className="font-medium">{student.tracks.join(', ')}</span>
             </div>
           )}
+          {profile.birthDateHe && (
+            <div>
+              <span className="text-gray-500">תאריך לידה עברי: </span>
+              <span className="font-medium">{profile.birthDateHe}</span>
+            </div>
+          )}
+          {profile.birthDate && (
+            <div>
+              <span className="text-gray-500">תאריך לידה: </span>
+              <span className="font-medium">{/^\d{4}-\d{2}-\d{2}/.test(profile.birthDate) ? new Date(profile.birthDate).toLocaleDateString('he-IL') : profile.birthDate}</span>
+            </div>
+          )}
+          {profile.teachingStudies && (
+            <div>
+              <span className="text-gray-500">לימודי הוראה: </span>
+              <span className="font-medium">{profile.teachingStudies}</span>
+            </div>
+          )}
           {student.year && (
             <div>
               <span className="text-gray-500">שנה: </span>
@@ -494,6 +528,11 @@ function StudentFileView({ id }: { id: string }) {
           </button>
         }
       >
+        {profile.openingDebt > 0 && (
+          <div className="mb-3 text-sm bg-red-50 text-red-800 rounded-xl px-3 py-2">
+            חוב כספי מהעבר: <b>{money(profile.openingDebt)}</b> (נכלל בסך החוב; לעדכון — "עריכה" בפרטים האישיים)
+          </div>
+        )}
         {!data.yearsSummary.length ? (
           <div className="text-sm text-gray-500">עוד לא נרשמו שנים</div>
         ) : (
@@ -741,6 +780,29 @@ function EditPersonalModal({ data, onClose, onSaved }: { data: StudentFile; onCl
         <label className="text-sm flex items-center gap-2">
           מחזור (שנת סיום)
           <input className="input w-28" placeholder='תשפ"ד' value={profile.gradYear} onChange={(e) => setProfile({ ...profile, gradYear: e.target.value })} />
+        </label>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+        <label className="text-sm">
+          תאריך לידה עברי
+          <input className="input mt-1" value={profile.birthDateHe} onChange={(e) => setProfile({ ...profile, birthDateHe: e.target.value })} />
+        </label>
+        <label className="text-sm">
+          תאריך לידה לועזי
+          <input className="input mt-1" value={profile.birthDate} onChange={(e) => setProfile({ ...profile, birthDate: e.target.value })} />
+        </label>
+        <label className="text-sm">
+          לימודי הוראה
+          <input className="input mt-1" value={profile.teachingStudies} onChange={(e) => setProfile({ ...profile, teachingStudies: e.target.value })} />
+        </label>
+        <label className="text-sm">
+          חוב כספי מהעבר (₪)
+          <input
+            className="input mt-1"
+            type="number"
+            value={profile.openingDebt || ''}
+            onChange={(e) => setProfile({ ...profile, openingDebt: Number(e.target.value) || 0 })}
+          />
         </label>
       </div>
       <label className="text-sm block mt-3">

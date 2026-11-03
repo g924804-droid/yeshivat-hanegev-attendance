@@ -349,6 +349,10 @@ model StudentProfile {
   status    String   @default("פעילה") // פעילה | בוגרת
   gradYear  String? // מחזור / שנת סיום, למשל תשפ"ה
   notes     String?
+  birthDateHe     String? // תאריך לידה עברי — אין שדה כזה ב-Airtable
+  birthDate       String? // תאריך לידה לועזי
+  teachingStudies String? // לימודי הוראה
+  openingDebt     Float   @default(0) // חוב כספי מהעבר (מקובץ הבוגרות) — נוסף לסך החוב
   updatedAt DateTime @updatedAt
 }
 

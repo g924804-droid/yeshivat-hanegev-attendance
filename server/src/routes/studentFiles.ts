@@ -79,6 +79,22 @@ export function schoolYearLabel(startYear: number): string {
   return s.length > 1 ? `${s.slice(0, -1)}"${s.slice(-1)}` : `${s}'`;
 }
 
+/** השנה הלועזית שבה מתחילה שנת הלימודים: תשפ"ז ← 2026 (null אם לא זוהתה) */
+function schoolYearStart(label: string): number | null {
+  for (let y = 1990; y <= 2090; y++) if (schoolYearLabel(y) === label) return y;
+  return null;
+}
+
+/** האם מחזור כבר סיים — שנת הסיום שלו הסתיימה (שנת הלימודים הנוכחית מאוחרת ממנה) */
+function cohortFinished(gradYear: string): boolean | null {
+  const start = schoolYearStart(gradYear);
+  if (start === null) return null;
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+  const [y, m] = today.split('-').map(Number);
+  const currentStart = m >= 9 ? y : y - 1;
+  return start < currentStart;
+}
+
 /** שנת הלימודים של תאריך (ספטמבר–אוגוסט) */
 function schoolYearOfDate(date: string): string {
   const [y, m] = date.split('-').map(Number);
@@ -271,7 +287,15 @@ router.get('/student/:id', async (req, res) => {
         tracks: ((s.fields[FIELDS.students.track] as string[] | undefined) || []).map((id) => trackName.get(id) || '').filter(Boolean),
         needsCompletion: norm(s.fields['צריך השלמה']) === 'Yes',
       },
-      profile: { status: profile?.status || 'פעילה', gradYear: profile?.gradYear || '', notes: profile?.notes || '' },
+      profile: {
+        status: profile?.status || 'פעילה',
+        gradYear: profile?.gradYear || '',
+        notes: profile?.notes || '',
+        birthDateHe: profile?.birthDateHe || '',
+        birthDate: profile?.birthDate || '',
+        teachingStudies: profile?.teachingStudies || '',
+        openingDebt: profile?.openingDebt || 0,
+      },
       years,
       yearsSummary: allYears.map((y) => ({
         schoolYear: y,
@@ -283,7 +307,7 @@ router.get('/student/:id', async (req, res) => {
       debts,
       grades: gradeRows,
       totals: {
-        balance: Math.round((manualBalance + liveBalance) * 100) / 100,
+        balance: Math.round((manualBalance + liveBalance + (profile?.openingDebt || 0)) * 100) / 100,
         openDebts: debts.filter((d) => !d.done).length,
       },
     });
@@ -295,7 +319,7 @@ router.get('/student/:id', async (req, res) => {
 /** שמירת פרטים אישיים (ב-Airtable) + סטטוס/מחזור/הערות (אצלנו) */
 router.put('/student/:id', async (req, res) => {
   try {
-    const { fields, profile } = req.body as { fields?: Record<string, string>; profile?: { status?: string; gradYear?: string; notes?: string } };
+    const { fields, profile } = req.body as { fields?: Record<string, string>; profile?: ProfileInput };
     if (fields) {
       const update: Record<string, string> = {};
       for (const f of PERSONAL_FIELDS) if (f in fields) update[f] = str(fields[f], 200);
@@ -308,19 +332,34 @@ router.put('/student/:id', async (req, res) => {
   }
 });
 
-async function saveProfile(studentId: string, profile: { status?: string; gradYear?: string; notes?: string }) {
-  const data = {
+type ProfileInput = {
+  status?: string;
+  gradYear?: string;
+  notes?: string;
+  birthDateHe?: string;
+  birthDate?: string;
+  teachingStudies?: string;
+  openingDebt?: number | string;
+};
+
+async function saveProfile(studentId: string, profile: ProfileInput) {
+  const data: Record<string, any> = {
     status: profile.status === 'בוגרת' ? 'בוגרת' : 'פעילה',
     gradYear: normalizeSchoolYear(profile.gradYear) || null,
     notes: str(profile.notes, 2000) || null,
   };
+  // שדות שלא נשלחו — לא נוגעים בהם
+  if (profile.birthDateHe !== undefined) data.birthDateHe = str(profile.birthDateHe, 60) || null;
+  if (profile.birthDate !== undefined) data.birthDate = str(profile.birthDate, 30) || null;
+  if (profile.teachingStudies !== undefined) data.teachingStudies = str(profile.teachingStudies, 100) || null;
+  if (profile.openingDebt !== undefined) data.openingDebt = num(profile.openingDebt);
   await prisma.studentProfile.upsert({ where: { studentId }, create: { studentId, ...data }, update: data });
 }
 
 /** תלמידה / בוגרת חדשה — נוצרת בטבלת התלמידות ב-Airtable */
 router.post('/student', async (req, res) => {
   try {
-    const { fields, profile } = req.body as { fields?: Record<string, string>; profile?: { status?: string; gradYear?: string; notes?: string } };
+    const { fields, profile } = req.body as { fields?: Record<string, string>; profile?: ProfileInput };
     const create: Record<string, string> = {};
     for (const f of PERSONAL_FIELDS) if (fields?.[f]) create[f] = str(fields[f], 200);
     if (!create['שם פרטי'] || !create['שם מלא']) return res.status(400).json({ error: 'יש למלא שם פרטי ושם משפחה' });
@@ -417,14 +456,24 @@ const IMPORT_COLUMNS: { key: string; title: string; aliases: string[]; example: 
   { key: 'track', title: 'מסלול / כיתה', aliases: ['מסלול / כיתה', 'מסלול', 'כיתה', 'מגמה'], example: 'אדריכלות שנה א' },
   { key: 'amountDue', title: 'סכום לתשלום בשנה', aliases: ['סכום לתשלום בשנה', 'סכום לתשלום', 'לתשלום'], example: '18500' },
   { key: 'amountPaid', title: 'שולם', aliases: ['שולם', 'סכום ששולם'], example: '17000' },
-  { key: 'academicDebt', title: 'חוב לימודי', aliases: ['חוב לימודי', 'חובות לימודיים', 'השלמות'], example: 'מבחן בתורת הבנייה' },
-  { key: 'contact', title: 'טלפון', aliases: ['טלפון', 'פרטי קשר', 'נייד'], example: '050-0000000' },
+  { key: 'academicDebt', title: 'חוב לימודי', aliases: ['חוב לימודי', 'חובות לימודיים', 'חובות לימודי', 'השלמות'], example: 'מבחן בתורת הבנייה' },
+  { key: 'financialDebt', title: 'חוב כספי', aliases: ['חוב כספי', 'יתרת חוב'], example: '' },
+  { key: 'financialNote', title: 'חובות כספיים (הערה)', aliases: ['חובות כספיים', 'חובות כספיים (הערה)'], example: '' },
+  { key: 'contact', title: 'פלאפון אישי', aliases: ['פלאפון אישי', 'פלאפון', 'טלפון', 'פרטי קשר', 'נייד', 'טלפון נייד'], example: '050-0000000' },
+  { key: 'birthDateHe', title: 'תאריך לידה עברי', aliases: ['תאריך לידה עברי'], example: '' },
+  { key: 'birthDate', title: 'תאריך לידה לועזי', aliases: ['תאריך לידה לועזי', 'תאריך לידה'], example: '' },
   { key: 'address', title: 'כתובת', aliases: ['כתובת', 'רחוב'], example: 'הרצל 1' },
-  { key: 'city', title: 'עיר', aliases: ['עיר', 'ישוב', 'יישוב'], example: 'באר שבע' },
+  { key: 'city', title: 'עיר', aliases: ['עיר', 'עיר מגורים', 'ישוב', 'יישוב'], example: 'באר שבע' },
+  { key: 'highSchool', title: 'תיכון', aliases: ['תיכון'], example: '' },
+  { key: 'specialization', title: 'התמחות', aliases: ['התמחות'], example: '' },
+  { key: 'teachingStudies', title: 'לימודי הוראה', aliases: ['לימודי הוראה'], example: '' },
   { key: 'motherName', title: 'שם אמא', aliases: ['שם אמא', 'שם האם'], example: '' },
-  { key: 'motherPhone', title: 'טלפון אמא', aliases: ['טלפון אמא', 'טלפון האם'], example: '' },
+  { key: 'motherId', title: 'ת.ז. אמא', aliases: ['ת.ז אמא', 'תז אמא', 'ת"ז אמא'], example: '' },
+  { key: 'motherPhone', title: 'פלאפון אמא', aliases: ['פלאפון אמא', 'טלפון אמא', 'טלפון האם'], example: '' },
   { key: 'fatherName', title: 'שם אבא', aliases: ['שם אבא', 'שם האב'], example: '' },
-  { key: 'fatherPhone', title: 'טלפון אבא', aliases: ['טלפון אבא', 'טלפון האב'], example: '' },
+  { key: 'fatherId', title: 'ת.ז. אבא', aliases: ['ת.ז אבא', 'תז אבא', 'ת"ז אבא'], example: '' },
+  { key: 'fatherPhone', title: 'פלאפון אבא', aliases: ['פלאפון אבא', 'טלפון אבא', 'טלפון האב'], example: '' },
+  { key: 'hmo', title: 'קופת חולים', aliases: ['קופת חולים', 'קופ"ח'], example: '' },
   { key: 'notes', title: 'הערות', aliases: ['הערות', 'הערה'], example: '' },
 ];
 // מפתח בקובץ ← שדה בטבלת התלמידות ב-Airtable
@@ -436,9 +485,14 @@ const IMPORT_TO_AIRTABLE: Record<string, string> = {
   address: 'כתובת',
   city: 'עיר',
   motherName: 'שם אמא',
+  motherId: 'ת.ז אמא',
   motherPhone: 'טלפון אמא',
   fatherName: 'שם אבא',
+  fatherId: 'ת.ז אבא',
   fatherPhone: 'טלפון אבא',
+  highSchool: 'תיכון',
+  specialization: 'התמחות',
+  hmo: 'קופת חולים',
 };
 
 router.get('/importTemplate', async (_req, res) => {
@@ -457,6 +511,7 @@ router.get('/importTemplate', async (_req, res) => {
       'פרטים אישיים מספיק לכתוב בשורה אחת. שורות לדוגמה אפשר למחוק.',
       'תלמידה שכבר קיימת במערכת (לפי ת.ז., ואם אין — לפי שם) לא תיווצר שוב: רק יתווספו לה הנתונים, ושדות שכבר מלאים לא ישתנו.',
       'מי שיש לה "מחזור" תסומן כבוגרת.',
+      'אפשר גם קובץ עם גיליון לכל מחזור: אם בשם הגיליון יש שנים (למשל "מחזור ב תשפ"א - תשפ"ב"), השנים והמחזור נלקחים ממנו.',
       'שנה אפשר לכתוב בעברית (תשפ"ב) או בלועזית לפי שנת ההתחלה (2021).',
     ].forEach((t) => help.addRow([t]));
     help.getColumn(1).width = 110;
@@ -478,6 +533,11 @@ const cellText = (c: any): string => {
 const headerKey = (h: string) => h.replace(/["'״׳.\s]/g, '');
 
 type ImportRow = Record<string, string> & { _row: string };
+
+/** השנים העבריות שבשם גיליון: 'מחזור ב תשפ"א - תשפ"ב' ← ['תשפ"א', 'תשפ"ב'] */
+function yearsInSheetName(name: string): string[] {
+  return (name.match(/תש[א-ת]?["״'׳]{0,2}[א-ת]/g) || []).map(normalizeSchoolYear).filter(Boolean);
+}
 
 function parseImport(rows: any[][]): { rows: ImportRow[]; missing: string[] } {
   const wanted = new Map<string, string>();
@@ -506,19 +566,34 @@ router.post('/import', upload.single('file'), async (req, res) => {
     const commit = req.body.commit === 'true';
     // ייבוא של בוגרות (ברירת המחדל) — כולן מסומנות "בוגרת" גם בלי עמודת מחזור
     const markAlumni = req.body.markAlumni !== 'false';
+    // יש מחזור — לפיו: מחזור שעוד לומד (למשל תשפ"ז / תשפ"ח) לא מסומן כבוגרות. אין מחזור — לפי הסימון בטופס.
+    const isAlumni = (gradYear: string) => cohortFinished(gradYear) ?? markAlumni;
     const fileName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
-    let rows: any[][] = [];
+    // כל הגיליונות בקובץ — למשל גיליון לכל מחזור. גיליון בלי שורת כותרות מוכרת מדולג.
+    const sheets: { name: string; rows: any[][] }[] = [];
     if (/\.xlsx$/i.test(fileName)) {
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(req.file.buffer as any);
-      rows = sheetRows(wb.worksheets[0]);
+      wb.worksheets.forEach((ws) => sheets.push({ name: ws.name.trim(), rows: sheetRows(ws) }));
     } else if (/\.csv$/i.test(fileName)) {
-      rows = parseCsv(req.file.buffer.toString('utf8'));
+      sheets.push({ name: '', rows: parseCsv(req.file.buffer.toString('utf8')) });
     } else {
       return res.status(400).json({ error: 'אפשר לייבא רק קובץ Excel (xlsx) או CSV' });
     }
-    const parsed = parseImport(rows);
-    if (parsed.missing.length) return res.status(400).json({ error: `לא נמצאה בקובץ ${parsed.missing.join(', ')}` });
+    const parsed = { rows: [] as ImportRow[] };
+    const sheetSummary: { name: string; rows: number; years: string[] }[] = [];
+    for (const sh of sheets) {
+      const p = parseImport(sh.rows);
+      if (p.missing.length) continue;
+      const years = yearsInSheetName(sh.name);
+      for (const r of p.rows) {
+        if (sh.name) r._row = `${sh.name}, שורה ${r._row}`;
+        (r as any)._sheetYears = years;
+      }
+      parsed.rows.push(...p.rows);
+      sheetSummary.push({ name: sh.name, rows: p.rows.length, years });
+    }
+    if (!sheetSummary.length) return res.status(400).json({ error: 'לא נמצאה בקובץ שורת כותרות (שם פרטי, שם משפחה, תעודת זהות...)' });
 
     const students = await airtableFetch(TABLES.students);
     const byId = new Map<string, AirtableRecord>();
@@ -559,7 +634,8 @@ router.post('/import', upload.single('file'), async (req, res) => {
       fields: Record<string, string>;
       gradYear: string;
       notes: string;
-      years: { schoolYear: string; track: string; amountDue: number; amountPaid: number }[];
+      extra: { birthDateHe?: string; birthDate?: string; teachingStudies?: string; openingDebt?: number };
+      years: { schoolYear: string; track: string; amountDue: number; amountPaid: number; hasAmounts: boolean }[];
       debts: { schoolYear: string; subject: string }[];
     };
     const people = new Map<string, Person>();
@@ -585,24 +661,52 @@ router.post('/import', upload.single('file'), async (req, res) => {
         }
         const existing = found.record;
         if (existing) claimed.add(existing.id);
-        p = { key, name: name || (existing ? studentName(existing) : ''), rows: [], existing, fields: {}, gradYear: '', notes: '', years: [], debts: [] };
+        p = { key, name: name || (existing ? studentName(existing) : ''), rows: [], existing, fields: {}, gradYear: '', notes: '', extra: {}, years: [], debts: [] };
         people.set(key, p);
       }
       p.rows.push(r);
       for (const [k, f] of Object.entries(IMPORT_TO_AIRTABLE)) if (r[k] && !p.fields[f]) p.fields[f] = str(r[k], 200);
       // ת.ז. שנשמרה באקסל כמספר מאבדת את האפס שבהתחלה — משלימים ל-9 ספרות
-      if (id && /^\d+$/.test(p.fields['תעודת זהות'] || '')) p.fields['תעודת זהות'] = id.padStart(9, '0');
+      if (id) p.fields['תעודת זהות'] = id.padStart(9, '0');
       if (!p.name && name) p.name = name;
-      if (r.gradYear) p.gradYear = normalizeSchoolYear(r.gradYear);
-      if (r.notes) p.notes = p.notes ? `${p.notes}; ${r.notes}` : r.notes;
+      const sheetYears: string[] = (r as any)._sheetYears || [];
+      // מחזור: מהעמודה, ואם אין — השנה האחרונה בשם הגיליון
+      const grad = normalizeSchoolYear(r.gradYear) || sheetYears[sheetYears.length - 1] || '';
+      if (grad) p.gradYear = grad;
+      const addNote = (t: string) => {
+        if (t && !p!.notes.includes(t)) p!.notes = p!.notes ? `${p!.notes}; ${t}` : t;
+      };
+      if (r.notes) addNote(r.notes);
+      if (r.financialNote) addNote(`חובות כספיים: ${r.financialNote}`);
+      if (r.birthDateHe) p.extra.birthDateHe = r.birthDateHe;
+      if (r.birthDate) p.extra.birthDate = r.birthDate;
+      if (r.teachingStudies) p.extra.teachingStudies = r.teachingStudies;
+      if (r.financialDebt && num(r.financialDebt) > 0) p.extra.openingDebt = num(r.financialDebt);
+      const hasAmounts = !!(r.amountDue || r.amountPaid);
       const schoolYear = normalizeSchoolYear(r.schoolYear);
-      if (schoolYear) {
-        p.years = p.years.filter((y) => y.schoolYear !== schoolYear);
-        p.years.push({ schoolYear, track: str(r.track, 100), amountDue: num(r.amountDue), amountPaid: num(r.amountPaid) });
-      } else if (r.amountDue || r.amountPaid) {
-        problems.push({ row: r._row, message: 'יש סכומים בלי "שנת לימודים" — הסכומים לא ייובאו' });
+      const addYear = (y: string, withAmounts: boolean) => {
+        const prevYear = p!.years.find((x) => x.schoolYear === y);
+        if (prevYear && !withAmounts) return; // לא דורסים שנה עם סכומים בשנה בלי
+        p!.years = p!.years.filter((x) => x.schoolYear !== y);
+        p!.years.push({
+          schoolYear: y,
+          track: str(r.track, 100) || prevYear?.track || '',
+          amountDue: withAmounts ? num(r.amountDue) : 0,
+          amountPaid: withAmounts ? num(r.amountPaid) : 0,
+          hasAmounts: withAmounts,
+        });
+      };
+      if (schoolYear) addYear(schoolYear, hasAmounts);
+      else {
+        // בלי עמודת שנה — השנים משם הגיליון (שנים שלמדה, בלי סכומים)
+        for (const y of sheetYears) addYear(y, false);
+        if (hasAmounts) problems.push({ row: r._row, message: 'יש סכומים בלי "שנת לימודים" — הסכומים לא ייובאו' });
       }
-      if (r.academicDebt) p.debts.push({ schoolYear, subject: str(r.academicDebt, 200) });
+      if (r.academicDebt) {
+        // בקובץ מסומן לפעמים רק V — אז כותבים חוב כללי, ומפרטים בתיק
+        const subject = /^[vV✓✔xX]$/.test(r.academicDebt.trim()) ? 'חוב לימודי (מסומן בקובץ — לפרט)' : str(r.academicDebt, 200);
+        p.debts.push({ schoolYear: schoolYear || sheetYears[sheetYears.length - 1] || '', subject });
+      }
     }
 
     const list = [...people.values()];
@@ -613,12 +717,14 @@ router.post('/import', upload.single('file'), async (req, res) => {
         existingCount: list.filter((p) => p.existing).length,
         yearsCount: list.reduce((s, p) => s + p.years.length, 0),
         debtsCount: list.reduce((s, p) => s + p.debts.length, 0),
+        financialDebtCount: list.filter((p) => p.extra.openingDebt).length,
+        sheets: sheetSummary,
         people: list.map((p) => ({
           name: p.name || (p.existing ? studentName(p.existing) : ''),
           idNumber: p.fields['תעודת זהות'] || '',
           existing: !!p.existing,
           gradYear: p.gradYear,
-          alumni: markAlumni || !!p.gradYear,
+          alumni: isAlumni(p.gradYear),
           years: p.years.map((y) => y.schoolYear),
           debts: p.debts.length,
         })),
@@ -649,16 +755,23 @@ router.post('/import', upload.single('file'), async (req, res) => {
       const prev = await prisma.studentProfile.findUnique({ where: { studentId } });
       const notes = prev?.notes && p.notes && prev.notes.includes(p.notes) ? prev.notes : [prev?.notes, p.notes].filter(Boolean).join('; ');
       await saveProfile(studentId, {
-        status: markAlumni || p.gradYear ? 'בוגרת' : prev?.status,
+        status: isAlumni(p.gradYear) ? 'בוגרת' : p.gradYear ? 'פעילה' : prev?.status,
         gradYear: p.gradYear || prev?.gradYear || '',
         notes,
+        // רק מה שיש בקובץ — שדה שחסר בקובץ לא מוחק את מה שכבר נשמר
+        ...(p.extra.birthDateHe ? { birthDateHe: p.extra.birthDateHe } : {}),
+        ...(p.extra.birthDate ? { birthDate: p.extra.birthDate } : {}),
+        ...(p.extra.teachingStudies ? { teachingStudies: p.extra.teachingStudies } : {}),
+        ...(p.extra.openingDebt ? { openingDebt: p.extra.openingDebt } : {}),
       });
       for (const y of p.years) {
         const data = { track: y.track || null, amountDue: y.amountDue, amountPaid: y.amountPaid };
+        // שנה בלי סכומים בקובץ — לא מאפסת סכומים שכבר נרשמו לשנה הזו
+        const update = y.hasAmounts ? data : y.track ? { track: y.track } : {};
         await prisma.studentYear.upsert({
           where: { studentId_schoolYear: { studentId, schoolYear: y.schoolYear } },
           create: { studentId, schoolYear: y.schoolYear, ...data },
-          update: data,
+          update,
         });
         years++;
       }
