@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Search, UserPlus, Upload, Printer, Pencil, Trash2, Plus, Check, ArrowRight, Download } from 'lucide-react';
 import { Layout } from '../components/Layout';
@@ -28,6 +28,7 @@ type StudentFile = {
     openingDebt: number;
   };
   years: YearRow[];
+  yearMonths: Record<string, { month: number; amount: number | null; amountText: string | null; method: string | null; debt: number; debtText: string | null }[]>;
   yearsSummary: {
     schoolYear: string;
     manual: YearRow | null;
@@ -58,6 +59,8 @@ const PERSONAL: { key: string; label: string }[] = [
   { key: 'טלפון אבא', label: 'טלפון אבא' },
 ];
 
+const HEB_MONTHS = ['', 'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+
 const money = (n: number) => `₪${Math.round(n).toLocaleString('he-IL')}`;
 
 // ---------------------------------------------------------------------------
@@ -78,6 +81,7 @@ function StudentSearch() {
   const [error, setError] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showPayImport, setShowPayImport] = useState(false);
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -118,6 +122,9 @@ function StudentSearch() {
           </button>
           <button className="btn-outline" onClick={() => setShowImport(true)}>
             <Upload size={18} /> ייבוא מאקסל
+          </button>
+          <button className="btn-outline" onClick={() => setShowPayImport(true)}>
+            <Upload size={18} /> ייבוא דוח תשלומים
           </button>
         </div>
       </div>
@@ -168,6 +175,7 @@ function StudentSearch() {
 
       {showAdd && <AddStudentModal onClose={() => setShowAdd(false)} onCreated={(id) => navigate(`/student-files/${id}`)} />}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => setReload((n) => n + 1)} />}
+      {showPayImport && <PaymentsImportModal onClose={() => setShowPayImport(false)} />}
     </Layout>
   );
 }
@@ -253,6 +261,161 @@ type ImportPreview = {
   people: { name: string; idNumber: string; existing: boolean; gradYear: string; alumni: boolean; years: string[]; debts: number }[];
   problems: { row: string; message: string }[];
 };
+
+type PayPreview = {
+  schoolYear: string;
+  sheets: { name: string; rows: number }[];
+  matchedCount: number;
+  totalPaid: number;
+  totalDebt: number;
+  withDebt: number;
+  textCells: number;
+  extrasCount: number;
+  people: { name: string; sheet: string; paid: number; debt: number; months: number; notes: number }[];
+  problems: { row: string; message: string }[];
+};
+
+/** ייבוא דוח תשלומים שנתי — גיליון לכל כיתה, עמודה לכל חודש */
+function PaymentsImportModal({ onClose }: { onClose: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [schoolYear, setSchoolYear] = useState('');
+  const [preview, setPreview] = useState<PayPreview | null>(null);
+  const [done, setDone] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const send = async (commit: boolean) => {
+    if (!file) return;
+    setBusy(true);
+    setError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('commit', String(commit));
+      fd.append('schoolYear', schoolYear);
+      const r = await api.postForm<any>('/studentFiles/importPayments', fd);
+      if (commit) setDone(r.imported);
+      else {
+        setPreview(r);
+        setSchoolYear(r.schoolYear);
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="ייבוא דוח תשלומים שנתי" onClose={onClose} wide>
+      {done !== null ? (
+        <div>
+          <div className="bg-green-50 text-green-800 rounded-xl px-4 py-3">הייבוא הסתיים: עודכנו התשלומים של {done} בנות.</div>
+          <button className="btn-primary mt-4" onClick={onClose}>
+            סגירה
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-gray-700 mb-3">
+            קובץ עם גיליון לכל כיתה: שם משפחה, שם פרטי, ת"ז, ולכל חודש — "חודש 9", אופן תשלום, סה"כ חוב. הבנות מזוהות לפי ת.ז. בלבד.
+            גיליון "תשלומים נוספים" נכנס כהערה. ייבוא חוזר של אותה שנה מחליף את מה שיובא קודם.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="file"
+              accept=".xlsx"
+              onChange={(e) => {
+                setFile(e.target.files?.[0] || null);
+                setPreview(null);
+              }}
+            />
+            <label className="text-sm flex items-center gap-2">
+              שנת לימודים
+              <input
+                className="input w-28"
+                placeholder="לפי שם הקובץ"
+                value={schoolYear}
+                onChange={(e) => {
+                  setSchoolYear(e.target.value);
+                  setPreview(null);
+                }}
+              />
+            </label>
+          </div>
+          {error && <div className="mt-3 text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
+          {preview && (
+            <div className="mt-4">
+              <div className="text-xs text-gray-600 mb-2">
+                שנת {preview.schoolYear} · גיליונות: {preview.sheets.map((s) => `${s.name} (${s.rows})`).join(' · ')}
+              </div>
+              <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm">
+                יעודכנו <b>{preview.matchedCount}</b> בנות · שולם {money(preview.totalPaid)} · חוב {money(preview.totalDebt)} ({preview.withDebt} בנות עם חוב)
+                {preview.extrasCount ? ` · ${preview.extrasCount} עם תשלומים נוספים` : ''}
+                {preview.textCells ? (
+                  <div className="text-amber-800 mt-1">
+                    {preview.textCells} חודשים עם הערה במקום סכום (למשל "לגבות 720") — נשמרים כמו שהם בפירוט החודשי, אבל לא נספרים בסכומים.
+                  </div>
+                ) : null}
+              </div>
+              {!!preview.problems.length && (
+                <div className="mt-2 bg-amber-50 text-amber-800 rounded-xl px-4 py-2 text-sm max-h-40 overflow-y-auto">
+                  <div className="font-semibold mb-1">לא ייובאו ({preview.problems.length}):</div>
+                  {preview.problems.map((p, i) => (
+                    <div key={i}>
+                      {p.row}: {p.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="max-h-64 overflow-y-auto mt-2 border rounded-xl">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr className="text-right text-gray-500">
+                      <th className="py-1 px-2">שם</th>
+                      <th className="py-1 px-2">גיליון</th>
+                      <th className="py-1 px-2">שולם</th>
+                      <th className="py-1 px-2">חוב</th>
+                      <th className="py-1 px-2">חודשים</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.people.map((p, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="py-1 px-2">{p.name}</td>
+                        <td className="py-1 px-2">{p.sheet}</td>
+                        <td className="py-1 px-2">{money(p.paid)}</td>
+                        <td className={`py-1 px-2 ${p.debt > 0 ? 'text-red-700 font-semibold' : ''}`}>{p.debt ? money(p.debt) : ''}</td>
+                        <td className="py-1 px-2">
+                          {p.months}
+                          {p.notes ? ` (${p.notes} עם הערה)` : ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2 mt-4">
+            {!preview ? (
+              <button className="btn-primary" disabled={!file || busy} onClick={() => send(false)}>
+                {busy ? 'בודק...' : 'בדיקה'}
+              </button>
+            ) : (
+              <button className="btn-gold" disabled={busy || !preview.matchedCount} onClick={() => send(true)}>
+                {busy ? 'מייבא...' : `אישור וייבוא (${preview.matchedCount})`}
+              </button>
+            )}
+            <button className="btn-outline" onClick={onClose}>
+              ביטול
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
 
 function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -406,6 +569,7 @@ function StudentFileView({ id }: { id: string }) {
   const [editPersonal, setEditPersonal] = useState(false);
   const [editYear, setEditYear] = useState<Partial<YearRow> | null>(null);
   const [editDebt, setEditDebt] = useState<Partial<Debt> | null>(null);
+  const [openYears, setOpenYears] = useState<Set<string>>(new Set());
 
   const load = () =>
     api
@@ -554,10 +718,26 @@ function StudentFileView({ id }: { id: string }) {
                   const due = (y.manual?.amountDue || 0) + (y.live?.owed || 0);
                   const paid = (y.manual?.amountPaid || 0) + (y.live?.paid || 0);
                   const balance = Math.max(0, (y.manual ? y.manual.amountDue - y.manual.amountPaid : 0)) + (y.live?.balance || 0);
+                  const months = data.yearMonths?.[y.schoolYear] || [];
+                  const open = openYears.has(y.schoolYear);
                   return (
-                    <tr key={y.schoolYear} className="border-b">
-                      <td className="py-2 px-2 font-semibold">{y.schoolYear}</td>
-                      <td className="py-2 px-2">{y.manual?.track || ''}</td>
+                    <Fragment key={y.schoolYear}>
+                    <tr className="border-b">
+                      <td className="py-2 px-2 font-semibold">
+                        {y.schoolYear}
+                        {!!months.length && (
+                          <button
+                            className="block text-xs text-navy font-normal print:hidden"
+                            onClick={() => setOpenYears((s) => { const n = new Set(s); if (n.has(y.schoolYear)) n.delete(y.schoolYear); else n.add(y.schoolYear); return n; })}
+                          >
+                            {open ? '▲ הסתרת פירוט' : '▼ פירוט חודשי'}
+                          </button>
+                        )}
+                      </td>
+                      <td className="py-2 px-2">
+                        {y.manual?.track || ''}
+                        {y.manual?.notes && <div className="text-xs text-gray-500 max-w-[320px]">{y.manual.notes}</div>}
+                      </td>
                       <td className="py-2 px-2">{due ? money(due) : '—'}</td>
                       <td className="py-2 px-2">{paid ? money(paid) : '—'}</td>
                       <td className={`py-2 px-2 ${balance > 0 ? 'text-red-700 font-semibold' : ''}`}>{due ? money(balance) : '—'}</td>
@@ -579,6 +759,36 @@ function StudentFileView({ id }: { id: string }) {
                         ) : null}
                       </td>
                     </tr>
+                    {!!months.length && (
+                      <tr className={`${open ? '' : 'hidden'} print:table-row border-b bg-slate-50`}>
+                        <td colSpan={7} className="py-2 px-4">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-right text-gray-500">
+                                <th className="py-1 px-2">חודש</th>
+                                <th className="py-1 px-2">שולם</th>
+                                <th className="py-1 px-2">אופן תשלום</th>
+                                <th className="py-1 px-2">חוב</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {months.map((m) => (
+                                <tr key={m.month} className="border-t border-slate-200">
+                                  <td className="py-1 px-2">{HEB_MONTHS[m.month]}</td>
+                                  <td className="py-1 px-2">{m.amount !== null ? money(m.amount) : <span className="text-amber-800">{m.amountText}</span>}</td>
+                                  <td className="py-1 px-2">{m.method}</td>
+                                  <td className={`py-1 px-2 ${m.debt > 0 ? 'text-red-700 font-semibold' : ''}`}>
+                                    {m.debt ? money(m.debt) : ''}
+                                    {m.debtText && <span className="text-amber-800"> {m.debtText}</span>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>

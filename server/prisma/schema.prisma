@@ -384,3 +384,19 @@ model StudentAcademicDebt {
 
   @@index([studentId])
 }
+
+// פירוט חודשי של שנת לימודים (מדוח תשלומים שנתי באקסל) — מה שולם, איך, וכמה נשאר חוב
+model StudentYearMonth {
+  id         String  @id @default(cuid())
+  studentId  String
+  schoolYear String
+  month      Int // 1-12
+  amount     Float? // ששולם
+  amountText String? // כשבתא הייתה הערה ולא סכום ("לגבות 720...")
+  method     String?
+  debt       Float   @default(0)
+  debtText   String?
+
+  @@unique([studentId, schoolYear, month])
+  @@index([studentId])
+}
