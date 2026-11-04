@@ -184,6 +184,10 @@ export function AdminReports() {
 
 function ReportsTab() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canUnlock = user?.role === 'מנהל';
+  const [monthClosed, setMonthClosed] = useState(false);
+  const [unlocked, setUnlocked] = useState<{ employeeId: string; by: string | null; at: string }[]>([]);
   const [month, setMonth] = useUrlState('month', currentMonth());
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [missing, setMissing] = useState<MissingEmployee[]>([]);
@@ -215,7 +219,11 @@ function ReportsTab() {
       missingEmployees: MissingEmployee[];
       pendingReceipts: PendingReceipts[];
       summary: any;
+      monthClosed?: boolean;
+      unlocked?: { employeeId: string; by: string | null; at: string }[];
     }>('/reports/getAllReports', { month });
+    setMonthClosed(!!data.monthClosed);
+    setUnlocked(data.unlocked || []);
     setReports(data.reports);
     setMissing(data.missingEmployees);
     setPendingReceipts(data.pendingReceipts || []);
@@ -276,6 +284,12 @@ function ReportsTab() {
   async function togglePayroll(r: ReportRow) {
     if (r.payrollDoneAt && !confirm('לבטל את הסימון "שכר הוכן"?')) return;
     await api.post('/reports/markPayrollDone', { reportId: r.id, done: !r.payrollDoneAt });
+    await load();
+  }
+
+  async function toggleUnlock(employeeId: string, name: string, isOpen: boolean) {
+    if (!isOpen && !confirm(`לפתוח את החודש ל${name}? היא תוכל שוב להוסיף/לשנות נוכחות, להגיש את הדוח ולהעלות קבלות לחודש הזה.`)) return;
+    await api.post('/reports/unlockMonth', { employeeId, month, unlock: !isOpen });
     await load();
   }
 
@@ -378,6 +392,13 @@ function ReportsTab() {
         ))}
       </div>
 
+      {monthClosed && (
+        <div className="mb-3 text-sm bg-slate-100 border border-slate-300 text-slate-700 rounded-xl px-4 py-2">
+          🔒 החודש נעול — העובדות לא יכולות עוד לשנות נוכחות, להגיש דוח או להעלות קבלות.
+          {canUnlock ? ' אפשר לפתוח לעובדת מסוימת בכפתור "פתיחת נעילה" בשורה שלה.' : ' פתיחה — רק פנינה רוזנברג או עדינה דראי.'}
+          {unlocked.length > 0 && ` (פתוח כרגע ל-${unlocked.length})`}
+        </div>
+      )}
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm text-center">
           <thead>
@@ -524,6 +545,18 @@ function ReportsTab() {
                     </td>
                     <td className="py-1 pl-2">
                       <div className="flex gap-1 justify-center flex-wrap">
+                        {monthClosed && canUnlock && (() => {
+                          const open = unlocked.find((u) => u.employeeId === row.id);
+                          return (
+                            <button
+                              className={`text-xs py-1 px-2 rounded-lg border ${open ? 'bg-green-50 border-green-300 text-green-800' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                              onClick={() => toggleUnlock(row.id, row.name, !!open)}
+                              title={open ? `נפתח ע"י ${open.by || ''} — לחיצה נועלת שוב` : 'פתיחת החודש לעובדת הזו'}
+                            >
+                              {open ? '🔓 פתוח — נעילה מחדש' : '🔒 פתיחת נעילה'}
+                            </button>
+                          );
+                        })()}
                         <button className="btn-outline text-xs py-1 px-2" onClick={() => navigate(`/report/${month}?userId=${row.id}`)}>
                           צפייה
                         </button>

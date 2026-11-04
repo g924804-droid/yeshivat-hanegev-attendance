@@ -400,3 +400,14 @@ model StudentYearMonth {
   @@unique([studentId, schoolYear, month])
   @@index([studentId])
 }
+
+// חודש שננעל (ב-1 לחודש) ונפתח מחדש לעובדת מסוימת ע"י מנהלת — ראו lib/monthLock.ts
+model MonthUnlock {
+  id         String   @id @default(cuid())
+  employeeId String
+  month      String // YYYY-MM
+  unlockedBy String?
+  createdAt  DateTime @default(now())
+
+  @@unique([employeeId, month])
+}

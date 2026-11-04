@@ -7,6 +7,7 @@ import { calcOvertime, calcTotalHours, getRequiredHoursForDate } from '../lib/ho
 import { syncAttendanceToAirtable, deleteAttendanceFromAirtable } from '../lib/airtable';
 import { getHoliday } from '../lib/holidays';
 import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
+import { monthLockError, isMonthLockedFor, canUnlockMonths } from '../lib/monthLock';
 
 const router = Router();
 router.use(requireAuth);
@@ -53,6 +54,9 @@ router.post('/clockIn', async (req, res) => {
     const employeeId = targetUserId(req);
     const { date, clockIn } = req.body as { date: string; clockIn: string };
     if (!date || !clockIn) return res.status(400).json({ error: 'חסר תאריך או שעת כניסה' });
+
+    const lockErr = await monthLockError(req.user, employeeId, date);
+    if (lockErr) return res.status(403).json({ error: lockErr });
 
     if (await hasPendingContracts(employeeId)) {
       return res.status(403).json({ error: 'יש חוזים ממתינים לחתימה — יש לחתום לפני המשך' });
@@ -108,6 +112,9 @@ router.post('/clockOut', async (req, res) => {
       return res.status(403).json({ error: 'אין הרשאה' });
     }
 
+    const lockErr = await monthLockError(req.user, record.employeeId, record.date);
+    if (lockErr) return res.status(403).json({ error: lockErr });
+
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: record.employeeId } });
     // מורה שמסומנת "מעקב שיעורים" — חובה למלא כמות שיעורים בכל יציאה, לא ניתן לדלג.
     if (employee.trackLessons && (lessonsCount === undefined || lessonsCount === null || Number.isNaN(lessonsCount))) {
@@ -151,6 +158,9 @@ router.post('/addSickDay', async (req, res) => {
       sickNoteUrl?: string;
     };
     if (!date || !type) return res.status(400).json({ error: 'חסר תאריך או סוג' });
+
+    const lockErr = await monthLockError(req.user, employeeId, date);
+    if (lockErr) return res.status(403).json({ error: lockErr });
     if (type === 'מחלה' && !sickNoteUrl) {
       return res.status(400).json({ error: 'יום מחלה מחייב צירוף אישור מחלה' });
     }
@@ -268,7 +278,8 @@ router.get('/getMyAttendance', async (req, res) => {
       dailyRequiredHours: employee.dailyRequiredHours,
     };
 
-    res.json({ records, holidays, weeklySchedule, employeeRole: employee.role });
+    const monthLocked = !canUnlockMonths(req.user) && (await isMonthLockedFor(employeeId, month));
+    res.json({ records, holidays, weeklySchedule, employeeRole: employee.role, monthLocked });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת נוכחות' });
   }
@@ -283,6 +294,10 @@ router.put('/updateAttendance', async (req, res) => {
     if (!recordId) {
       if (!date) return res.status(400).json({ error: 'חסר תאריך' });
       const employeeId = targetUserId(req);
+
+    const lockErr = await monthLockError(req.user, employeeId, date);
+    if (lockErr) return res.status(403).json({ error: lockErr });
+
       const existing = await prisma.attendanceRecord.findFirst({ where: { employeeId, date } });
       if (existing) {
         return res.status(400).json({ error: 'כבר קיימת רשומה לתאריך הזה, יש לרענן את הדף' });
@@ -317,6 +332,10 @@ router.put('/updateAttendance', async (req, res) => {
     if (record.employeeId !== req.user!.id && !isAttendanceManagerOrAdmin(req)) {
       return res.status(403).json({ error: 'אין הרשאה' });
     }
+
+    const lockErr = await monthLockError(req.user, record.employeeId, record.date);
+    if (lockErr) return res.status(403).json({ error: lockErr });
+
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: record.employeeId } });
 
     // לא נשלח = להשאיר כמו שהיה. נשלח ריק ('') = לנקות — נשמר כ-null, כדי שבדיקות כמו
@@ -358,6 +377,10 @@ router.delete('/deleteAttendance', async (req, res) => {
     if (record.employeeId !== req.user!.id && !isAttendanceManagerOrAdmin(req)) {
       return res.status(403).json({ error: 'אין הרשאה' });
     }
+
+    const lockErr = await monthLockError(req.user, record.employeeId, record.date);
+    if (lockErr) return res.status(403).json({ error: lockErr });
+
     await prisma.attendanceRecord.delete({ where: { id: recordId } });
     await prisma.monthlyReport.updateMany({
       where: { employeeId: record.employeeId, month: record.date.slice(0, 7) },

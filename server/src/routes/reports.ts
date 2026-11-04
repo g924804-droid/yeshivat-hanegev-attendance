@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
+import { monthLockError, isMonthClosed } from '../lib/monthLock';
 import { requireAuth, requireAdmin, requireAdminOrAttendanceManager } from '../middleware/auth';
 import { buildMonthDetail } from '../lib/monthlyReport';
 import { hasPendingContracts } from '../lib/contracts';
@@ -223,6 +224,9 @@ router.post('/submitMonthlyReport', async (req, res) => {
       return res.status(403).json({ error: 'יש חוזים ממתינים לחתימה — יש לחתום לפני הגשה' });
     }
 
+    const lockErr = await monthLockError(req.user, report.employeeId, report.month);
+    if (lockErr) return res.status(403).json({ error: lockErr });
+
     const sickRecordsMissingNote = await prisma.attendanceRecord.findFirst({
       where: { employeeId: report.employeeId, date: { startsWith: report.month }, type: 'מחלה', sickNoteUrl: null },
     });
@@ -284,6 +288,8 @@ const canManageReports = (req: any) => req.user.role === 'מנהל' || !!req.use
 async function reportForFileChange(req: any, reportId: string) {
   const report = await prisma.monthlyReport.findUnique({ where: { id: reportId } });
   if (!report) throw Object.assign(new Error('דוח לא נמצא'), { status: 404 });
+  const lockErr = await monthLockError(req.user, report.employeeId, report.month);
+  if (lockErr) throw Object.assign(new Error(lockErr), { status: 403 });
   if (canManageReports(req)) return report;
   if (report.employeeId !== req.user.id) throw Object.assign(new Error('אין הרשאה'), { status: 403 });
   if (report.status !== 'טיוטה') throw Object.assign(new Error('הדוח כבר הוגש — אי אפשר לשנות את הקבצים'), { status: 400 });
@@ -344,6 +350,26 @@ router.post('/approveReport', requireAdminOrAttendanceManager, async (req, res) 
     res.json({ success: true, report: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה באישור הדוח' });
+  }
+});
+
+/** פתיחת חודש נעול לעובדת מסוימת (או סגירה מחדש) — רק מנהלת (פנינה רוזנברג / עדינה דראי) */
+router.post('/unlockMonth', requireAdmin, async (req, res) => {
+  try {
+    const { employeeId, month, unlock } = req.body as { employeeId: string; month: string; unlock: boolean };
+    if (!employeeId || !/^\d{4}-\d{2}$/.test(month || '')) return res.status(400).json({ error: 'חסרים פרטים' });
+    if (unlock) {
+      await prisma.monthUnlock.upsert({
+        where: { employeeId_month: { employeeId, month } },
+        create: { employeeId, month, unlockedBy: req.user!.name },
+        update: { unlockedBy: req.user!.name },
+      });
+    } else {
+      await prisma.monthUnlock.deleteMany({ where: { employeeId, month } });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה' });
   }
 });
 
@@ -461,7 +487,10 @@ router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) =
       specialRateDetails: specialRateDetails.get(r.employeeId) || [],
     }));
 
+    const unlocks = await prisma.monthUnlock.findMany({ where: { month } });
     res.json({
+      monthClosed: isMonthClosed(month),
+      unlocked: unlocks.map((u) => ({ employeeId: u.employeeId, by: u.unlockedBy, at: u.createdAt })),
       reports: reportsWithFlags,
       missingEmployees,
       pendingReceipts,

@@ -77,16 +77,19 @@ export function Dashboard() {
       .catch(() => {});
   }, [canManageOthers]);
 
+  const [monthLocked, setMonthLocked] = useState(false);
+
   async function load() {
     setLoading(true);
     try {
-      const data = await api.get<{ records: AttendanceRecord[]; holidays: Holiday[]; employeeRole?: string }>('/attendance/getMyAttendance', {
+      const data = await api.get<{ records: AttendanceRecord[]; holidays: Holiday[]; employeeRole?: string; monthLocked?: boolean }>('/attendance/getMyAttendance', {
         month,
         ...(targetUserId ? { userId: targetUserId } : {}),
       });
       setRecords(data.records);
       setHolidays(data.holidays);
       setEmployeeRole(data.employeeRole || null);
+      setMonthLocked(!!data.monthLocked);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -236,6 +239,11 @@ export function Dashboard() {
         </button>
       </div>
 
+      {monthLocked && (
+        <div className="mb-4 text-sm bg-red-50 border-2 border-red-300 text-red-800 rounded-xl px-4 py-2 font-semibold">
+          🔒 החודש הזה ננעל ב-1 לחודש — לא ניתן עוד להוסיף או לשנות נוכחות, להגיש את הדוח או להעלות קבלות. לפתיחה יש לפנות לפנינה רוזנברג או לעדינה דראי.
+        </div>
+      )}
       {notice && <div className="mb-4 text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-2">{notice}</div>}
       {error && <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { prisma } from '../lib/prisma';
+import { monthLockError } from '../lib/monthLock';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { getReceiptBlocker } from '../lib/receiptRequirements';
 
@@ -73,6 +74,10 @@ router.post('/submitReceipt', upload.single('receiptFile'), async (req, res) => 
     const month: string = req.body.month || new Date().toISOString().slice(0, 7);
 
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+
+    const lockErr = await monthLockError(req.user, employee.id, month);
+    if (lockErr) return res.status(403).json({ error: lockErr });
+
     const blocker = await getReceiptBlocker(employee, month);
     if (blocker) return res.status(400).json({ error: blocker });
 
