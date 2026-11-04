@@ -26,6 +26,23 @@ function isAttendanceManagerOrAdmin(req: any): boolean {
   return req.user.role === 'מנהל' || !!req.user.isAttendanceManager;
 }
 
+const LESSONS_REQUIRED_ERROR = 'יש למלא כמה שיעורים לימדת ביום הזה לפני השמירה';
+
+/**
+ * מורה שמסומנת "מעקב שיעורים" חייבת למלא מספר שיעורים ביום עבודה עם שעות — גם בעריכת שורה
+ * בטבלה (לא רק ביציאה). עריכה של מנהלת/מזכירה ביום של מישהי אחרת לא נחסמת.
+ */
+function missingLessons(
+  req: any,
+  employee: { id: string; trackLessons: boolean },
+  day: { type?: string | null; clockIn?: string | null; clockOut?: string | null; clockIn2?: string | null; clockOut2?: string | null; lessonsCount?: number | null }
+): boolean {
+  if (!employee.trackLessons || req.user.id !== employee.id) return false;
+  const workDay = !day.type || day.type === 'רגיל' || day.type === 'חצי יום';
+  const hasTimes = !!(day.clockIn || day.clockOut || day.clockIn2 || day.clockOut2);
+  return workDay && hasTimes && !(Number(day.lessonsCount) >= 1);
+}
+
 function targetUserId(req: any): string {
   return isAttendanceManagerOrAdmin(req) && req.body?.userId ? req.body.userId : req.user.id;
 }
@@ -303,6 +320,9 @@ router.put('/updateAttendance', async (req, res) => {
         return res.status(400).json({ error: 'כבר קיימת רשומה לתאריך הזה, יש לרענן את הדף' });
       }
       const employee = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } });
+      if (missingLessons(req, employee, { type, clockIn, clockOut, clockIn2, clockOut2, lessonsCount })) {
+        return res.status(400).json({ error: LESSONS_REQUIRED_ERROR });
+      }
       const totalHours = calcTotalHours(clockIn, clockOut, clockIn2, clockOut2);
       const requiredHours = getRequiredHoursForDate(employee, date);
       const overtimeHours = calcOvertime(totalHours, requiredHours);
@@ -353,6 +373,7 @@ router.put('/updateAttendance', async (req, res) => {
       sickNoteUrl: text(sickNoteUrl, record.sickNoteUrl),
       hasSpecialRate: hasSpecialRate ?? record.hasSpecialRate,
     };
+    if (missingLessons(req, employee, merged)) return res.status(400).json({ error: LESSONS_REQUIRED_ERROR });
     const totalHours = calcTotalHours(merged.clockIn, merged.clockOut, merged.clockIn2, merged.clockOut2);
     const requiredHours = getRequiredHoursForDate(employee, record.date);
     const overtimeHours = calcOvertime(totalHours, requiredHours);

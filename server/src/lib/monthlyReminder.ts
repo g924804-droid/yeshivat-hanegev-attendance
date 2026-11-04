@@ -35,7 +35,7 @@ function buildFinalReminderHtml(name: string, needsReceipt: boolean): string {
       ${needsReceipt ? '<p>יש להעלות גם קבלה עבור החודש.</p>' : ''}
       <p>בנוסף, יש למלא את דוח הנוכחות של הבנות ולחתום על דוח הנוכחות.</p>
       <p style="background: #fef2f2; border: 2px solid #dc2626; color: #991b1b; border-radius: 8px; padding: 12px 16px; font-size: 16px;">
-        <strong>שימי לב: ב-1 לחודש המערכת ננעלת ולא יהיה ניתן לשלוח נוכחות וקבלות.</strong>
+        <strong>שימי לב: ב-1 לחודש בשעה 11:00 המערכת ננעלת ולא יהיה ניתן לשלוח נוכחות וקבלות.</strong>
       </p>
       <p style="margin: 24px 0;">
         <a href="${SITE_URL}" style="background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: bold; display: inline-block;">כניסה למערכת</a>

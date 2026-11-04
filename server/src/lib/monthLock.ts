@@ -1,7 +1,7 @@
 import { prisma } from './prisma';
 
 /**
- * נעילת חודש: ב-1 לחודש החודש הקודם ננעל — עובדת לא יכולה עוד להוסיף/לשנות/למחוק ימי נוכחות,
+ * נעילת חודש: ב-1 לחודש בשעה 11:00 החודש הקודם ננעל — עובדת לא יכולה עוד להוסיף/לשנות/למחוק ימי נוכחות,
  * להגיש דוח או להעלות קבלה עבורו. רק מנהלת (פנינה רוזנברג / עדינה דראי) יכולה לפתוח את החודש
  * לעובדת מסוימת (MonthUnlock), ומנהלת עצמה לא ננעלת.
  *
@@ -11,14 +11,29 @@ export const LOCK_FROM_MONTH = '2026-11';
 
 export const LOCK_MESSAGE_CONTACT = 'לפתיחה יש לפנות לפנינה רוזנברג או לעדינה דראי';
 
+/** השעה ב-1 לחודש שבה החודש הקודם ננעל (שעון ישראל) — לא בחצות, כדי שיהיה בוקר להשלים */
+export const LOCK_HOUR = 11;
+
 /** החודש הנוכחי לפי שעון ישראל — YYYY-MM */
 export function currentMonthIL(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }).slice(0, 7);
 }
 
+/** החודש האחרון שעדיין פתוח: החודש הנוכחי, וב-1 לחודש עד 11:00 — גם החודש הקודם */
+function lastOpenMonth(): string {
+  const now = new Date();
+  const [y, m, d] = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }).split('-').map(Number);
+  const hour = Number(now.toLocaleString('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hour12: false }));
+  if (d === 1 && hour < LOCK_HOUR) {
+    const prev = new Date(Date.UTC(y, m - 2, 1));
+    return `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
 /** האם החודש עבר וננעל (בלי להתחשב בפתיחה לעובדת מסוימת) */
 export function isMonthClosed(month: string): boolean {
-  return /^\d{4}-\d{2}$/.test(month) && month >= LOCK_FROM_MONTH && month < currentMonthIL();
+  return /^\d{4}-\d{2}$/.test(month) && month >= LOCK_FROM_MONTH && month < lastOpenMonth();
 }
 
 /** רק מנהלות יכולות לפתוח נעילה — ולכן גם לא ננעלות בעצמן */
@@ -43,5 +58,5 @@ export async function monthLockError(user: { role?: string | null } | undefined,
   if (canUnlockMonths(user)) return null;
   const month = String(monthOrDate || '').slice(0, 7);
   if (!(await isMonthLockedFor(employeeId, month))) return null;
-  return `חודש ${monthLabel(month)} ננעל ב-1 לחודש — לא ניתן עוד לשלוח נוכחות וקבלות עבורו. ${LOCK_MESSAGE_CONTACT}.`;
+  return `חודש ${monthLabel(month)} ננעל ב-1 לחודש בשעה 11:00 — לא ניתן עוד לשלוח נוכחות וקבלות עבורו. ${LOCK_MESSAGE_CONTACT}.`;
 }

@@ -241,7 +241,7 @@ export function Dashboard() {
 
       {monthLocked && (
         <div className="mb-4 text-sm bg-red-50 border-2 border-red-300 text-red-800 rounded-xl px-4 py-2 font-semibold">
-          🔒 החודש הזה ננעל ב-1 לחודש — לא ניתן עוד להוסיף או לשנות נוכחות, להגיש את הדוח או להעלות קבלות. לפתיחה יש לפנות לפנינה רוזנברג או לעדינה דראי.
+          🔒 החודש הזה ננעל ב-1 לחודש בשעה 11:00 — לא ניתן עוד להוסיף או לשנות נוכחות, להגיש את הדוח או להעלות קבלות. לפתיחה יש לפנות לפנינה רוזנברג או לעדינה דראי.
         </div>
       )}
       {notice && <div className="mb-4 text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-2">{notice}</div>}
@@ -323,6 +323,7 @@ export function Dashboard() {
                         record={record || draftAttendanceRecord(date)}
                         employeeId={targetUserId}
                         academicCol={isTeacher}
+                        requireLessons={!!user?.trackLessons && !targetUserId}
                         onCancel={() => setEditingId(null)}
                         onSaved={() => { setEditingId(null); load(); }}
                       />
@@ -490,6 +491,7 @@ function EditRow({
   onCancel,
   onSaved,
   academicCol,
+  requireLessons,
 }: {
   record: AttendanceRecord;
   employeeId?: string;
@@ -497,11 +499,22 @@ function EditRow({
   onSaved: () => void;
   /** בטבלה של מורה יש עמודת "אקדמיות" נוספת */
   academicCol?: boolean;
+  /** מורה עם "מעקב שיעורים" — חובה למלא מספר שיעורים ביום עבודה לפני השמירה */
+  requireLessons?: boolean;
 }) {
   const [form, setForm] = useState(record);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isWorkDay = form.type === 'רגיל' || form.type === 'חצי יום';
+  const hasTimes = !!(form.clockIn || form.clockOut || form.clockIn2 || form.clockOut2);
+  const lessonsMissing = !!requireLessons && isWorkDay && hasTimes && !(Number(form.lessonsCount) >= 1);
 
   async function save() {
+    setError(null);
+    if (lessonsMissing) {
+      setError('יש למלא כמה שיעורים לימדת ביום הזה לפני השמירה');
+      return;
+    }
     setSaving(true);
     try {
       await api.put('/attendance/updateAttendance', {
@@ -510,6 +523,8 @@ function EditRow({
         ...(employeeId ? { userId: employeeId } : {}),
       });
       onSaved();
+    } catch (err: any) {
+      setError(err.message || 'שגיאה בשמירה');
     } finally {
       setSaving(false);
     }
@@ -541,8 +556,11 @@ function EditRow({
         <td>
           <input
             type="number"
-            className="input py-1 text-xs w-16"
-            value={form.lessonsCount}
+            min={0}
+            className={`input py-1 text-xs w-16 ${lessonsMissing ? 'border-2 border-red-500 bg-red-50' : ''}`}
+            value={form.lessonsCount || ''}
+            placeholder={requireLessons ? 'חובה' : ''}
+            title={requireLessons ? 'חובה למלא כמה שיעורים לימדת ביום הזה' : undefined}
             onChange={(e) => setForm({ ...form, lessonsCount: Number(e.target.value) })}
           />
         </td>
@@ -559,6 +577,7 @@ function EditRow({
       </tr>
       <tr className="bg-slate-50">
         <td colSpan={academicCol ? 12 : 11} className="pb-2 px-2">
+          {error && <div className="mb-2 text-xs font-semibold bg-red-50 text-red-700 border border-red-200 rounded-lg px-2 py-1.5 w-fit">{error}</div>}
           {form.type === 'מחלה' && (
             <div className="mb-2 bg-white border rounded-lg px-2 py-1.5 w-fit">
               <p className="text-xs font-semibold mb-1">אישור מחלה (חובה להגשת הדוח החודשי)</p>
