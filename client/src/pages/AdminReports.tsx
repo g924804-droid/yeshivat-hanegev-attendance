@@ -48,7 +48,7 @@ type ReportRow = {
   };
 };
 
-type MissingEmployee = { id: string; name: string; lastName: string | null; department: string | null };
+type MissingEmployee = { id: string; name: string; lastName: string | null; department: string | null; employmentType?: string | null };
 
 /** שורה בטבלת הדוחות: עובד/ת עם דוח, או בלי דוח בכלל החודש ("חסר"). */
 type EmployeeRow = {
@@ -56,6 +56,7 @@ type EmployeeRow = {
   name: string;
   lastName: string | null;
   department: string | null;
+  employmentType?: string | null;
   status: 'חסר' | ReportRow['status'];
   report: ReportRow | null;
 };
@@ -439,6 +440,11 @@ function ReportsTab() {
                         <span className="font-bold text-navy">{familyName(row.name, row.lastName)}</span>{' '}
                         <span className="text-slate-600">{givenName(row.name, row.lastName)}</span>
                       </div>
+                      {(r ? r.employee.employmentType : row.employmentType) === 'נגד קבלה' && (
+                        <div className="mt-1 inline-block bg-violet-600 text-white text-xs font-bold rounded-lg px-2 py-0.5" title="השכר לפי הקבלות — אין להתייחס לדוח הנוכחות">
+                          💳 בקבלות — לא לשכר
+                        </div>
+                      )}
                       {r && r.employee.employmentType === 'נגד קבלה' && (
                         <div className={`text-[11px] mt-0.5 ${bankLine(r.employee) ? 'text-slate-600' : 'text-red-600'}`}>
                           {bankLine(r.employee) || 'לא מילאה פרטי חשבון'}

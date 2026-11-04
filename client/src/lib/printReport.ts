@@ -79,7 +79,7 @@ function esc(s: string | null | undefined): string {
   return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
 
-function buildHtml(employeeName: string, report: Report, days: DayDetail[], attachments: Attachment[] = []): string {
+function buildHtml(employeeName: string, report: Report, days: DayDetail[], attachments: Attachment[] = [], employmentType?: string | null): string {
   const rows = days
     .map((d) => {
       const r = d.record;
@@ -120,6 +120,7 @@ function buildHtml(employeeName: string, report: Report, days: DayDetail[], atta
     <style>${STYLE}</style></head><body>
     <h1>דוח נוכחות חודשי — ישיבת הנגב</h1>
     <div class="meta">עובד/ת: ${esc(employeeName)} &nbsp;|&nbsp; חודש: ${report.month} &nbsp;|&nbsp; סטטוס: ${esc(report.status)}</div>
+    ${employmentType === 'נגד קבלה' ? '<div style="margin:8px 0;padding:8px 12px;border:3px solid #7c3aed;background:#f5f3ff;color:#4c1d95;border-radius:8px;font-size:15px;font-weight:bold;">💳 עובדת נגד קבלה — השכר לפי הקבלות. אין להתייחס לדוח הנוכחות בחישוב השכר.</div>' : ''}
     <div class="summary">
       ${stat('ימי עבודה', report.totalWorkDays)}
       ${stat('סה"כ שעות', report.totalHours.toFixed(2))}
@@ -179,7 +180,7 @@ function waitForImages(doc: Document, timeoutMs = 10_000): Promise<void> {
  * ונפתח ישר בחלון ההדפסה של הדפדפן. משם אפשר גם "שמירה כ-PDF".
  */
 export async function printMonthlyReport(month: string, userId: string): Promise<void> {
-  const data = await api.get<{ report: Report; days: DayDetail[]; employeeName: string; attachments?: Attachment[] }>('/reports/getMonthlyReport', {
+  const data = await api.get<{ report: Report; days: DayDetail[]; employeeName: string; attachments?: Attachment[]; employmentType?: string | null }>('/reports/getMonthlyReport', {
     month,
     userId,
   });
@@ -190,7 +191,7 @@ export async function printMonthlyReport(month: string, userId: string): Promise
   document.body.appendChild(iframe);
   const doc = iframe.contentDocument!;
   doc.open();
-  doc.write(buildHtml(data.employeeName, data.report, data.days, data.attachments || []));
+  doc.write(buildHtml(data.employeeName, data.report, data.days, data.attachments || [], data.employmentType));
   doc.close();
 
   await waitForImages(doc);

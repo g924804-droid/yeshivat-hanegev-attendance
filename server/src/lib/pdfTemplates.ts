@@ -123,6 +123,7 @@ function reportSectionHtml(
   return `
     <h1>דוח נוכחות חודשי — ישיבת הנגב</h1>
     <div class="meta">עובד/ת: ${employee.name} &nbsp;|&nbsp; חודש: ${report.month} &nbsp;|&nbsp; סטטוס: ${report.status}</div>
+    ${employee.employmentType === 'נגד קבלה' ? '<div style="margin:8px 0;padding:8px 12px;border:3px solid #7c3aed;background:#f5f3ff;color:#4c1d95;border-radius:8px;font-size:15px;font-weight:bold;">💳 עובדת נגד קבלה — השכר לפי הקבלות. אין להתייחס לדוח הנוכחות בחישוב השכר.</div>' : ''}
     <div class="summary">
       <div class="stat"><div class="label">ימי עבודה</div><div class="value">${report.totalWorkDays}</div></div>
       <div class="stat"><div class="label">סה"כ שעות</div><div class="value">${report.totalHours.toFixed(2)}</div></div>
@@ -229,7 +230,7 @@ export function summaryPdfHtml(
             .filter(Boolean)
             .join(' · ');
           return `<tr class="${isFlagged ? 'special-row' : ''}">
-        <td>${r.employee.name}</td><td>${r.status}</td><td>${r.totalWorkDays}</td>
+        <td>${r.employee.name}${r.employee.employmentType === 'נגד קבלה' ? '<br><b style="color:#6d28d9">💳 בקבלות — לא לשכר</b>' : ''}</td><td>${r.status}</td><td>${r.totalWorkDays}</td>
         <td>${r.totalHours.toFixed(2)}${isTeacher(r.employee) ? `<br><small>${academicHours(r.totalHours).toFixed(2)} אקד'</small>` : ''}</td><td>${r.totalOvertime.toFixed(2)}</td>
         <td>${r.sickDays}</td><td>${r.vacationDays}</td><td>${r.absenceDays}</td>
         <td>${

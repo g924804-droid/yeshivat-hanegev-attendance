@@ -57,6 +57,7 @@ export function MonthlyReport() {
   const [employeeName, setEmployeeName] = useState<string | null>(null);
   // שעות אקדמיות (45 דק') — רק בדוח של מורה
   const [isTeacher, setIsTeacher] = useState(false);
+  const [byReceipt, setByReceipt] = useState(false);
   const [missingReceipt, setMissingReceipt] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -77,6 +78,7 @@ export function MonthlyReport() {
       days: Day[];
       employeeName: string;
       employeeRole?: string;
+      employmentType?: string | null;
       missingReceipt: boolean;
       attachments: Attachment[];
     }>(
@@ -87,6 +89,7 @@ export function MonthlyReport() {
     setDays(data.days);
     setEmployeeName(data.employeeName);
     setIsTeacher(data.employeeRole === 'מורה');
+    setByReceipt(data.employmentType === 'נגד קבלה');
     setMissingReceipt(data.missingReceipt);
     setAttachments(data.attachments || []);
     setNote(data.report.employeeNote || '');
@@ -182,6 +185,11 @@ export function MonthlyReport() {
         </button>
         <span className={`badge ${STATUS_STYLE[report.status]}`}>{report.status}</span>
       </div>
+      {targetUserId && byReceipt && (
+        <div className="mb-4 bg-violet-50 border-2 border-violet-500 text-violet-900 rounded-xl px-4 py-3 font-bold text-base">
+          💳 עובדת נגד קבלה — השכר לפי הקבלות. אין להתייחס לדוח הנוכחות בחישוב השכר.
+        </div>
+      )}
       {targetUserId && (
         <div className="mb-4 text-sm bg-blue-50 text-blue-800 rounded-xl px-4 py-2">
           צפייה בדוח של {employeeName} — חתימה והגשה זמינות רק לעובדת עצמה

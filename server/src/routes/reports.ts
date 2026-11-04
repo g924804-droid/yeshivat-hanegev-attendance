@@ -199,7 +199,15 @@ router.get('/getMonthlyReport', async (req, res) => {
       orderBy: { createdAt: 'asc' },
     });
 
-    res.json({ report, days, employeeName: employee.name, employeeRole: employee.role, missingReceipt, attachments });
+    res.json({
+      report,
+      days,
+      employeeName: employee.name,
+      employeeRole: employee.role,
+      employmentType: employee.employmentType,
+      missingReceipt,
+      attachments,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת הדוח' });
   }
@@ -431,7 +439,7 @@ router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) =
     const reportedIds = new Set(reports.map((r) => r.employeeId));
     const missingEmployees = employees
       .filter((e) => !reportedIds.has(e.id))
-      .map((e) => ({ id: e.id, name: e.name, lastName: e.lastName, department: e.department }));
+      .map((e) => ({ id: e.id, name: e.name, lastName: e.lastName, department: e.department, employmentType: e.employmentType }));
 
     const summary = {
       totalEmployees: employees.length,
