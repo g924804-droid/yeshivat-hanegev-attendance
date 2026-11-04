@@ -7,6 +7,7 @@ type DayDetail = {
   isSaturday: boolean;
   holiday?: { name: string; type: 'full' | 'half' };
   isAbsence: boolean;
+  missingHours?: number;
   record: {
     type: string;
     totalHours: number;
@@ -79,7 +80,14 @@ function esc(s: string | null | undefined): string {
   return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }
 
-function buildHtml(employeeName: string, report: Report, days: DayDetail[], attachments: Attachment[] = [], employmentType?: string | null): string {
+function buildHtml(
+  employeeName: string,
+  report: Report,
+  days: DayDetail[],
+  attachments: Attachment[] = [],
+  employmentType?: string | null,
+  employeeRole?: string | null
+): string {
   const rows = days
     .map((d) => {
       const r = d.record;
@@ -125,6 +133,7 @@ function buildHtml(employeeName: string, report: Report, days: DayDetail[], atta
       ${stat('ימי עבודה', report.totalWorkDays)}
       ${stat('סה"כ שעות', report.totalHours.toFixed(2))}
       ${stat('שעות עודפות', report.totalOvertime.toFixed(2))}
+      ${employeeRole !== 'מורה' ? stat('שעות חסרות', days.reduce((s, d) => s + (d.missingHours || 0), 0).toFixed(2)) : ''}
       ${stat('ימי מחלה', report.sickDays)}
       ${stat('ימי חופשה', report.vacationDays)}
       ${stat('ימי חג', report.holidayDays)}
@@ -180,7 +189,14 @@ function waitForImages(doc: Document, timeoutMs = 10_000): Promise<void> {
  * ונפתח ישר בחלון ההדפסה של הדפדפן. משם אפשר גם "שמירה כ-PDF".
  */
 export async function printMonthlyReport(month: string, userId: string): Promise<void> {
-  const data = await api.get<{ report: Report; days: DayDetail[]; employeeName: string; attachments?: Attachment[]; employmentType?: string | null }>('/reports/getMonthlyReport', {
+  const data = await api.get<{
+    report: Report;
+    days: DayDetail[];
+    employeeName: string;
+    attachments?: Attachment[];
+    employmentType?: string | null;
+    employeeRole?: string | null;
+  }>('/reports/getMonthlyReport', {
     month,
     userId,
   });
@@ -191,7 +207,7 @@ export async function printMonthlyReport(month: string, userId: string): Promise
   document.body.appendChild(iframe);
   const doc = iframe.contentDocument!;
   doc.open();
-  doc.write(buildHtml(data.employeeName, data.report, data.days, data.attachments || [], data.employmentType));
+  doc.write(buildHtml(data.employeeName, data.report, data.days, data.attachments || [], data.employmentType, data.employeeRole));
   doc.close();
 
   await waitForImages(doc);

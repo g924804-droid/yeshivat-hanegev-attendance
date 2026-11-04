@@ -24,6 +24,8 @@ export type DayDetail = {
     hasSpecialRate: boolean;
   } | null;
   isAbsence: boolean;
+  /** שעות שחסרו ביום: השעות הנדרשות פחות מה שעבדה (ביום היעדרות — כל הנדרשות). חצי יום/חג חלקי — חצי. */
+  missingHours: number;
 };
 
 export type MonthlyTotals = {
@@ -40,7 +42,10 @@ export type MonthlyTotals = {
 };
 
 /** עובר יום-יום על החודש (ליבת calculateMonthlyReport מהספק 4.3). */
-export async function buildMonthDetail(employee: User, month: string): Promise<{ days: DayDetail[]; totals: MonthlyTotals }> {
+export async function buildMonthDetail(
+  employee: User,
+  month: string
+): Promise<{ days: DayDetail[]; totals: MonthlyTotals; missingHours: number }> {
   const [year, monthNum] = month.split('-').map(Number);
   const daysInMonth = new Date(year, monthNum, 0).getDate();
   const today = new Date().toISOString().slice(0, 10);
@@ -74,6 +79,7 @@ export async function buildMonthDetail(employee: User, month: string): Promise<{
     const record = recordByDate.get(date) || null;
 
     let isAbsence = false;
+    let missing = 0;
 
     if (isSaturday || isFuture) {
       // דילוג
@@ -86,6 +92,8 @@ export async function buildMonthDetail(employee: User, month: string): Promise<{
         totals.totalOvertime += record.overtimeHours;
         totals.totalLessons += record.lessonsCount;
         if (record.hasSpecialRate) totals.specialRateHours += record.totalHours;
+        const required = holiday?.type === 'half' || record.type === 'חצי יום' ? requiredHours * 0.5 : requiredHours;
+        missing = Math.max(0, required - record.totalHours);
       } else if (record.type === 'מחלה') {
         totals.sickDays += 1;
       } else if (record.type === 'חופשה שנתית' || record.type === 'חופשה אישית') {
@@ -99,6 +107,7 @@ export async function buildMonthDetail(employee: User, month: string): Promise<{
         isAbsence = true;
         totals.absenceDays += holiday?.type === 'half' ? 0.5 : 1;
         totals.absenceHours += effectiveRequired;
+        missing = effectiveRequired;
       }
     }
 
@@ -125,6 +134,7 @@ export async function buildMonthDetail(employee: User, month: string): Promise<{
           }
         : null,
       isAbsence,
+      missingHours: Math.round(missing * 100) / 100,
     });
   }
 
@@ -133,5 +143,6 @@ export async function buildMonthDetail(employee: User, month: string): Promise<{
   totals.absenceHours = Math.round(totals.absenceHours * 100) / 100;
   totals.specialRateHours = Math.round(totals.specialRateHours * 100) / 100;
 
-  return { days, totals };
+  const missingHours = Math.round(days.reduce((s, d) => s + d.missingHours, 0) * 100) / 100;
+  return { days, totals, missingHours };
 }

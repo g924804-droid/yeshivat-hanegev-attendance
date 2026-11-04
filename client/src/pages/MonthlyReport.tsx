@@ -35,6 +35,7 @@ type Day = {
   isFuture: boolean;
   holiday?: { name: string; type: 'full' | 'half' };
   isAbsence: boolean;
+  missingHours?: number;
   record: (DayRecord & { totalHours: number; overtimeHours: number }) | null;
 };
 
@@ -213,6 +214,7 @@ export function MonthlyReport() {
           ['סה"כ שעות', safeFixed(report.totalHours)],
           ...(isTeacher ? [["שעות אקדמיות (45 דק')", academicHours(report.totalHours)]] : []),
           ['שעות עודפות', safeFixed(report.totalOvertime)],
+          ...(!isTeacher ? [['שעות חסרות', safeFixed(days.filter((d) => !d.isFuture).reduce((s, d) => s + (d.missingHours || 0), 0))]] : []),
           ['ימי מחלה', report.sickDays],
           ['ימי חופשה', report.vacationDays],
           ['ימי חג', report.holidayDays],
@@ -249,6 +251,7 @@ export function MonthlyReport() {
               <th>שעות</th>
               {isTeacher && <th title="שעה אקדמית = 45 דקות">אקדמיות</th>}
               <th>עודפות</th>
+              {!isTeacher && <th>חסרות</th>}
               <th>שיעורים</th>
               {canEdit && <th></th>}
             </tr>
@@ -291,6 +294,7 @@ export function MonthlyReport() {
                   </td>
                   {isTeacher && <td className="text-slate-500">{d.record ? academicHours(d.record.totalHours) : '—'}</td>}
                   <td>{d.record ? safeFixed(d.record.overtimeHours) : '—'}</td>
+                  {!isTeacher && <td className={d.missingHours ? 'text-red-700 font-semibold' : ''}>{d.missingHours ? safeFixed(d.missingHours) : '—'}</td>}
                   <td>{d.record?.lessonsCount || '—'}</td>
                   {canEdit && (
                     <td>

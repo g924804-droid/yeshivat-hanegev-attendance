@@ -202,6 +202,7 @@ router.get('/getMonthlyReport', async (req, res) => {
     res.json({
       report,
       days,
+      missingHours: Math.round(days.reduce((s, d) => s + (d.missingHours || 0), 0) * 100) / 100,
       employeeName: employee.name,
       employeeRole: employee.role,
       employmentType: employee.employmentType,

@@ -129,6 +129,7 @@ function reportSectionHtml(
       <div class="stat"><div class="label">סה"כ שעות</div><div class="value">${report.totalHours.toFixed(2)}</div></div>
       ${isTeacher(employee) ? `<div class="stat"><div class="label">שעות אקדמיות (45 דק')</div><div class="value">${academicHours(report.totalHours).toFixed(2)}</div></div>` : ''}
       <div class="stat"><div class="label">שעות עודפות</div><div class="value">${report.totalOvertime.toFixed(2)}</div></div>
+      ${!isTeacher(employee) ? `<div class="stat"><div class="label">שעות חסרות</div><div class="value">${days.reduce((s, d) => s + (d.missingHours || 0), 0).toFixed(2)}</div></div>` : ''}
       <div class="stat"><div class="label">ימי מחלה</div><div class="value">${report.sickDays}</div></div>
       <div class="stat"><div class="label">ימי חופשה</div><div class="value">${report.vacationDays}</div></div>
       <div class="stat"><div class="label">ימי חג</div><div class="value">${report.holidayDays}</div></div>
