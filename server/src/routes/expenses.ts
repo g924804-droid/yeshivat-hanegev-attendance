@@ -1,5 +1,6 @@
 import { Router, Request } from 'express';
 import multer from 'multer';
+import { orderExpensesByDate, expenseMonthLabel } from '../lib/expenseOrder';
 import ExcelJS from 'exceljs';
 import axios from 'axios';
 import { PDFDocument } from 'pdf-lib';
@@ -223,7 +224,7 @@ router.get('/list', async (req, res) => {
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       include: { files: { select: FILE_META, orderBy: { createdAt: 'asc' } } },
     });
-    res.json({ expenses });
+    res.json({ expenses: orderExpensesByDate(expenses) });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת ההוצאות' });
   }
@@ -567,7 +568,7 @@ async function loadForExport(query: any, withFileData = false) {
   });
   const selected = all
     .filter((c) => !categoryIds.length || categoryIds.includes(c.id))
-    .map((c) => ({ ...c, expenses: expenseIds.length ? c.expenses.filter((e) => expenseIds.includes(e.id)) : c.expenses }))
+    .map((c) => ({ ...c, expenses: orderExpensesByDate(expenseIds.length ? c.expenses.filter((e) => expenseIds.includes(e.id)) : c.expenses) }))
     .filter((c) => !expenseIds.length || c.expenses.length);
   return { year, all, selected, filteredRows: expenseIds.length > 0 };
 }
@@ -631,8 +632,27 @@ router.get('/exportExcel', async (req, res) => {
       const at = (title: string) => columns.findIndex((x) => x.title === title) + 1;
       const fmt = (title: string, numFmt: string, row: ExcelJS.Row) => at(title) && (row.getCell(at(title)).numFmt = numFmt);
 
+      // שורת סיכום לחודש שהסתיים, ושורת כותרת לחודש שמתחיל
+      const amountCol = at('סכום לתשלום');
+      const monthTotalRow = (month: string) => {
+        if (!amountCol) return;
+        const r = ws.addRow([]);
+        r.getCell(Math.max(1, amountCol - 1)).value = `סה"כ ${expenseMonthLabel(month)}`;
+        r.getCell(amountCol).value = sel.expenses.filter((x) => x.groupMonth === month).reduce((s, x) => s + (x.amount || 0), 0);
+        r.getCell(amountCol).numFmt = '₪#,##0.00';
+        r.font = { bold: true, color: { argb: 'FF475569' } };
+      };
+      let prevMonth: string | null = null;
       let prevTopic: string | null = null;
       for (const e of sel.expenses) {
+        if (e.groupMonth !== prevMonth) {
+          if (prevMonth !== null) monthTotalRow(prevMonth);
+          const mh = ws.addRow([expenseMonthLabel(e.groupMonth)]);
+          mh.font = { bold: true, size: 13, color: { argb: 'FF0F172A' } };
+          mh.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+          prevMonth = e.groupMonth;
+          prevTopic = null;
+        }
         const values: Record<string, any> = {
           'נושא הפעילות': e.topic && e.topic !== prevTopic ? e.topic : '',
           'תאריך': e.date ? new Date(`${e.date}T00:00:00Z`) : '',
@@ -668,6 +688,7 @@ router.get('/exportExcel', async (req, res) => {
           } else cell.value = label;
         }
       }
+      if (prevMonth !== null) monthTotalRow(prevMonth);
       // שורת סה"כ של השורות שיוצאו
       if (at('סכום לתשלום')) {
         const totalRow = ws.addRow([]);

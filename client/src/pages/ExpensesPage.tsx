@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, Fragment } from 'react';
 import { Plus, Pencil, Trash2, FileSpreadsheet, Upload, Search, Paperclip, X, Settings2 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
@@ -10,6 +10,7 @@ type Expense = {
   date: string;
   hebrewDate: string | null;
   topic: string | null;
+  groupMonth?: string; // החודש שתחתיו השורה מוצגת (מהשרת) — YYYY-MM, או '' בלי תאריך
   payee: string;
   invoiceText: string | null;
   invoiceUrl: string | null;
@@ -119,6 +120,12 @@ export function ExpensesPage() {
   const topicTotals = useMemo(() => {
     const m = new Map<string, number>();
     for (const e of expenses || []) if (e.topic) m.set(e.topic, (m.get(e.topic) || 0) + (e.amount || 0));
+    return m;
+  }, [expenses]);
+  // סה"כ לכל חודש — מוצג בשורת הכותרת של החודש
+  const monthTotals = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of expenses || []) m.set(e.groupMonth || '', (m.get(e.groupMonth || '') || 0) + (e.amount || 0));
     return m;
   }, [expenses]);
   // קטגוריות שיורדות מקטגוריה אחרת כבר נכללות בה — לא סופרים אותן פעמיים
@@ -288,11 +295,21 @@ export function ExpensesPage() {
                     </tr>
                   ) : (
                     shown.map((e, i) => {
-                      const firstOfTopic = !!e.topic && shown[i - 1]?.topic !== e.topic;
+                      const month = e.groupMonth || '';
+                      const firstOfMonth = i === 0 || (shown[i - 1].groupMonth || '') !== month;
+                      const firstOfTopic = !!e.topic && (firstOfMonth || shown[i - 1]?.topic !== e.topic);
                       const isSel = selected.has(e.id);
                       return (
+                      <Fragment key={e.id}>
+                      {firstOfMonth && (
+                        <tr className="bg-amber-50 border-t-2 border-amber-200">
+                          <td colSpan={withTopic ? 12 : 11} className="px-3 py-2">
+                            <span className="font-bold text-navy text-base">{monthLabel(month)}</span>
+                            <span className="text-sm text-slate-600 mr-3">סה"כ {shekel(monthTotals.get(month) || 0)}</span>
+                          </td>
+                        </tr>
+                      )}
                       <tr
-                        key={e.id}
                         className={`border-t align-top ${isSel ? 'bg-gold/10' : 'hover:bg-slate-50/60'} ${firstOfTopic && i > 0 ? 'border-slate-300' : 'border-slate-100'}`}
                       >
                         <td className="px-2 py-2.5">
@@ -339,6 +356,7 @@ export function ExpensesPage() {
                           </button>
                         </td>
                       </tr>
+                      </Fragment>
                       );
                     })
                   )}
@@ -972,4 +990,13 @@ function ImportModal({ year, onClose, onDone }: { year: string; onClose: () => v
       </div>
     </div>
   );
+}
+
+const MONTHS_HE = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+
+/** 2026-10 ← "אוקטובר 2026"; ריק ← "בלי תאריך" */
+function monthLabel(month: string): string {
+  if (!month) return 'בלי תאריך';
+  const [y, m] = month.split('-').map(Number);
+  return `${MONTHS_HE[m - 1]} ${y}`;
 }
