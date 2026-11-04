@@ -7,12 +7,14 @@ const BASE_STYLE = `
     * { box-sizing: border-box; }
     /* מכווץ בכוונה — דוח חודש שלם (עד 31 שורות) + חתימה חייבים להיכנס בעמוד A4 אחד;
        החתימה לא אמורה "לגלוש" לעמוד שני. */
-    body { font-family: 'Arial', 'Rubik', sans-serif; direction: rtl; padding: 10px 16px; color: #1e293b; }
+    body { font-family: 'Arial', 'Rubik', sans-serif; direction: rtl; padding: 0; margin: 0; color: #1e293b; }
+    /* עמוד הדוח עצמו — ברוחב שטח ההדפסה, ומכווץ אוטומטית לעמוד אחד (FIT_ONE_PAGE_SCRIPT) */
+    .report-page { width: 190mm; }
     h1 { color: #0f172a; font-size: 17px; margin: 0 0 2px; }
     h2 { color: #1e3a5f; font-size: 15px; margin-top: 24px; }
     .meta { color: #475569; font-size: 11px; margin-bottom: 8px; }
     table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-    th, td { border: 1px solid #cbd5e1; padding: 2px 5px; text-align: center; }
+    th, td { border: 1px solid #cbd5e1; padding: 1px 4px; text-align: center; }
     th { background: #0f172a; color: #f1c40f; }
     .summary { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
     .stat { border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; min-width: 76px; }
@@ -121,6 +123,7 @@ function reportSectionHtml(
     .join('');
 
   return `
+    <div class="report-page">
     <h1>דוח נוכחות חודשי — ישיבת הנגב</h1>
     <div class="meta">עובד/ת: ${employee.name} &nbsp;|&nbsp; חודש: ${report.month} &nbsp;|&nbsp; סטטוס: ${report.status}</div>
     ${employee.employmentType === 'נגד קבלה' ? '<div style="margin:8px 0;padding:8px 12px;border:3px solid #7c3aed;background:#f5f3ff;color:#4c1d95;border-radius:8px;font-size:15px;font-weight:bold;">💳 עובדת נגד קבלה — השכר לפי הקבלות. אין להתייחס לדוח הנוכחות בחישוב השכר.</div>' : ''}
@@ -150,6 +153,7 @@ function reportSectionHtml(
     </table>
     ${employeeNoteHtml(report.employeeNote, attachments)}
     ${signatureDataUrl ? `<div class="signature"><div>חתימת עובד/ת:</div><img src="${signatureDataUrl}" /></div>` : ''}
+    </div>
     ${sickNotesHtml(sickNotes)}
     ${attachmentImagesHtml(attachments)}
   `;
@@ -183,8 +187,21 @@ export function reportsPdfHtml(
         `<div${idx > 0 ? ' style="page-break-before: always;"' : ''}>${reportSectionHtml(s.employee, s.report, s.days, s.signatureDataUrl, s.sickNotes, s.attachments)}</div>`
     )
     .join('');
-  return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>${body}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>${body}${FIT_ONE_PAGE_SCRIPT}</body></html>`;
 }
+
+/**
+ * מכווץ כל דוח (zoom) שגבוה מעמוד A4 אחד — רץ ב-Chrome לפני יצירת ה-PDF. 1015px = 297 מ"מ פחות
+ * שוליים של 12 מ"מ למעלה ולמטה, עם מרווח ביטחון.
+ */
+const FIT_ONE_PAGE_SCRIPT = `<script>
+  window.addEventListener('load', function () {
+    document.querySelectorAll('.report-page').forEach(function (el) {
+      var h = el.getBoundingClientRect().height;
+      if (h > 1015) el.style.zoom = (1015 / h).toFixed(3);
+    });
+  });
+</script>`;
 
 /** 5 → "5 שעות", 2.5 → "2.5 שעות" — במפורש "שעות", כדי שלא ייקרא כסכום בשקלים. */
 export function formatHours(hours: number): string {

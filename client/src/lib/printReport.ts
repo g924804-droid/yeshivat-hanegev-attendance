@@ -53,7 +53,10 @@ const STYLE = `
   h2 { color: #1e3a5f; font-size: 15px; margin: 0 0 8px; }
   .meta { color: #475569; font-size: 11px; margin-bottom: 8px; }
   table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-  th, td { border: 1px solid #cbd5e1; padding: 2px 5px; text-align: center; }
+  th, td { border: 1px solid #cbd5e1; padding: 1px 4px; text-align: center; }
+  /* עמוד הדוח עצמו (בלי אישורי המחלה והקבצים, שבעמודים נפרדים) — ברוחב העמוד המודפס, ומכווץ
+     אוטומטית כדי שייכנס תמיד בעמוד A4 אחד (ראו fitToOnePage) */
+  .report-page { width: 190mm; page-break-after: auto; }
   th { background: #0f172a; color: #f1c40f; }
   .summary { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
   .stat { border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; min-width: 76px; }
@@ -126,6 +129,7 @@ function buildHtml(
 
   return `<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>דוח ${esc(employeeName)} ${report.month}</title>
     <style>${STYLE}</style></head><body>
+    <div class="report-page">
     <h1>דוח נוכחות חודשי — ישיבת הנגב</h1>
     <div class="meta">עובד/ת: ${esc(employeeName)} &nbsp;|&nbsp; חודש: ${report.month} &nbsp;|&nbsp; סטטוס: ${esc(report.status)}</div>
     ${employmentType === 'נגד קבלה' ? '<div style="margin:8px 0;padding:8px 12px;border:3px solid #7c3aed;background:#f5f3ff;color:#4c1d95;border-radius:8px;font-size:15px;font-weight:bold;">💳 עובדת נגד קבלה — השכר לפי הקבלות. אין להתייחס לדוח הנוכחות בחישוב השכר.</div>' : ''}
@@ -153,6 +157,7 @@ function buildHtml(
     ${noteHtml(report.employeeNote, attachments)}
     ${report.employeeSignature ? `<div class="signature"><div>חתימת עובד/ת:</div><img src="${esc(report.employeeSignature)}" /></div>` : ''}
     ${sickList}
+    </div>
     ${sickPages}
     ${attachments
       .filter((a) => a.fileMime.startsWith('image/'))
@@ -170,6 +175,17 @@ function noteHtml(note: string | null, attachments: Attachment[]): string {
   return `<div class="employee-note"><strong>הערה לחשבת השכר:</strong>${esc(note?.trim())}${
     files ? `<div style="margin-top:4px;white-space:normal"><strong>קבצים מצורפים:</strong><ul style="margin:0">${files}</ul></div>` : ''
   }</div>`;
+}
+
+/** גובה שטח ההדפסה ב-A4 (297 מ"מ פחות שוליים של 12 מ"מ למעלה ולמטה) בפיקסלים, עם מרווח ביטחון */
+const PAGE_HEIGHT_PX = 1015;
+
+/** מכווץ את הדוח (zoom) כשהוא גבוה מעמוד אחד — כך הדוח החודשי יוצא תמיד בדף אחד */
+function fitToOnePage(doc: Document) {
+  doc.querySelectorAll<HTMLElement>('.report-page').forEach((el) => {
+    const h = el.getBoundingClientRect().height;
+    if (h > PAGE_HEIGHT_PX) el.style.setProperty('zoom', (PAGE_HEIGHT_PX / h).toFixed(3));
+  });
 }
 
 /** ממתין שכל התמונות (חתימה, אישורי מחלה) ייטענו לפני ההדפסה — אחרת הן יוצאות ריקות. */
@@ -211,6 +227,7 @@ export async function printMonthlyReport(month: string, userId: string): Promise
   doc.close();
 
   await waitForImages(doc);
+  fitToOnePage(doc);
   iframe.contentWindow!.focus();
   iframe.contentWindow!.print();
   // print() חוסם עד שחלון ההדפסה נסגר ברוב הדפדפנים; מנקים אחרי השהיה כדי לא לחתוך הדפסה שעוד רצה.
