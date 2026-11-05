@@ -42,6 +42,21 @@ type Lesson = {
 };
 type Ref = { id: string; name: string };
 
+/**
+ * שליחה לשרת, וכשהפעולה נוגעת בתאריך שעבר והשרת מבקש קוד נעילה (הודעה שמתחילה ב-🔒) — מבקשים
+ * את הקוד ושולחים שוב איתו.
+ */
+async function postWithLockCode<T = unknown>(path: string, body: Record<string, any>): Promise<T> {
+  try {
+    return await api.post<T>(path, body);
+  } catch (err: any) {
+    if (!String(err?.message || '').startsWith('🔒')) throw err;
+    const code = window.prompt(`${err.message}\n\nקוד נעילה:`);
+    if (!code) throw err;
+    return api.post<T>(path, { ...body, lockCode: code });
+  }
+}
+
 const DOW_ALL = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const dayOfDate = (date: string) => DOW_ALL[new Date(`${date}T00:00:00`).getDay()];
 /** "2026-11-05" → "5/11/2026" */
@@ -131,7 +146,11 @@ export function SchedulePage() {
 
   async function restore(l: Lesson, date: string) {
     if (!confirm(`להחזיר את השיעור "${l.subject || l.className}" ב-${shortDate(date)}?`)) return;
-    await api.post('/schedule/restoreLesson', { lessonId: l.id, date });
+    try {
+      await postWithLockCode('/schedule/restoreLesson', { lessonId: l.id, date });
+    } catch (err: any) {
+      alert(err.message || 'שגיאה בהחזרה');
+    }
     loadCancellations();
   }
 
@@ -144,7 +163,11 @@ export function SchedulePage() {
   async function restoreDay(day: string) {
     const label = trackFilter ? ` במסלול ${trackName([trackFilter])}` : '';
     if (!confirm(`להחזיר את כל השיעורים של יום ${day} ${shortDate(dates[day])}${label}?`)) return;
-    await api.post('/schedule/restoreDay', { date: dates[day], trackId: trackFilter || undefined });
+    try {
+      await postWithLockCode('/schedule/restoreDay', { date: dates[day], trackId: trackFilter || undefined });
+    } catch (err: any) {
+      alert(err.message || 'שגיאה בהחזרה');
+    }
     loadCancellations();
   }
   function dayHeader(day: string) {
@@ -1281,7 +1304,7 @@ function CancelDayModal({
     setBusy(true);
     setError('');
     try {
-      await api.post('/schedule/cancelDays', { from: date, to, reason, trackId: trackId || undefined });
+      await postWithLockCode('/schedule/cancelDays', { from: date, to, reason, trackId: trackId || undefined });
       onSaved();
     } catch (err: any) {
       setError(err.message || 'שגיאה בביטול');
@@ -1383,7 +1406,7 @@ function CancelLessonModal({
     setBusy(true);
     setError('');
     try {
-      await api.post('/schedule/cancelLessons', { lessonIds: [lesson.id, ...alsoLater], date, reason });
+      await postWithLockCode('/schedule/cancelLessons', { lessonIds: [lesson.id, ...alsoLater], date, reason });
       onSaved();
     } catch (err: any) {
       setError(err.message || 'שגיאה בביטול');

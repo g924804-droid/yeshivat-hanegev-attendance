@@ -328,11 +328,13 @@ router.post('/dayNote', async (req, res) => {
 /** ביטול שיעור (או כמה) בתאריך מסוים — המורה לא תתבקש למלא עליו נוכחות. */
 router.post('/cancelLessons', async (req, res) => {
   try {
-    const { lessonIds, date, reason } = req.body as { lessonIds?: string[]; date?: string; reason?: string };
+    const { lessonIds, date, reason, lockCode } = req.body as { lessonIds?: string[]; date?: string; reason?: string; lockCode?: string };
     if (!Array.isArray(lessonIds) || !lessonIds.length || !isIsoDate(date)) return res.status(400).json({ error: 'חסרים פרטי ביטול' });
+    if (date! < israelToday()) await requirePastUnlock(lockCode);
     await cancelLessons(lessonIds, date!, reason?.trim().slice(0, 200) || null, req.user!.name);
     res.json({ success: true });
   } catch (err: any) {
+    if (sendLockError(res, err)) return;
     res.status(500).json({ error: err.message || 'שגיאה בביטול שיעור' });
   }
 });
@@ -355,9 +357,10 @@ function datesInRange(from: string, to: string): string[] {
  */
 router.post('/cancelDays', async (req, res) => {
   try {
-    const { from, to, reason, trackId } = req.body as { from?: string; to?: string; reason?: string; trackId?: string };
+    const { from, to, reason, trackId, lockCode } = req.body as { from?: string; to?: string; reason?: string; trackId?: string; lockCode?: string };
     const end = to || from;
     if (!isIsoDate(from) || !isIsoDate(end) || end! < from!) return res.status(400).json({ error: 'יש לבחור תאריך (ועד תאריך)' });
+    if (from! < israelToday()) await requirePastUnlock(lockCode);
     const dates = datesInRange(from!, end!);
     if (dates.length > 62) return res.status(400).json({ error: 'אפשר לבטל עד חודשיים בבת אחת' });
     const { lessons } = await getFullSchedule();
@@ -373,6 +376,7 @@ router.post('/cancelDays', async (req, res) => {
     }
     res.json({ success: true, cancelled: count, days: dates.length });
   } catch (err: any) {
+    if (sendLockError(res, err)) return;
     res.status(500).json({ error: err.message || 'שגיאה בביטול היום' });
   }
 });
@@ -380,8 +384,9 @@ router.post('/cancelDays', async (req, res) => {
 /** החזרת יום שלם שבוטל — מוחק את כל ביטולי השיעורים של התאריך (או רק של מסלול אחד) */
 router.post('/restoreDay', async (req, res) => {
   try {
-    const { date, trackId } = req.body as { date?: string; trackId?: string };
+    const { date, trackId, lockCode } = req.body as { date?: string; trackId?: string; lockCode?: string };
     if (!isIsoDate(date)) return res.status(400).json({ error: 'חסר תאריך' });
+    if (date! < israelToday()) await requirePastUnlock(lockCode);
     let lessonIds: string[] | undefined;
     if (trackId) {
       const { lessons } = await getFullSchedule();
@@ -392,17 +397,20 @@ router.post('/restoreDay', async (req, res) => {
     });
     res.json({ success: true, restored: r.count });
   } catch (err: any) {
+    if (sendLockError(res, err)) return;
     res.status(500).json({ error: err.message || 'שגיאה בהחזרת היום' });
   }
 });
 
 router.post('/restoreLesson', async (req, res) => {
   try {
-    const { lessonId, date } = req.body as { lessonId?: string; date?: string };
+    const { lessonId, date, lockCode } = req.body as { lessonId?: string; date?: string; lockCode?: string };
     if (!lessonId || !isIsoDate(date)) return res.status(400).json({ error: 'חסרים פרטים' });
+    if (date! < israelToday()) await requirePastUnlock(lockCode);
     await restoreLesson(lessonId, date!);
     res.json({ success: true });
   } catch (err: any) {
+    if (sendLockError(res, err)) return;
     res.status(500).json({ error: err.message || 'שגיאה בהחזרת שיעור' });
   }
 });
