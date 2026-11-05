@@ -244,6 +244,9 @@ model SiteSettings {
   lastEarlyReminderMonth String?
   // קוד נעילה לשינויים בעבר במערכת השעות — salt:hash (scrypt), לא הקוד עצמו. ראו lib/scheduleLock.ts
   scheduleLockCode String?
+  // מייל שבועי "תמונת מצב נוכחות תלמידות": מזהי העובדות שמקבלות (JSON), ותאריך השליחה האחרונה
+  attendanceDigestRecipients String?
+  lastAttendanceDigest       String?
 }
 
 // תשלום בפועל על חודש של תלמידה (רשומה בטבלת התשלומים ב-Airtable). כמה תשלומים לאותו חודש =

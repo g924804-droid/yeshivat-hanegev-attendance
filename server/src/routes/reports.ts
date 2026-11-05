@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
+import { getAttendanceSnapshot } from '../lib/attendanceSnapshot';
+import { getDigestRecipients, setDigestRecipients, sendDigest } from '../lib/attendanceDigest';
 import { monthLockError, isMonthClosed } from '../lib/monthLock';
 import { requireAuth, requireAdmin, requireAdminOrAttendanceManager } from '../middleware/auth';
 import { buildMonthDetail } from '../lib/monthlyReport';
@@ -379,6 +381,67 @@ router.post('/unlockMonth', requireAdmin, async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה' });
+  }
+});
+
+// ---------- תמונת מצב: נוכחות תלמידות לפי מורה ----------
+
+// החישוב לוקח כמה שניות (שליפת הנוכחות מ-Airtable) — שומרים את התוצאה כמה דקות לאותו טווח
+const snapshotCache = new Map<string, { at: number; data: Awaited<ReturnType<typeof getAttendanceSnapshot>> }>();
+
+router.get('/attendanceSnapshot', requireAdminOrAttendanceManager, async (req, res) => {
+  try {
+    const from = String(req.query.from || '');
+    const to = String(req.query.to || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) {
+      return res.status(400).json({ error: 'יש לבחור טווח תאריכים' });
+    }
+    const key = `${from}|${to}`;
+    const hit = snapshotCache.get(key);
+    if (hit && Date.now() - hit.at < 5 * 60 * 1000 && req.query.fresh !== '1') return res.json(hit.data);
+    const data = await getAttendanceSnapshot(from, to);
+    snapshotCache.set(key, { at: Date.now(), data });
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בחישוב תמונת המצב' });
+  }
+});
+
+/** מי מקבלת את המייל השבועי — ורשימת העובדות עם מייל לבחירה */
+router.get('/attendanceDigest', requireAdmin, async (_req, res) => {
+  try {
+    const [recipients, users] = await Promise.all([
+      getDigestRecipients(),
+      prisma.user.findMany({ where: { isActive: true, email: { not: null } }, select: { id: true, name: true, email: true }, orderBy: { name: 'asc' } }),
+    ]);
+    res.json({ recipients, users });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה' });
+  }
+});
+
+router.post('/attendanceDigest', requireAdmin, async (req, res) => {
+  try {
+    const { recipients } = req.body as { recipients?: string[] };
+    await setDigestRecipients(Array.isArray(recipients) ? recipients.map(String) : []);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירה' });
+  }
+});
+
+/** שליחת המייל עכשיו — לבדיקה (רק אליי) או לכל הנמענות */
+router.post('/attendanceDigest/send', requireAdmin, async (req, res) => {
+  try {
+    const { test } = req.body as { test?: boolean };
+    if (test) {
+      if (!req.user!.email) return res.status(400).json({ error: 'אין לך כתובת מייל במערכת' });
+      await sendDigest(req.user!.email);
+      return res.json({ success: true, sent: 1, to: req.user!.email });
+    }
+    res.json({ success: true, sent: await sendDigest() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשליחה' });
   }
 });
 

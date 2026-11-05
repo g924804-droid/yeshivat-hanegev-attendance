@@ -7,6 +7,7 @@ import fs from 'fs';
 import { enrichCurrentUser } from './middleware/auth';
 import { warmUpBrowser } from './lib/pdf';
 import { checkAndSendMonthlyReminder } from './lib/monthlyReminder';
+import { checkAndSendAttendanceDigest } from './lib/attendanceDigest';
 
 import authRoutes from './routes/auth';
 import attendanceRoutes from './routes/attendance';
@@ -58,7 +59,9 @@ app.get('/api/health', (req, res) => res.json({ ok: true }));
 // "דופק" יומי מבחוץ (GitHub Actions) — מעיר את השרת אם נרדם ומריץ את בדיקת התזכורת החודשית.
 // בלי הרשאה: הבדיקה עצמה שולחת רק ביום השליחה ורק פעם אחת בחודש, כך שקריאה מיותרת לא עושה כלום.
 app.get('/api/cron/tick', async (req, res) => {
-  res.json({ ok: true, reminder: await checkAndSendMonthlyReminder() });
+  const reminder = await checkAndSendMonthlyReminder();
+  const digest = await checkAndSendAttendanceDigest().catch((e) => `שגיאה: ${e.message}`);
+  res.json({ ok: true, reminder, digest });
 });
 
 // בפרודקשן (למשל Railway) שרת אחד מגיש גם את קבצי ה-React הבנויים — אין צורך בשרת סטטי נפרד.
@@ -95,4 +98,6 @@ app.listen(PORT, () => {
   // עליית שרת מחדש, בלי צורך בספריית cron נפרדת עבור בדיקה כל כך פשוטה.
   checkAndSendMonthlyReminder();
   setInterval(checkAndSendMonthlyReminder, 60 * 60 * 1000);
+  // תמונת מצב שבועית (שישי) — גם כאן, למקרה שה"דופק" מבחוץ לא הגיע
+  setInterval(() => checkAndSendAttendanceDigest().catch((e) => console.error('תמונת מצב שבועית:', e.message)), 60 * 60 * 1000);
 });
