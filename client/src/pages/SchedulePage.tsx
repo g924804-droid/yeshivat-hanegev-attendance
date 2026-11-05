@@ -7,6 +7,7 @@ import { Layout } from '../components/Layout';
 import { FitScale } from '../components/FitScale';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { ScheduleHistoryModal } from '../components/ScheduleHistoryModal';
+import { TeacherLinksModal } from '../components/TeacherLinksModal';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import {
@@ -83,6 +84,7 @@ export function SchedulePage() {
   const [duplicatingLesson, setDuplicatingLesson] = useState<Lesson | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showLockCode, setShowLockCode] = useState(false);
+  const [showTeacherLinks, setShowTeacherLinks] = useState(false);
   const { user } = useAuth();
   const isAdmin = user?.role === 'מנהל';
   const [cancelling, setCancelling] = useState<{ lesson: Lesson; date: string } | null>(null);
@@ -487,6 +489,9 @@ export function SchedulePage() {
           <button className="btn-outline" onClick={() => setShowHistory(true)}>
             <History size={16} /> היסטוריה וייצוא לאקסל
           </button>
+          <button className="btn-outline" onClick={() => setShowTeacherLinks(true)} title="איזה שם במערכת השעות שייך לאיזו עובדת">
+            <Users size={16} /> קישור מורות
+          </button>
           {isAdmin && (
             <button className="btn-outline" onClick={() => setShowLockCode(true)} title="קוד לשינויים בתאריכים שעברו">
               🔒 קוד נעילה
@@ -612,6 +617,7 @@ export function SchedulePage() {
       )}
 
       {showLockCode && <LockCodeModal onClose={() => setShowLockCode(false)} />}
+      {showTeacherLinks && <TeacherLinksModal onClose={() => setShowTeacherLinks(false)} />}
       {showHistory && (
         <ScheduleHistoryModal
           onChanged={() => {

@@ -426,3 +426,16 @@ model LessonEnded {
   endedAt  DateTime @default(now())
   endedBy  String?
 }
+
+// קישור ידני בין שם מורה במערכת השעות (רשומה בטבלת המורות ב-Airtable) לעובדת במערכת — כשהשמות
+// שונים ("הרבנית א. הורביץ" ↔ "הרבנית אילנית הורביץ"), או כששתי מורות רשומות כשם אחד. גובר על התאמת השמות.
+model TeacherLink {
+  id        String   @id @default(cuid())
+  teacherId String // מזהה הרשומה בטבלת המורות ב-Airtable
+  userId    String
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@unique([teacherId, userId])
+  @@index([userId])
+}

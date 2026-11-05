@@ -7,6 +7,7 @@ import { getReadableHistory, buildScheduleExcel } from '../lib/scheduleHistory';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { getCancellations, cancelLessons, restoreLesson, getDayNotes, setDayNote } from '../lib/lessonCancellations';
 import { lessonsForDate } from '../lib/scheduleRules';
+import { findTeacherIds } from '../lib/teacherScope';
 import { LockRequiredError, requirePastUnlock, israelToday, addDays, hasLockCode, verifyLockCode, setLockCode } from '../lib/scheduleLock';
 
 const router = Router();
@@ -264,6 +265,61 @@ async function markEnded(lessonId: string, by: string) {
     .upsert({ where: { lessonId }, create: { lessonId, endedBy: by }, update: { endedBy: by, endedAt: new Date() } })
     .catch((e) => console.error('שגיאה בסימון שיעור כנסגר:', e.message));
 }
+
+/**
+ * קישור מורות: לכל שם מורה שמופיע במערכת השעות — לאילו עובדות הוא שייך (התאמה אוטומטית לפי שם,
+ * וקישורים ידניים), כדי שהשיעורים שלו יגיעו לעובדת הנכונה (נוכחות תלמידות, תמונת מצב).
+ */
+router.get('/teacherLinks', async (_req, res) => {
+  try {
+    const [{ lessons, teachers }, users, links] = await Promise.all([
+      getFullSchedule(),
+      prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true, trackLessons: true }, orderBy: { name: 'asc' } }),
+      prisma.teacherLink.findMany(),
+    ]);
+    const used = new Map<string, number>();
+    for (const l of lessons as any[]) for (const t of l.teacher || []) used.set(t, (used.get(t) || 0) + 1);
+    // התאמה אוטומטית — לכל עובדת, אילו שמות מורה היא "תופסת" לפי השם (בלי הקישורים הידניים)
+    const auto = new Map<string, string[]>();
+    for (const u of users) {
+      const ids = await findTeacherIds(u.name);
+      const manual = new Set(links.filter((l) => l.userId === u.id).map((l) => l.teacherId));
+      for (const id of ids) if (!manual.has(id)) auto.set(id, [...(auto.get(id) || []), u.id]);
+    }
+    res.json({
+      teachers: (teachers as any[])
+        .filter((t) => used.has(t.id))
+        .map((t) => ({
+          id: t.id,
+          name: String(t.name || '').trim() || '(שם ריק)',
+          lessons: used.get(t.id) || 0,
+          linked: links.filter((l) => l.teacherId === t.id).map((l) => l.userId),
+          auto: auto.get(t.id) || [],
+        })),
+      users: users.map((u) => ({ id: u.id, name: u.name.trim(), role: u.role, trackLessons: u.trackLessons })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת המורות' });
+  }
+});
+
+router.post('/teacherLinks', async (req, res) => {
+  try {
+    const { teacherId, userIds } = req.body as { teacherId?: string; userIds?: string[] };
+    if (!teacherId || !Array.isArray(userIds)) return res.status(400).json({ error: 'חסרים פרטים' });
+    await prisma.teacherLink.deleteMany({ where: { teacherId, userId: { notIn: userIds } } });
+    for (const userId of userIds) {
+      await prisma.teacherLink.upsert({
+        where: { teacherId_userId: { teacherId, userId } },
+        create: { teacherId, userId, createdBy: req.user!.name },
+        update: {},
+      });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירה' });
+  }
+});
 
 /** האם הוגדר קוד נעילה (למסך מערכת השעות) */
 router.get('/lockStatus', async (_req, res) => {

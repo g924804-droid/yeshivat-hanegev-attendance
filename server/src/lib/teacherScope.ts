@@ -1,5 +1,6 @@
 import { airtableFetch, TABLES } from './airtable';
 import { FIELDS } from './airtableFields';
+import { prisma } from './prisma';
 
 /**
  * מנהל, מי שיש לה הרשאת ניהול נוכחות עובדים (isAttendanceManager), או מי שקיבלה במפורש
@@ -52,8 +53,8 @@ function wordsSubset(a: string, b: string): boolean {
 export async function findTeacherIds(teacherName: string): Promise<string[]> {
   const target = normalizeTeacherName(teacherName);
   if (!target) return [];
-  const allTeachers = await airtableFetch(TABLES.teachers);
-  return allTeachers
+  const [allTeachers, linked] = await Promise.all([airtableFetch(TABLES.teachers), linkedTeacherIds(teacherName)]);
+  const byName = allTeachers
     .filter((t) => {
       const raw = normalizeTeacherName(t.fields[FIELDS.teachers.name] || '');
       // רשומת מורה עם שם של אות או שתיים (יש אחת כזו: "ה") הייתה "מתאימה" לכל שם שמכיל אותה
@@ -61,6 +62,20 @@ export async function findTeacherIds(teacherName: string): Promise<string[]> {
       return raw === target || raw.includes(target) || target.includes(raw) || wordsSubset(raw, target);
     })
     .map((t) => t.id);
+  // קישורים ידניים (מסך "קישור מורות") — כשהשם במערכת השעות שונה מהשם של העובדת
+  return [...new Set([...byName, ...linked])];
+}
+
+/** רשומות מורה שקושרו ידנית לעובדת עם השם הזה (TeacherLink) */
+async function linkedTeacherIds(userName: string): Promise<string[]> {
+  try {
+    const users = await prisma.user.findMany({ where: { name: userName }, select: { id: true } });
+    if (!users.length) return [];
+    const links = await prisma.teacherLink.findMany({ where: { userId: { in: users.map((u) => u.id) } }, select: { teacherId: true } });
+    return links.map((l) => l.teacherId);
+  } catch {
+    return []; // תקלה ב-DB לא מפילה את התאמת השמות הרגילה
+  }
 }
 
 /** מזהי המסלולים שמורה אחראית עליהם, לפי lessons→tracks (Airtable). */
