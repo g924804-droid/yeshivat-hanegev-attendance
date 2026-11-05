@@ -80,7 +80,7 @@ export async function buildDigest(): Promise<{ subject: string; html: string }> 
       <h3 style="margin:20px 0 6px">מתחילת החודש (${he(monthStart)}–${he(date)})</h3>
       ${table(month.teachers)}
       <p style="margin:24px 0">
-        <a href="${SITE_URL}/admin?tab=snapshot" style="background:#2563eb;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;font-weight:bold;display:inline-block">לפירוט במערכת</a>
+        <a href="${SITE_URL}/attendance-snapshot" style="background:#2563eb;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;font-weight:bold;display:inline-block">לפירוט במערכת</a>
       </p>
       <p style="font-size:13px;color:#64748b">"שיבוץ" = שיעור של 45 דק' למסלול אחד לפי מערכת השעות. שיעורים שבוטלו לא נספרים.</p>
     </div>`;

@@ -25,6 +25,7 @@ import { ContractsPage } from './pages/ContractsPage';
 import { DisplayBoard } from './pages/DisplayBoard';
 import { ExpensesPage } from './pages/ExpensesPage';
 import { StudentFilesPage } from './pages/StudentFilesPage';
+import { AttendanceSnapshotPage } from './pages/AttendanceSnapshotPage';
 
 /**
  * זו אפליקציית דף-יחיד (SPA): מעבר בין דפים בתוך האתר לא טוען שום דבר מחדש מהשרת, אז
@@ -222,6 +223,7 @@ function AppRoutes() {
                   </PermissionGuard>
                 }
               />
+              <Route path="/attendance-snapshot" element={<AttendanceSnapshotPage />} />
               <Route
                 path="/student-files/:id?"
                 element={

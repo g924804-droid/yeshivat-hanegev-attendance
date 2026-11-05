@@ -11,6 +11,7 @@ import {
   Receipt,
   LogOut,
   FolderSearch,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '../lib/permissions';
 import { api } from '../lib/api';
@@ -46,6 +47,12 @@ export function Home() {
       icon: Users,
       label: 'נוכחות תלמידות',
       show: user.permissions.studentAttendance,
+    },
+    {
+      to: '/attendance-snapshot',
+      icon: BarChart3,
+      label: 'תמונת מצב נוכחות',
+      show: canSeeAdminButton,
     },
     {
       to: '/grades',

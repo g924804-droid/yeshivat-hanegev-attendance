@@ -6,7 +6,6 @@ import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import { currentMonth, safeFixed, formatHours, academicHours, compareByFamilyName, familyName, givenName } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
-import { AttendanceSnapshotTab } from '../components/AttendanceSnapshotTab';
 import { printMonthlyReport } from '../lib/printReport';
 import { confirmAndDeleteContract } from '../lib/deleteContract';
 
@@ -144,11 +143,10 @@ const CONTRACT_STATUS_STYLE: Record<ContractRow['status'], string> = {
   בוטל: 'bg-slate-100 text-slate-500',
 };
 
-const TABS = ['reports', 'snapshot', 'employees', 'receipts', 'sync'] as const;
+const TABS = ['reports', 'employees', 'receipts', 'sync'] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABEL: Record<Tab, string> = {
   reports: 'דוחות',
-  snapshot: 'תמונת מצב נוכחות',
   employees: 'עובדים',
   receipts: 'קבלות',
   sync: 'סנכרון',
@@ -159,7 +157,7 @@ export function AdminReports() {
   const [tabParam, setTab] = useUrlState('tab', 'reports');
   const tab = (TABS as readonly string[]).includes(tabParam) ? (tabParam as Tab) : 'reports';
   const isFullAdmin = user?.role === 'מנהל';
-  const visibleTabs = isFullAdmin ? TABS : (['reports', 'snapshot'] as const);
+  const visibleTabs = isFullAdmin ? TABS : (['reports'] as const);
 
   return (
     <Layout title="ניהול">
@@ -181,7 +179,6 @@ export function AdminReports() {
       {tab === 'employees' && <EmployeesTab />}
       {tab === 'receipts' && <ReceiptsTab />}
       {tab === 'sync' && <SyncTab />}
-      {tab === 'snapshot' && <AttendanceSnapshotTab isFullAdmin={isFullAdmin} />}
     </Layout>
   );
 }
