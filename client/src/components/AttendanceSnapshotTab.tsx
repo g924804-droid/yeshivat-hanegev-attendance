@@ -4,7 +4,15 @@ import { api } from '../lib/api';
 import { todayStr } from '../lib/utils';
 
 type Slot = { date: string; time: string; track: string; period: number; periods: number };
-type Teacher = { id: string; name: string; required: number; filled: number; missing: Slot[] };
+type Teacher = {
+  id: string;
+  name: string;
+  kind: 'user' | 'unlinked' | 'none';
+  asked: boolean;
+  required: number;
+  filled: number;
+  missing: Slot[];
+};
 type Snapshot = { from: string; to: string; teachers: Teacher[] };
 
 const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
@@ -122,7 +130,24 @@ export function AttendanceSnapshotTab({ isFullAdmin }: { isFullAdmin: boolean })
                         className={`border-b ${t.missing.length ? 'cursor-pointer hover:bg-slate-50' : ''}`}
                         onClick={() => t.missing.length && setOpen(isOpen ? null : t.id)}
                       >
-                        <td className="py-2 px-3 font-semibold text-navy">{t.name}</td>
+                        <td className="py-2 px-3">
+                          <span className="font-semibold text-navy">{t.name}</span>
+                          {t.kind === 'none' && (
+                            <span className="badge bg-slate-200 text-slate-700 text-[10px] mr-1.5" title="שיעורים שאין בהם מורה במערכת השעות (למשל תפילה)">
+                              בלי מורה
+                            </span>
+                          )}
+                          {t.kind === 'unlinked' && (
+                            <span className="badge bg-amber-100 text-amber-800 text-[10px] mr-1.5" title='שם במערכת השעות שלא מקושר לאף עובדת — אפשר לקשר ב"קישור מורות" במערכת השעות'>
+                              לא מקושרת לעובדת
+                            </span>
+                          )}
+                          {t.kind === 'user' && !t.asked && (
+                            <span className="badge bg-slate-100 text-slate-600 text-[10px] mr-1.5" title='לא מסומן "מעקב שיעורים" — המערכת לא מבקשת ממנה למלא נוכחות'>
+                              לא מתבקשת למלא
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3">
                           {t.filled}/{t.required}
                         </td>
@@ -157,7 +182,9 @@ export function AttendanceSnapshotTab({ isFullAdmin }: { isFullAdmin: boolean })
             {!data.teachers.length && <p className="text-center text-slate-400 py-6">אין שיעורים בטווח הזה</p>}
           </div>
           <p className="text-xs text-slate-500 mt-2">
-            שיבוץ = שיעור של 45 דק׳ למסלול אחד לפי מערכת השעות. שיעורים שבוטלו וימים עתידיים לא נספרים. לחיצה על מורה — רשימת החסרים.
+            כל השיעורים במערכת השעות, לפי המורה שרשומה בשיעור (גם קודש, תפילה ושיעורים בלי מורה). שיבוץ = שיעור של 45 דק׳ למסלול אחד.
+            שיעור נחשב "מולא" כשנרשמה בו נוכחות (או בשיעור אחר של אותה מורה לאותו מסלול באותו יום). שיעורים שבוטלו וימים עתידיים לא
+            נספרים. לחיצה על שורה — רשימת החסרים.
           </p>
         </>
       ) : null}

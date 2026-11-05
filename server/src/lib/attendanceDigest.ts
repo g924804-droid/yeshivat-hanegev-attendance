@@ -46,7 +46,11 @@ function table(teachers: TeacherSnapshot[]): string {
       const pct = Math.round((t.filled / t.required) * 100);
       const color = t.missing.length === 0 ? '#15803d' : pct < 50 ? '#b91c1c' : '#b45309';
       return `<tr>
-        <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0">${t.name}</td>
+        <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0">${t.name}${
+          t.kind === 'none' ? ' <span style="color:#64748b;font-size:12px">(בלי מורה)</span>'
+          : t.kind === 'unlinked' ? ' <span style="color:#b45309;font-size:12px">(לא מקושרת לעובדת)</span>'
+          : !t.asked ? ' <span style="color:#64748b;font-size:12px">(לא מתבקשת למלא)</span>' : ''
+        }</td>
         <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;text-align:center">${t.filled}/${t.required}</td>
         <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;text-align:center;color:${color};font-weight:bold">${t.missing.length ? t.missing.length : '✓'}</td>
       </tr>`;
