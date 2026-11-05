@@ -69,7 +69,11 @@ export async function findTeacherIds(teacherName: string): Promise<string[]> {
 /** רשומות מורה שקושרו ידנית לעובדת עם השם הזה (TeacherLink) */
 async function linkedTeacherIds(userName: string): Promise<string[]> {
   try {
-    const users = await prisma.user.findMany({ where: { name: userName }, select: { id: true } });
+    // יש שמות עם רווח בסוף ("עינת ויזמן ") — משווים בלי רווחים מסביב
+    const trimmed = userName.trim();
+    const users = (await prisma.user.findMany({ where: { name: { contains: trimmed } }, select: { id: true, name: true } })).filter(
+      (u) => u.name.trim() === trimmed
+    );
     if (!users.length) return [];
     const links = await prisma.teacherLink.findMany({ where: { userId: { in: users.map((u) => u.id) } }, select: { teacherId: true } });
     return links.map((l) => l.teacherId);
