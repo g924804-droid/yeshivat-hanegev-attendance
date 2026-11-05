@@ -546,6 +546,16 @@ const headerKey = (h: string) => h.replace(/["'״׳.\s]/g, '');
 
 type ImportRow = Record<string, string> & { _row: string };
 
+/**
+ * ברשומות רבות ב-Airtable כל השם כתוב ב"שם מלא" ("אלוש אגם") והשם הפרטי ריק. אסור למלא אז את
+ * "שם פרטי" — "שם התלמידה" (פרטי + מלא) ייצא "אגם אלוש אגם". כך גם לשם משפחה שכבר כלול.
+ */
+function alreadyInName(record: AirtableRecord, field: string, value: string): boolean {
+  if (field !== 'שם פרטי' && field !== 'שם מלא') return false;
+  const words = new Set(norm(record.fields['שם מלא']).split(' ').concat(norm(record.fields['שם פרטי']).split(' ')).filter(Boolean));
+  return norm(value).split(' ').every((w) => words.has(w));
+}
+
 /** השנים העבריות שבשם גיליון: 'מחזור ב תשפ"א - תשפ"ב' ← ['תשפ"א', 'תשפ"ב'] */
 function yearsInSheetName(name: string): string[] {
   return (name.match(/תש[א-ת]?["״'׳]{0,2}[א-ת]/g) || []).map(normalizeSchoolYear).filter(Boolean);
@@ -755,7 +765,9 @@ router.post('/import', upload.single('file'), async (req, res) => {
       .filter((p) => !toCreate.includes(p))
       .map((p) => ({
         id: p.existing!.id,
-        fields: Object.fromEntries(Object.entries(p.fields).filter(([f]) => !norm(p.existing!.fields[f]))),
+        fields: Object.fromEntries(
+          Object.entries(p.fields).filter(([f, v]) => !norm(p.existing!.fields[f]) && !alreadyInName(p.existing!, f, v))
+        ),
       }))
       .filter((u) => Object.keys(u.fields).length);
     if (updates.length) await airtableBatchUpdate(TABLES.students, updates);
