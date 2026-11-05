@@ -23,6 +23,7 @@ export type CurrentUser = {
   isAttendanceManager: boolean;
   trackLessons: boolean;
   canManageAllStudentTracks: boolean;
+  attendanceSnapshotAccess?: boolean;
 };
 
 type AuthContextValue = {

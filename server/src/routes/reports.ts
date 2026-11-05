@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { getAttendanceSnapshot } from '../lib/attendanceSnapshot';
 import { getDigestRecipients, setDigestRecipients, sendDigest } from '../lib/attendanceDigest';
 import { monthLockError, isMonthClosed } from '../lib/monthLock';
-import { requireAuth, requireAdmin, requireAdminOrAttendanceManager } from '../middleware/auth';
+import { requireAuth, requireAdmin, requireAdminOrAttendanceManager, requireSnapshotAccess } from '../middleware/auth';
 import { buildMonthDetail } from '../lib/monthlyReport';
 import { hasPendingContracts } from '../lib/contracts';
 import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
@@ -389,7 +389,7 @@ router.post('/unlockMonth', requireAdmin, async (req, res) => {
 // החישוב לוקח כמה שניות (שליפת הנוכחות מ-Airtable) — שומרים את התוצאה כמה דקות לאותו טווח
 const snapshotCache = new Map<string, { at: number; data: Awaited<ReturnType<typeof getAttendanceSnapshot>> }>();
 
-router.get('/attendanceSnapshot', requireAdminOrAttendanceManager, async (req, res) => {
+router.get('/attendanceSnapshot', requireSnapshotAccess, async (req, res) => {
   try {
     const from = String(req.query.from || '');
     const to = String(req.query.to || '');
@@ -408,7 +408,7 @@ router.get('/attendanceSnapshot', requireAdminOrAttendanceManager, async (req, r
 });
 
 /** מי מקבלת את המייל השבועי — ורשימת העובדות עם מייל לבחירה */
-router.get('/attendanceDigest', requireAdmin, async (_req, res) => {
+router.get('/attendanceDigest', requireSnapshotAccess, async (_req, res) => {
   try {
     const [recipients, users] = await Promise.all([
       getDigestRecipients(),
@@ -420,7 +420,7 @@ router.get('/attendanceDigest', requireAdmin, async (_req, res) => {
   }
 });
 
-router.post('/attendanceDigest', requireAdmin, async (req, res) => {
+router.post('/attendanceDigest', requireSnapshotAccess, async (req, res) => {
   try {
     const { recipients } = req.body as { recipients?: string[] };
     await setDigestRecipients(Array.isArray(recipients) ? recipients.map(String) : []);
@@ -431,7 +431,7 @@ router.post('/attendanceDigest', requireAdmin, async (req, res) => {
 });
 
 /** שליחת המייל עכשיו — לבדיקה (רק אליי) או לכל הנמענות */
-router.post('/attendanceDigest/send', requireAdmin, async (req, res) => {
+router.post('/attendanceDigest/send', requireSnapshotAccess, async (req, res) => {
   try {
     const { test } = req.body as { test?: boolean };
     if (test) {

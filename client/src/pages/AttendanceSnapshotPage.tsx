@@ -3,15 +3,14 @@ import { Layout } from '../components/Layout';
 import { AttendanceSnapshotTab } from '../components/AttendanceSnapshotTab';
 import { useAuth } from '../lib/permissions';
 
-/** תמונת מצב נוכחות תלמידות — למנהלות ולמזכירות נוכחות (אריח בדף הבית) */
+/** תמונת מצב נוכחות תלמידות — רק למי שסומנה "גישה לתמונת מצב" (אריח בדף הבית) */
 export function AttendanceSnapshotPage() {
   const { user } = useAuth();
   if (!user) return null;
-  const isFullAdmin = user.role === 'מנהל';
-  if (!isFullAdmin && !user.isAttendanceManager) return <Navigate to="/" replace />;
+  if (!user.attendanceSnapshotAccess) return <Navigate to="/" replace />;
   return (
     <Layout title="תמונת מצב נוכחות תלמידות">
-      <AttendanceSnapshotTab isFullAdmin={isFullAdmin} />
+      <AttendanceSnapshotTab isFullAdmin />
     </Layout>
   );
 }

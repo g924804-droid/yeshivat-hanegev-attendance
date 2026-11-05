@@ -51,6 +51,13 @@ export function requireAdminOrAttendanceManager(req: Request, res: Response, nex
   next();
 }
 
+/** תמונת מצב נוכחות תלמידות — רק מי שסומנה במפורש (attendanceSnapshotAccess), בלי מעקף למנהלות */
+export function requireSnapshotAccess(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) return res.status(401).json({ error: 'לא מחובר' });
+  if (!req.user.attendanceSnapshotAccess) return res.status(403).json({ error: 'אין הרשאה לתמונת המצב' });
+  next();
+}
+
 /** פנקס ההוצאות: רק מי שקיבלה במפורש "גישה הוצאות" — בלי מעקף למנהלות, כי הגישה נקבעת אישית. */
 export function requireExpensesAccess(req: Request, res: Response, next: NextFunction) {
   if (!req.user) return res.status(401).json({ error: 'לא מחובר' });

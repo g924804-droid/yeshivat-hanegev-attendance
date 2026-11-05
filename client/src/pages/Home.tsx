@@ -52,7 +52,7 @@ export function Home() {
       to: '/attendance-snapshot',
       icon: BarChart3,
       label: 'תמונת מצב נוכחות',
-      show: canSeeAdminButton,
+      show: !!user.attendanceSnapshotAccess,
     },
     {
       to: '/grades',

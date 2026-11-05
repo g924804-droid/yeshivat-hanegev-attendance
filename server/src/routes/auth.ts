@@ -117,6 +117,7 @@ router.get('/me', enrichCurrentUser, (req, res) => {
     isAttendanceManager,
     trackLessons,
     canManageAllStudentTracks,
+    attendanceSnapshotAccess,
   } = req.user;
   res.json({
     id,
@@ -130,6 +131,7 @@ router.get('/me', enrichCurrentUser, (req, res) => {
     isAttendanceManager,
     trackLessons,
     canManageAllStudentTracks,
+    attendanceSnapshotAccess,
   });
 });
 
