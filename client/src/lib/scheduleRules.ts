@@ -9,6 +9,8 @@ type DatedLesson = {
   fromDate?: string | null;
   toDate?: string | null;
   everyTwoWeeks?: boolean;
+  /** נסגר (נמחק מתאריך / הוחלף) — יש לו "עד תאריך" אבל הוא לא שינוי זמני שמסתיר שיעורים קבועים */
+  ended?: boolean;
 };
 
 /** מספר הימים מ-1970 של יום ראשון בשבוע של התאריך */
@@ -62,10 +64,10 @@ export function timesOverlap(a: string, b: string): boolean {
 export function lessonsForDate<L extends DatedLesson>(lessons: L[], date: string): L[] {
   const dayOfWeek = DOW_HE[new Date(`${date}T00:00:00`).getDay()];
   const candidates = lessons.filter((l) => l.dayOfWeek === dayOfWeek && lessonAppliesOnDate(l, date));
-  const temporary = candidates.filter((l) => l.toDate);
+  const temporary = candidates.filter((l) => l.toDate && !l.ended);
   return candidates.filter(
     (l) =>
-      l.toDate ||
+      (l.toDate && !l.ended) ||
       !temporary.some(
         (t) => (t.track || []).some((id) => (l.track || []).includes(id)) && timesOverlap(t.time, l.time)
       )

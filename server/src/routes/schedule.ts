@@ -7,6 +7,7 @@ import { getReadableHistory, buildScheduleExcel } from '../lib/scheduleHistory';
 import { requireAuth, requirePermission } from '../middleware/auth';
 import { getCancellations, cancelLessons, restoreLesson, getDayNotes, setDayNote } from '../lib/lessonCancellations';
 import { lessonsForDate } from '../lib/scheduleRules';
+import { LockRequiredError, requirePastUnlock, israelToday, addDays, hasLockCode, verifyLockCode, setLockCode } from '../lib/scheduleLock';
 
 const router = Router();
 router.use(requireAuth);
@@ -20,9 +21,45 @@ router.get('/getSchedule', async (req, res) => {
   }
 });
 
+// שדות ההפוכים בטבלת השיעורים — הנוכחות והציונים שמקושרים לשיעור. שיעור שיש לו כאלה לא נמחק
+// לעולם מ-Airtable (המחיקה מנתקת את הנוכחות ממנו) — רק "נסגר" בתאריך.
+const LESSON_ATTENDANCE = 'רישומי נוכחות';
+const LESSON_GRADES = 'ציונים';
+const hasLinkedRecords = (fields: Record<string, any>) =>
+  [LESSON_ATTENDANCE, LESSON_GRADES].some((f) => Array.isArray(fields[f]) && fields[f].length > 0);
+
+/** אם כל שינוי שמשפיע על העבר — 423 עם הודעה, והלקוח מבקש קוד נעילה ושולח שוב */
+function sendLockError(res: any, err: any): boolean {
+  if (err instanceof LockRequiredError) {
+    res.status(423).json({ error: err.message, needCode: true });
+    return true;
+  }
+  return false;
+}
+
+async function logHistory(data: Parameters<typeof prisma.scheduleHistory.create>[0]['data']) {
+  // השיעור כבר נשמר ב-Airtable — רישום ההיסטוריה הוא תיעוד נלווה, וכישלון בו לא אמור להיראות ככישלון השמירה
+  try {
+    await prisma.scheduleHistory.create({ data });
+  } catch (historyErr: any) {
+    console.error('שגיאה ברישום היסטוריית מערכת שעות (השינוי עצמו כן בוצע):', historyErr.message);
+  }
+}
+
+const sundayDays = (d: string) => {
+  const t = new Date(`${d}T00:00:00Z`);
+  return Math.round((t.getTime() / 86400000 - t.getUTCDay()));
+};
+
+/**
+ * שמירת שיעור. כדי לא לשנות את העבר (ואת הנוכחות שכבר נרשמה):
+ * - שיעור קבוע שכבר התחיל ומשתנה (מורה/שעה/מסלול...) — השינוי חל מ"applyFrom" (ברירת מחדל: היום):
+ *   השיעור הקיים נסגר יום לפני, ונוצר שיעור חדש מאותו תאריך. השבועות שעברו נשארים כמו שהיו.
+ * - כל שינוי שנוגע בתאריך שכבר עבר — רק עם קוד נעילה.
+ */
 router.post('/updateScheduleLesson', async (req, res) => {
   try {
-    const { id, className, subject, dayOfWeek, time, trackIds, teacherIds, room, year, notes, fromDate, toDate, everyTwoWeeks } =
+    const { id, className, subject, dayOfWeek, time, trackIds, teacherIds, room, year, notes, fromDate, toDate, everyTwoWeeks, applyFrom, lockCode } =
       req.body as {
         id?: string;
         className: string;
@@ -37,9 +74,13 @@ router.post('/updateScheduleLesson', async (req, res) => {
         fromDate: string;
         toDate?: string;
         everyTwoWeeks?: boolean;
+        applyFrom?: string;
+        lockCode?: string;
       };
     if (!fromDate) return res.status(400).json({ error: 'חובה לרשום תאריך התחלה' });
     if (!trackIds?.length) return res.status(400).json({ error: 'חובה לבחור לפחות מסלול אחד' });
+    if (toDate && toDate < fromDate) return res.status(400).json({ error: '"עד תאריך" לפני "מתאריך"' });
+    const today = israelToday();
 
     const fields: Record<string, any> = {
       [FIELDS.lessons.className]: className,
@@ -57,101 +98,194 @@ router.post('/updateScheduleLesson', async (req, res) => {
     };
     if (teacherIds?.length) fields[FIELDS.lessons.teacher] = teacherIds;
 
-    let previousData: any = null;
-    let record;
-    let changeType: 'create' | 'update';
-    if (id) {
-      const before = await airtableFetch(TABLES.lessons, { filterByFormula: `RECORD_ID()="${id}"`, maxRecords: 1 });
-      previousData = before[0]?.fields || null;
-      record = await airtableUpdate(TABLES.lessons, id, fields);
-      changeType = 'update';
-    } else {
-      record = await airtableCreate(TABLES.lessons, fields);
-      changeType = 'create';
+    const saveRotation = async (lessonId: string, to?: string | null) => {
+      if (!to) await prisma.lessonEnded.deleteMany({ where: { lessonId } }).catch(() => {});
+      if (everyTwoWeeks && !to) {
+        await prisma.lessonRotation.upsert({
+          where: { lessonId },
+          create: { lessonId, everyTwoWeeks: true },
+          update: { everyTwoWeeks: true },
+        });
+      } else {
+        await prisma.lessonRotation.deleteMany({ where: { lessonId } });
+      }
+    };
+    const describe = (verb: string, from: string, to?: string | null) =>
+      `${verb} שיעור: ${className} — ${dayOfWeek} ${time} (${from}${to ? ` עד ${to}` : ''})${everyTwoWeeks && !to ? ' · כל שבועיים' : ''}`;
+    const historyBase = { changedBy: req.user!.name, className, dayOfWeek, time, room };
+
+    // ---- שיעור חדש ----
+    if (!id) {
+      if (fromDate < today) await requirePastUnlock(lockCode);
+      const record = await airtableCreate(TABLES.lessons, fields);
+      await saveRotation(record.id, toDate);
+      await logHistory({ ...historyBase, description: describe('נוצר', fromDate, toDate), changeType: 'create', lessonId: record.id, fromDate, toDate: toDate || null });
+      invalidateScheduleCache();
+      return res.json({ success: true, recordId: record.id });
     }
 
-    // רוטציה "כל שבועיים" — רק לשיעור קבוע (שיעור זמני עם "עד תאריך" לא צריך)
-    if (everyTwoWeeks && !toDate) {
-      await prisma.lessonRotation.upsert({
-        where: { lessonId: record.id },
-        create: { lessonId: record.id, everyTwoWeeks: true },
-        update: { everyTwoWeeks: true },
-      });
-    } else {
-      await prisma.lessonRotation.deleteMany({ where: { lessonId: record.id } });
+    // ---- עריכה ----
+    const before = (await airtableFetch(TABLES.lessons, { filterByFormula: `RECORD_ID()="${id}"`, maxRecords: 1 }))[0];
+    if (!before) return res.status(404).json({ error: 'שיעור לא נמצא' });
+    const prev = before.fields;
+    const oldFrom: string = prev[FIELDS.lessons.fromDate] || '';
+    const oldTo: string = prev[FIELDS.lessons.toDate] || '';
+    const same = (a: any, b: any) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null) || (!a && !b);
+    const sameList = (a: any, b: any) => same([...(a || [])].sort(), [...(b || [])].sort());
+    // מה השתנה (חוץ מהתאריכים וההערה הקבועה)
+    const contentChanged =
+      !same(prev[FIELDS.lessons.className], className) ||
+      !same(prev[FIELDS.lessons.subject], subject) ||
+      !same(prev[FIELDS.lessons.dayOfWeek], dayOfWeek) ||
+      !same(prev[FIELDS.lessons.time], time) ||
+      !same(prev[FIELDS.lessons.room], room) ||
+      !same(prev[FIELDS.lessons.year], year) ||
+      !sameList(prev[FIELDS.lessons.track], trackIds) ||
+      (teacherIds?.length ? !sameList(prev[FIELDS.lessons.teacher], teacherIds) : false);
+    const startedInPast = !!oldFrom && oldFrom < today;
+
+    // השיעור עוד לא התחיל — עריכה רגילה (אלא אם מזיזים אותו אחורה לעבר)
+    // רק ההערה / "עד תאריך" מהיום והלאה — עריכה רגילה
+    // שינוי בתוכן של שיעור שכבר התחיל, מתאריך עתידי — פיצול
+    const effectiveFrom = applyFrom && applyFrom > oldFrom ? applyFrom : today;
+    const onlyEnding = !contentChanged && same(oldFrom, fromDate);
+    const plain =
+      !startedInPast ||
+      (onlyEnding && (!toDate || toDate >= addDays(today, -1)) && (!oldTo || oldTo >= addDays(today, -1)));
+
+    if (plain) {
+      if (fromDate < today && fromDate !== oldFrom) await requirePastUnlock(lockCode);
+      const record = await airtableUpdate(TABLES.lessons, id, fields);
+      await saveRotation(record.id, toDate);
+      await logHistory({ ...historyBase, description: describe('עודכן', fromDate, toDate), changeType: 'update', lessonId: id, fromDate, toDate: toDate || null, previousData: JSON.stringify(prev) });
+      invalidateScheduleCache();
+      return res.json({ success: true, recordId: record.id });
     }
 
-    // השיעור כבר נשמר בהצלחה ב-Airtable בשלב הזה — רישום ההיסטוריה הוא תיעוד נלווה, לא
-    // חלק מהפעולה עצמה. אם כתיבה זו נכשלת (למשל תקלת חיבור זמנית ל-DB המקומי, שקורה מדי
-    // פעם), אסור שזה יגרום למשתמשת לראות "נכשל" על שינוי שבפועל כבר הצליח ונשמר.
-    try {
-      await prisma.scheduleHistory.create({
-        data: {
-          description: `${changeType === 'create' ? 'נוצר' : 'עודכן'} שיעור: ${className} — ${dayOfWeek} ${time} (${fromDate}${toDate ? ` עד ${toDate}` : ''})${everyTwoWeeks && !toDate ? ' · כל שבועיים' : ''}`,
-          changedBy: req.user!.name,
-          changeType,
-          lessonId: record.id,
-          className,
-          dayOfWeek,
-          time,
-          room,
-          fromDate,
-          toDate: toDate || null,
-          previousData: previousData ? JSON.stringify(previousData) : null,
-        },
-      });
-    } catch (historyErr: any) {
-      console.error('שגיאה ברישום היסטוריית מערכת שעות (השיעור עצמו כן נשמר):', historyErr.message);
+    // משנים גם את העבר — רק עם קוד: עדכון של השיעור כולו. כך גם שיעור שכבר הסתיים לפני תאריך
+    // השינוי (אין "מהיום והלאה" לפצל אליו — כל השינוי הוא בעבר).
+    if ((applyFrom && applyFrom < today) || !contentChanged || (oldTo && oldTo < effectiveFrom)) {
+      await requirePastUnlock(lockCode);
+      const record = await airtableUpdate(TABLES.lessons, id, fields);
+      await saveRotation(record.id, toDate);
+      await logHistory({ ...historyBase, description: describe('עודכן (כולל תאריכים שעברו)', fromDate, toDate), changeType: 'update', lessonId: id, fromDate, toDate: toDate || null, previousData: JSON.stringify(prev) });
+      invalidateScheduleCache();
+      return res.json({ success: true, recordId: record.id });
     }
 
+    // פיצול: הקיים נסגר יום לפני effectiveFrom, החדש מתחיל ב-effectiveFrom
+    let newFrom = effectiveFrom;
+    // רוטציה "כל שבועיים" — שומרים על אותם שבועות (מתחילים בשבוע הבא אם זה שבוע "חופשי")
+    if (everyTwoWeeks && oldFrom && Math.round((sundayDays(newFrom) - sundayDays(oldFrom)) / 7) % 2 !== 0) newFrom = addDays(newFrom, 7);
+    const closeAt = addDays(effectiveFrom, -1);
+    await airtableUpdate(TABLES.lessons, id, { [FIELDS.lessons.toDate]: closeAt });
+    await markEnded(id, req.user!.name);
+    await logHistory({
+      ...historyBase,
+      description: `שיעור נסגר ב-${closeAt} (השינוי חל מ-${effectiveFrom}): ${prev[FIELDS.lessons.className] || ''} — ${prev[FIELDS.lessons.dayOfWeek] || ''} ${prev[FIELDS.lessons.time] || ''}`,
+      changeType: 'update',
+      lessonId: id,
+      fromDate: oldFrom || null,
+      toDate: closeAt,
+      previousData: JSON.stringify(prev),
+    });
+    const newTo = toDate && toDate >= newFrom ? toDate : null;
+    const created = await airtableCreate(TABLES.lessons, { ...fields, [FIELDS.lessons.fromDate]: newFrom, [FIELDS.lessons.toDate]: newTo });
+    await saveRotation(created.id, newTo);
+    await logHistory({ ...historyBase, description: describe('נוצר (המשך של שיעור קיים)', newFrom, newTo), changeType: 'create', lessonId: created.id, fromDate: newFrom, toDate: newTo });
     invalidateScheduleCache();
-    res.json({ success: true, recordId: record.id });
+    res.json({ success: true, recordId: created.id, split: { closedAt: closeAt, newFrom } });
   } catch (err: any) {
+    if (sendLockError(res, err)) return;
     res.status(500).json({ error: err.message || 'שגיאה בעדכון שיעור' });
   }
 });
 
+/**
+ * מחיקת שיעור מתאריך מסוים (ברירת מחדל: היום). השבועות שלפני נשארים, עם הנוכחות שנרשמה.
+ * מחיקה מתאריך שכבר עבר — רק עם קוד נעילה. שיעור שיש לו נוכחות/ציונים לא נמחק מ-Airtable אף פעם —
+ * הוא נסגר בתאריך (גם "מחיקה מלאה" = נסגר לפני שהתחיל), כך שאפשר להחזיר אותו עם הנוכחות.
+ */
 router.post('/deleteScheduleLesson', async (req, res) => {
   try {
-    const { id } = req.body as { id?: string };
+    const { id, fromDate: deleteFromRaw, lockCode } = req.body as { id?: string; fromDate?: string; lockCode?: string };
     if (!id) return res.status(400).json({ error: 'חסר מזהה שיעור' });
+    const today = israelToday();
+    const deleteFrom = deleteFromRaw && /^\d{4}-\d{2}-\d{2}$/.test(deleteFromRaw) ? deleteFromRaw : today;
 
-    const before = await airtableFetch(TABLES.lessons, { filterByFormula: `RECORD_ID()="${id}"`, maxRecords: 1 });
-    const record = before[0];
+    const record = (await airtableFetch(TABLES.lessons, { filterByFormula: `RECORD_ID()="${id}"`, maxRecords: 1 }))[0];
     if (!record) return res.status(404).json({ error: 'שיעור לא נמצא' });
+    const prev = record.fields;
+    const oldFrom: string = prev[FIELDS.lessons.fromDate] || '';
+    const oldTo: string = prev[FIELDS.lessons.toDate] || '';
+    // מחיקה שנוגעת בתאריך שעבר (והשיעור באמת התקיים אז) — רק עם קוד
+    const touchesPast = deleteFrom < today && (!oldFrom || oldFrom < today) && (!oldTo || oldTo >= deleteFrom);
+    if (touchesPast) await requirePastUnlock(lockCode);
 
-    await airtableDelete(TABLES.lessons, id);
-    await prisma.lessonRotation.deleteMany({ where: { lessonId: id } }).catch(() => {});
+    const className = prev[FIELDS.lessons.className] || '';
+    const dayOfWeek = prev[FIELDS.lessons.dayOfWeek] || '';
+    const time = prev[FIELDS.lessons.time] || '';
+    const historyBase = { changedBy: req.user!.name, lessonId: id, className, dayOfWeek, time, room: prev[FIELDS.lessons.room] || null, previousData: JSON.stringify(prev) };
+    const whole = !oldFrom || deleteFrom <= oldFrom;
 
-    const className = record.fields[FIELDS.lessons.className] || '';
-    const dayOfWeek = record.fields[FIELDS.lessons.dayOfWeek] || '';
-    const time = record.fields[FIELDS.lessons.time] || '';
-    // המחיקה מ-Airtable כבר הצליחה בשלב הזה — כנ"ל, לא רוצים שכישלון ברישום ההיסטוריה
-    // הנלווה יגרום לדווח "נכשל" על מחיקה שבפועל כבר קרתה.
-    try {
-      await prisma.scheduleHistory.create({
-        data: {
-          description: `נמחק שיעור: ${className} — ${dayOfWeek} ${time}`,
-          changedBy: req.user!.name,
-          changeType: 'delete',
-          lessonId: id,
-          className,
-          dayOfWeek,
-          time,
-          room: record.fields[FIELDS.lessons.room] || null,
-          fromDate: record.fields[FIELDS.lessons.fromDate] || null,
-          toDate: record.fields[FIELDS.lessons.toDate] || null,
-          previousData: JSON.stringify(record.fields),
-        },
+    if (whole && !hasLinkedRecords(prev)) {
+      // אין נוכחות ואין ציונים — מחיקה אמיתית
+      await airtableDelete(TABLES.lessons, id);
+      await prisma.lessonRotation.deleteMany({ where: { lessonId: id } }).catch(() => {});
+      await logHistory({ ...historyBase, description: `נמחק שיעור: ${className} — ${dayOfWeek} ${time}`, changeType: 'delete', fromDate: oldFrom || null, toDate: oldTo || null });
+    } else {
+      // נסגר יום לפני תאריך המחיקה (מחיקה מלאה של שיעור עם נוכחות — נסגר יום לפני שהתחיל, ונשאר מוסתר)
+      const closeAt = addDays(whole ? oldFrom || deleteFrom : deleteFrom, -1);
+      if (!oldTo || oldTo > closeAt) {
+        await airtableUpdate(TABLES.lessons, id, { [FIELDS.lessons.toDate]: closeAt });
+        await markEnded(id, req.user!.name);
+      }
+      await logHistory({
+        ...historyBase,
+        description: whole
+          ? `נמחק שיעור (נשמר מוסתר, כי יש בו נוכחות/ציונים): ${className} — ${dayOfWeek} ${time}`
+          : `נמחק שיעור מ-${deleteFrom} (השבועות שלפני נשארו): ${className} — ${dayOfWeek} ${time}`,
+        changeType: 'update',
+        fromDate: oldFrom || null,
+        toDate: closeAt,
       });
-    } catch (historyErr: any) {
-      console.error('שגיאה ברישום היסטוריית מערכת שעות (המחיקה עצמה כן בוצעה):', historyErr.message);
     }
-
     invalidateScheduleCache();
     res.json({ success: true });
   } catch (err: any) {
+    if (sendLockError(res, err)) return;
     res.status(500).json({ error: err.message || 'שגיאה במחיקת שיעור' });
+  }
+});
+
+/** שיעור שנסגר (לא שינוי זמני) — כדי שלא יסתיר שיעורים קבועים באותה שעה בשבועות שלפני */
+async function markEnded(lessonId: string, by: string) {
+  await prisma.lessonEnded
+    .upsert({ where: { lessonId }, create: { lessonId, endedBy: by }, update: { endedBy: by, endedAt: new Date() } })
+    .catch((e) => console.error('שגיאה בסימון שיעור כנסגר:', e.message));
+}
+
+/** האם הוגדר קוד נעילה (למסך מערכת השעות) */
+router.get('/lockStatus', async (_req, res) => {
+  try {
+    res.json({ hasCode: await hasLockCode() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה' });
+  }
+});
+
+/** הגדרת / החלפת קוד הנעילה — רק מנהלת. החלפה דורשת את הקוד הנוכחי. */
+router.post('/lockCode', async (req, res) => {
+  try {
+    if (req.user!.role !== 'מנהל') return res.status(403).json({ error: 'רק מנהלת יכולה להגדיר קוד נעילה' });
+    const { currentCode, newCode } = req.body as { currentCode?: string; newCode?: string };
+    const code = String(newCode || '').trim();
+    if (code.length < 4) return res.status(400).json({ error: 'הקוד צריך להיות לפחות 4 תווים' });
+    if ((await hasLockCode()) && !(await verifyLockCode(currentCode))) return res.status(403).json({ error: 'הקוד הנוכחי שגוי' });
+    await setLockCode(code);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירת הקוד' });
   }
 });
 
@@ -321,7 +455,11 @@ router.post('/revertChanges', async (req, res) => {
         let changeType: string;
         let newId = lessonId;
         if (e.changeType === 'create') {
-          if (current) {
+          if (current && hasLinkedRecords(current.fields)) {
+            const from = current.fields[FIELDS.lessons.fromDate] || israelToday();
+            await airtableUpdate(TABLES.lessons, lessonId, { [FIELDS.lessons.toDate]: addDays(from, -1) });
+            await markEnded(lessonId, req.user!.name);
+          } else if (current) {
             await airtableDelete(TABLES.lessons, lessonId);
             await prisma.lessonRotation.deleteMany({ where: { lessonId } }).catch(() => {});
           }
@@ -332,10 +470,20 @@ router.post('/revertChanges', async (req, res) => {
           const fields = writableLessonFields(JSON.parse(e.previousData));
           if (current) {
             await airtableUpdate(TABLES.lessons, lessonId, fields);
+            if (!fields[FIELDS.lessons.toDate]) await prisma.lessonEnded.deleteMany({ where: { lessonId } }).catch(() => {});
             description = `ביטול שינוי — שיעור הוחזר למצב הקודם: ${label}`;
             changeType = 'update';
           } else {
-            const created = await airtableCreate(TABLES.lessons, fields);
+            const prevFields = JSON.parse(e.previousData);
+            const relink: Record<string, string[]> = {};
+            for (const f of [LESSON_ATTENDANCE, LESSON_GRADES]) if (Array.isArray(prevFields[f]) && prevFields[f].length) relink[f] = prevFields[f];
+            let created;
+            try {
+              created = await airtableCreate(TABLES.lessons, { ...fields, ...relink });
+            } catch {
+              // אם חלק מרישומי הנוכחות כבר לא קיימים — יוצרים בלי הקישור (כמו קודם)
+              created = await airtableCreate(TABLES.lessons, fields);
+            }
             newId = created.id;
             description = `ביטול שינוי — שיעור שנמחק נוצר מחדש: ${label}`;
             changeType = 'create';

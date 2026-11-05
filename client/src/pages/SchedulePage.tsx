@@ -8,6 +8,7 @@ import { FitScale } from '../components/FitScale';
 import { AnnouncementsManager } from '../components/AnnouncementsManager';
 import { ScheduleHistoryModal } from '../components/ScheduleHistoryModal';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/permissions';
 import {
   startMinutes,
   todayStr,
@@ -36,8 +37,15 @@ type Lesson = {
   fromDate?: string | null;
   toDate?: string | null;
   everyTwoWeeks?: boolean;
+  /** נסגר (נמחק מתאריך / הוחלף) — לא שינוי זמני */
+  ended?: boolean;
 };
 type Ref = { id: string; name: string };
+
+const DOW_ALL = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const dayOfDate = (date: string) => DOW_ALL[new Date(`${date}T00:00:00`).getDay()];
+/** "2026-11-05" → "5/11/2026" */
+const heDate = (date: string) => date.split('-').reverse().map(Number).join('/');
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי']; // אין לימודים בימי שישי כרגע
 
@@ -59,6 +67,9 @@ export function SchedulePage() {
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [duplicatingLesson, setDuplicatingLesson] = useState<Lesson | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showLockCode, setShowLockCode] = useState(false);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'מנהל';
   const [cancelling, setCancelling] = useState<{ lesson: Lesson; date: string } | null>(null);
   // הערה לשיעור ליום אחד בלבד — `${date}|${lessonId}` → טקסט
   const [dayNotes, setDayNotes] = useState<Map<string, string>>(new Map());
@@ -453,6 +464,11 @@ export function SchedulePage() {
           <button className="btn-outline" onClick={() => setShowHistory(true)}>
             <History size={16} /> היסטוריה וייצוא לאקסל
           </button>
+          {isAdmin && (
+            <button className="btn-outline" onClick={() => setShowLockCode(true)} title="קוד לשינויים בתאריכים שעברו">
+              🔒 קוד נעילה
+            </button>
+          )}
           <button className="btn-primary" onClick={() => setShowModal(true)}>
             <Plus size={16} /> שיעור חדש
           </button>
@@ -572,6 +588,7 @@ export function SchedulePage() {
         />
       )}
 
+      {showLockCode && <LockCodeModal onClose={() => setShowLockCode(false)} />}
       {showHistory && (
         <ScheduleHistoryModal
           onChanged={() => {
@@ -621,7 +638,29 @@ function LessonModal({
   // יום×שעה, כדי לא למלא את אותו שיעור שחוזר כמה פעמים בשבוע שוב ושוב. בשכפול מתחילים בלי
   // ימים מסומנים, כדי לא ליצור בטעות עותק זהה באותו יום ושעה. בעריכה — יום ושעה אחד, כמו קודם.
   const multiDay = !lesson || duplicate;
+  const today = todayStr();
+  // שיעור חדש — כברירת מחדל ליום אחד בלבד (תאריך ספציפי). אפשר לעבור לשיעור קבוע / טווח תאריכים.
+  const [oneDay, setOneDay] = useState(!lesson && !duplicate);
+  const [oneDate, setOneDate] = useState(today);
+  // עריכת שיעור שכבר התחיל — השינוי חל מתאריך (ברירת מחדל: היום), והשבועות שעברו נשארים כמו שהיו
+  const startedInPast = !!lesson && !duplicate && !!lesson.fromDate && lesson.fromDate < today;
+  const [applyFrom, setApplyFrom] = useState(today);
+  // מחיקה מתאריך
+  const [deleting, setDeleting] = useState(false);
+  const [deleteFrom, setDeleteFrom] = useState(today);
+  // קוד נעילה — מתבקש רק כשהשרת אומר שהשינוי נוגע בתאריכים שעברו
+  const [needCode, setNeedCode] = useState(false);
+  const [lockCode, setLockCode] = useState('');
+  const [error, setError] = useState('');
+  const handleError = (err: any) => {
+    const msg = String(err?.message || 'שגיאה');
+    if (msg.startsWith('🔒')) setNeedCode(true);
+    setError(msg);
+  };
   const [days, setDays] = useState<string[]>(duplicate ? [] : [form.dayOfWeek]);
+  useEffect(() => {
+    if (oneDay && oneDate) setDays([dayOfDate(oneDate)]);
+  }, [oneDay, oneDate]);
   const [times, setTimes] = useState<string[]>(duplicate && lesson ? [lesson.time] : []);
   const [newCustomTime, setNewCustomTime] = useState('');
   const [customTimeError, setCustomTimeError] = useState('');
@@ -758,6 +797,7 @@ function LessonModal({
     const slots = multiDay ? combos : [{ dayOfWeek: form.dayOfWeek, time }];
     if (!trackIds.length || !slots.length || slots.some((s) => !s.time)) return;
     setBusy(true);
+    setError('');
     try {
       // אין יותר שדה "כיתה" נפרד בטופס — שם/שמות המסלול הם ההזדהות של השיעור, אז זה מה
       // שנשמר בשדה הישן. אירוע משותף לכמה מסלולים (כמו כנס לכולם) מקבל את כל השמות מחוברים.
@@ -771,14 +811,19 @@ function LessonModal({
         await api.post('/schedule/updateScheduleLesson', {
           id: multiDay ? undefined : lesson?.id,
           ...form,
+          ...(oneDay ? { fromDate: oneDate, toDate: oneDate, everyTwoWeeks: false } : {}),
           dayOfWeek: slot.dayOfWeek,
           className,
           time: slot.time,
           trackIds,
           teacherIds,
+          ...(startedInPast ? { applyFrom } : {}),
+          ...(needCode ? { lockCode } : {}),
         });
       }
       onSaved();
+    } catch (err: any) {
+      handleError(err);
     } finally {
       setBusy(false);
     }
@@ -786,11 +831,13 @@ function LessonModal({
 
   async function handleDelete() {
     if (!lesson || duplicate) return;
-    if (!confirm(`למחוק את השיעור "${lesson.subject || lesson.className}" (${lesson.dayOfWeek} ${lesson.time})?`)) return;
     setBusy(true);
+    setError('');
     try {
-      await api.post('/schedule/deleteScheduleLesson', { id: lesson.id });
+      await api.post('/schedule/deleteScheduleLesson', { id: lesson.id, fromDate: deleteFrom, ...(needCode ? { lockCode } : {}) });
       onSaved();
+    } catch (err: any) {
+      handleError(err);
     } finally {
       setBusy(false);
     }
@@ -804,8 +851,30 @@ function LessonModal({
         <h3 className="font-bold text-navy text-lg">
           {duplicate ? 'שכפול שיעור — בחרו ימים ושעות' : lesson ? 'עריכת שיעור' : 'שיעור חדש'}
         </h3>
+        {!lesson && !duplicate && (
+          <div className="flex rounded-lg border overflow-hidden text-sm">
+            <button type="button" onClick={() => setOneDay(true)} className={`flex-1 py-1.5 ${oneDay ? 'bg-navy text-white' : 'bg-white text-slate-600'}`}>
+              יום אחד בלבד
+            </button>
+            <button type="button" onClick={() => setOneDay(false)} className={`flex-1 py-1.5 ${!oneDay ? 'bg-navy text-white' : 'bg-white text-slate-600'}`}>
+              שיעור קבוע / טווח תאריכים
+            </button>
+          </div>
+        )}
+        {oneDay && (
+          <div>
+            <label className="label">תאריך</label>
+            <input type="date" className="input" value={oneDate} onChange={(e) => setOneDate(e.target.value)} />
+            {oneDate && (
+              <p className={`text-xs mt-1 ${DAYS.includes(dayOfDate(oneDate)) ? 'text-slate-500' : 'text-red-600'}`}>
+                יום {dayOfDate(oneDate)} — השיעור יופיע רק בתאריך הזה
+                {!DAYS.includes(dayOfDate(oneDate)) && ' (אין לימודים ביום הזה במערכת)'}
+              </p>
+            )}
+          </div>
+        )}
         <input className="input" placeholder="נושא (למשל: חשבון)" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-        {multiDay ? (
+        {multiDay && oneDay ? null : multiDay ? (
           <div>
             <label className="label">
               ימים (אפשר לסמן כמה — נוצר שיעור נפרד לכל יום ושעה)
@@ -990,6 +1059,8 @@ function LessonModal({
           )}
         </div>
 
+        {!oneDay && (
+        <>
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="label">מתאריך (חובה)</label>
@@ -1033,6 +1104,18 @@ function LessonModal({
             אחרי התאריך המערכת הקבועה תחזור לבד — אין צורך למחוק או להחזיר כלום.
           </p>
         )}
+        </>
+        )}
+        {startedInPast && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-2 py-2">
+            <label className="label">השינוי חל מתאריך</label>
+            <input type="date" className="input" value={applyFrom} onChange={(e) => setApplyFrom(e.target.value)} />
+            <p className="text-xs text-amber-800 mt-1">
+              השיעור התחיל ב-{heDate(lesson!.fromDate!)}. שינוי במורה/שעה/מסלול יחול רק מהתאריך הזה — השבועות שעברו (והנוכחות
+              שנרשמה בהם) נשארים כמו שהיו. תאריך שכבר עבר — רק עם קוד נעילה.
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="label">הערה קבועה (לא חובה) — תופיע בכל השבועות של השיעור</label>
@@ -1047,9 +1130,32 @@ function LessonModal({
           />
         </div>
 
+        {deleting && lesson && !duplicate && (
+          <div className="bg-red-50 border border-red-200 rounded-lg px-2 py-2 space-y-1.5">
+            <label className="label">מחיקת השיעור מתאריך</label>
+            <input type="date" className="input" value={deleteFrom} onChange={(e) => setDeleteFrom(e.target.value)} />
+            <p className="text-xs text-red-800">
+              {lesson.fromDate && deleteFrom <= lesson.fromDate
+                ? 'השיעור יימחק לגמרי. אם כבר נרשמה בו נוכחות — הוא יוסתר ולא יימחק, כדי שהנוכחות תישמר ואפשר יהיה להחזיר אותו.'
+                : `השיעור לא יופיע מ-${heDate(deleteFrom)} והלאה. השבועות שלפני — והנוכחות שנרשמה בהם — נשארים.`}
+              {deleteFrom < today && ' תאריך שכבר עבר — רק עם קוד נעילה.'}
+            </p>
+            <div className="flex gap-2">
+              <button className="btn-outline text-red-700 border-red-300 hover:bg-red-100" onClick={handleDelete} disabled={busy}>
+                <Trash2 size={14} /> מחיקה מ-{heDate(deleteFrom)}
+              </button>
+              <button className="btn-outline" onClick={() => setDeleting(false)}>ביטול</button>
+            </div>
+          </div>
+        )}
+        {needCode && (
+          <input className="input" type="password" placeholder="🔒 קוד נעילה" value={lockCode} onChange={(e) => setLockCode(e.target.value)} autoFocus />
+        )}
+        {error && <div className="text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
+
         <div className="flex gap-2 justify-between pt-2">
           {lesson && !duplicate ? (
-            <button className="btn-outline text-red-600 border-red-200 hover:bg-red-50" onClick={handleDelete} disabled={busy}>
+            <button className="btn-outline text-red-600 border-red-200 hover:bg-red-50" onClick={() => setDeleting(true)} disabled={busy || deleting}>
               <Trash2 size={14} /> מחיקה
             </button>
           ) : (
@@ -1060,7 +1166,7 @@ function LessonModal({
             <button
               className="btn-primary"
               onClick={submit}
-              disabled={busy || !trackIds.length || !form.fromDate || (multiDay ? !combos.length : !time)}
+              disabled={busy || !trackIds.length || (oneDay ? !oneDate : !form.fromDate) || (multiDay ? !combos.length : !time)}
             >
               {multiDay && combos.length > 1 ? `שמירה (${combos.length} שיעורים)` : duplicate ? 'שמירה כשיעור חדש' : 'שמירה'}
             </button>
@@ -1349,6 +1455,69 @@ function CancelLessonModal({
             <Ban size={14} /> {alsoLater.length ? `ביטול ${alsoLater.length + 1} שיעורים` : 'ביטול השיעור'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** הגדרת / החלפת קוד הנעילה לשינויים בתאריכים שעברו — רק מנהלת. הקוד נשמר מוצפן (hash) בלבד. */
+function LockCodeModal({ onClose }: { onClose: () => void }) {
+  const [hasCode, setHasCode] = useState<boolean | null>(null);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [again, setAgain] = useState('');
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get<{ hasCode: boolean }>('/schedule/lockStatus').then((r) => setHasCode(r.hasCode)).catch((e) => setError(e.message));
+  }, []);
+
+  async function save() {
+    setError('');
+    if (next.trim().length < 4) return setError('הקוד צריך להיות לפחות 4 תווים');
+    if (next !== again) return setError('הקוד והאימות לא זהים');
+    setBusy(true);
+    try {
+      await api.post('/schedule/lockCode', { currentCode: current, newCode: next });
+      setDone(true);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3">
+        <h3 className="font-bold text-navy text-lg">🔒 קוד נעילה למערכת השעות</h3>
+        <p className="text-sm text-slate-600">
+          שינוי או מחיקה של שיעור בתאריכים שכבר עברו (שעליהם אולי כבר נרשמה נוכחות) יתאפשרו רק עם הקוד הזה.
+          שינויים מהיום והלאה — בלי קוד.
+        </p>
+        {done ? (
+          <>
+            <div className="bg-green-50 text-green-800 rounded-xl px-3 py-2 text-sm">הקוד נשמר.</div>
+            <button className="btn-primary w-full" onClick={onClose}>סגירה</button>
+          </>
+        ) : hasCode === null ? (
+          <p className="text-sm text-slate-400">טוען...</p>
+        ) : (
+          <>
+            {hasCode && (
+              <input className="input" type="password" placeholder="הקוד הנוכחי" value={current} onChange={(e) => setCurrent(e.target.value)} />
+            )}
+            <input className="input" type="password" placeholder={hasCode ? 'קוד חדש' : 'קוד (לפחות 4 תווים)'} value={next} onChange={(e) => setNext(e.target.value)} />
+            <input className="input" type="password" placeholder="אימות הקוד" value={again} onChange={(e) => setAgain(e.target.value)} />
+            {error && <div className="text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
+            <div className="flex gap-2 justify-end">
+              <button className="btn-outline" onClick={onClose}>ביטול</button>
+              <button className="btn-primary" onClick={save} disabled={busy}>{busy ? 'שומר...' : hasCode ? 'החלפת קוד' : 'שמירת קוד'}</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

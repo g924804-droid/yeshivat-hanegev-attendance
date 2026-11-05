@@ -242,6 +242,8 @@ model SiteSettings {
   lastReminderMonth String?
   // YYYY-MM של התזכורת המוקדמת (ב-25) — אותו מנגנון, בנפרד
   lastEarlyReminderMonth String?
+  // קוד נעילה לשינויים בעבר במערכת השעות — salt:hash (scrypt), לא הקוד עצמו. ראו lib/scheduleLock.ts
+  scheduleLockCode String?
 }
 
 // תשלום בפועל על חודש של תלמידה (רשומה בטבלת התשלומים ב-Airtable). כמה תשלומים לאותו חודש =
@@ -410,4 +412,12 @@ model MonthUnlock {
   createdAt  DateTime @default(now())
 
   @@unique([employeeId, month])
+}
+
+// שיעור שנסגר (נמחק מתאריך / הוחלף בשיעור חדש) — יש לו "עד תאריך", אבל הוא לא "שינוי זמני" שמסתיר
+// שיעורים קבועים באותה שעה. ראו lessonsForDate.
+model LessonEnded {
+  lessonId String   @id
+  endedAt  DateTime @default(now())
+  endedBy  String?
 }
