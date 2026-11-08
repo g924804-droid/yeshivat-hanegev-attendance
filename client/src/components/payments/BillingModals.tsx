@@ -228,11 +228,37 @@ export function NewChargeModal({
   );
 }
 
-/** מחיר חודשי לכל מגמה — כל תלמידה במגמה מחויבת בו, אלא אם הוגדר לה סכום אישי. */
+/** מחיר לכל מגמה — חודשי (חיוב בכל חודש), או שנתי (חיוב אחד בשנה, כל בת משלמת בקצב שלה). */
 export function TrackPricesModal({ prices, onClose, onSaved }: { prices: TrackPrice[]; onClose: () => void; onSaved: () => void }) {
   const [values, setValues] = useState<Record<string, string>>(
     Object.fromEntries(prices.map((p) => [p.trackId, p.monthlyAmount ? String(p.monthlyAmount) : '']))
   );
+  const [annual, setAnnual] = useState<Record<string, boolean>>(Object.fromEntries(prices.map((p) => [p.trackId, !!p.annual])));
+  // חיוב שנתי — המגמה שנבחרה, והחודש
+  const now = new Date();
+  const [charging, setCharging] = useState<string | null>(null);
+  const [chargeMonth, setChargeMonth] = useState(SCHOOL_MONTHS[(now.getMonth() + 4) % 12]);
+  const [chargeYear, setChargeYear] = useState(String(now.getFullYear()));
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function createAnnual(p: TrackPrice) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      // שומרים קודם את המחירים (כדי שהסכום השנתי שהוקלד ייכנס)
+      await api.post('/payments/saveTrackPrices', {
+        prices: prices.map((x) => ({ trackId: x.trackId, trackName: x.trackName, monthlyAmount: Number(values[x.trackId]) || 0, annual: !!annual[x.trackId] })),
+      });
+      const r = await api.post<{ created: number; skipped: number }>('/payments/generateAnnualCharges', { trackId: p.trackId, month: chargeMonth, year: chargeYear });
+      setNotice(`${p.trackName}: נוצרו ${r.created} חיובים שנתיים${r.skipped ? ` (${r.skipped} כבר היו קיימים)` : ''}.`);
+      setCharging(null);
+    } catch (err: any) {
+      setError(err.message || 'שגיאה ביצירת החיוב');
+    } finally {
+      setBusy(false);
+    }
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -241,7 +267,7 @@ export function TrackPricesModal({ prices, onClose, onSaved }: { prices: TrackPr
     setError(null);
     try {
       await api.post('/payments/saveTrackPrices', {
-        prices: prices.map((p) => ({ trackId: p.trackId, trackName: p.trackName, monthlyAmount: Number(values[p.trackId]) || 0 })),
+        prices: prices.map((p) => ({ trackId: p.trackId, trackName: p.trackName, monthlyAmount: Number(values[p.trackId]) || 0, annual: !!annual[p.trackId] })),
       });
       onSaved();
     } catch (err: any) {
@@ -253,23 +279,60 @@ export function TrackPricesModal({ prices, onClose, onSaved }: { prices: TrackPr
   return (
     <ModalShell title="מחירים לפי מגמה" onClose={onClose}>
       <p className="text-sm text-slate-600">
-        הסכום החודשי לכל מגמה. מסלול בלי סכום (למשל קודש) לא מחייב. תלמידה עם סכום אישי (בגלגל השיניים ליד השם) מחויבת בסכום שלה.
+        הסכום לכל מגמה. <b>חודשי</b> — חיוב בכל חודש שנפתח. <b>שנתי</b> — חיוב אחד לשנה (למשל שנה ג'), וכל בת משלמת עליו בקצב
+        שלה, בכמה תשלומים. מסלול בלי סכום (למשל קודש) לא מחייב. תלמידה עם סכום אישי (בגלגל השיניים ליד השם) מחויבת בסכום שלה.
       </p>
       <div className="space-y-2">
         {prices.map((p) => (
-          <label key={p.trackId} className="flex items-center justify-between gap-3 text-sm">
-            <span>{p.trackName}</span>
-            <input
-              type="number"
-              min={0}
-              className="input py-1.5 w-32"
-              placeholder="ללא חיוב"
-              value={values[p.trackId]}
-              onChange={(e) => setValues({ ...values, [p.trackId]: e.target.value })}
-            />
-          </label>
+          <div key={p.trackId} className="text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex-1">{p.trackName}</span>
+              <select
+                className="input py-1.5 w-24"
+                value={annual[p.trackId] ? 'annual' : 'monthly'}
+                onChange={(e) => setAnnual({ ...annual, [p.trackId]: e.target.value === 'annual' })}
+              >
+                <option value="monthly">חודשי</option>
+                <option value="annual">שנתי</option>
+              </select>
+              <input
+                type="number"
+                min={0}
+                className="input py-1.5 w-28"
+                placeholder="ללא חיוב"
+                value={values[p.trackId]}
+                onChange={(e) => setValues({ ...values, [p.trackId]: e.target.value })}
+              />
+            </div>
+            {annual[p.trackId] && Number(values[p.trackId]) > 0 && (
+              <div className="mt-1 mr-2">
+                {charging === p.trackId ? (
+                  <div className="flex flex-wrap items-center gap-2 bg-slate-50 rounded-lg px-2 py-1.5">
+                    <span className="text-xs">חיוב שנתי של {shekel(Number(values[p.trackId]))} לכל בנות המגמה, בחודש:</span>
+                    <select className="input py-1 w-28" value={chargeMonth} onChange={(e) => setChargeMonth(e.target.value)}>
+                      {SCHOOL_MONTHS.map((m) => (
+                        <option key={m}>{m}</option>
+                      ))}
+                    </select>
+                    <input type="number" className="input py-1 w-20" value={chargeYear} onChange={(e) => setChargeYear(e.target.value)} />
+                    <button className="btn-primary py-1 text-xs" onClick={() => createAnnual(p)} disabled={busy}>
+                      יצירה
+                    </button>
+                    <button className="text-xs text-slate-500" onClick={() => setCharging(null)}>
+                      ביטול
+                    </button>
+                  </div>
+                ) : (
+                  <button className="text-xs text-navy underline" onClick={() => setCharging(p.trackId)}>
+                    יצירת חיוב שנתי לבנות המגמה
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         ))}
       </div>
+      {notice && <p className="text-sm text-green-800 bg-green-50 rounded-lg px-3 py-2">{notice}</p>}
       <p className="text-xs text-slate-500">המחירים חלים על חודשים שייפתחו מעכשיו.</p>
       {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
       <div className="flex gap-2">

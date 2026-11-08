@@ -139,8 +139,15 @@ async function getTrackPrices(tracks: { id: string; name: string }[]) {
       .map(({ t, price }) => ({ trackId: t.id, trackName: t.name, monthlyAmount: price! }));
     if (initial.length) await prisma.trackPrice.createMany({ data: initial, skipDuplicates: true });
   }
+  // רק מחירים חודשיים — מגמה עם מחיר שנתי לא מחייבת בכל חודש
   const saved = await prisma.trackPrice.findMany();
-  return new Map(saved.map((p) => [p.trackId, p.monthlyAmount]));
+  return new Map(saved.filter((p) => !p.annual).map((p) => [p.trackId, p.monthlyAmount]));
+}
+
+/** מגמות עם מחיר שנתי: trackId ← הסכום השנתי */
+async function getAnnualPrices() {
+  const saved = await prisma.trackPrice.findMany({ where: { annual: true } });
+  return new Map(saved.filter((p) => p.monthlyAmount > 0).map((p) => [p.trackId, p.monthlyAmount]));
 }
 
 /** הסכום לפי המגמה — אם תלמידה בכמה מסלולים עם מחיר, הגבוה מביניהם (קודש בלי מחיר לא משפיע). */
@@ -189,7 +196,10 @@ router.get('/overview', async (req, res) => {
       entriesByPayment.get(e.paymentId)!.push(e);
     }
     // תלמידות במגמה עם מחיר נכנסות לטבלה גם לפני שנפתח להן חיוב ראשון
-    const pricedStudents = [...studentsData.tracked.entries()].filter(([, ids]) => trackAmount(ids, prices) > 0).map(([n]) => n);
+    const annualPrices = await getAnnualPrices();
+    const pricedStudents = [...studentsData.tracked.entries()]
+      .filter(([, ids]) => trackAmount(ids, prices) > 0 || ids.some((id) => annualPrices.has(id)))
+      .map(([n]) => n);
     const names = [...new Set([...payments.map((p) => p.fullName), ...billing.map((b) => b.studentName), ...pricedStudents])];
     res.json({
       payments: payments.map((p) => ({ ...p, entries: entriesByPayment.get(p.id) || [] })),
@@ -213,7 +223,12 @@ router.get('/overview', async (req, res) => {
           billingNotes: billing.find((x) => x.studentName === name)?.notes || '',
         };
       }),
-      trackPrices: studentsData.tracks.map((t) => ({ trackId: t.id, trackName: t.name, monthlyAmount: prices.get(t.id) || 0 })),
+      trackPrices: studentsData.tracks.map((t) => ({
+        trackId: t.id,
+        trackName: t.name,
+        monthlyAmount: annualPrices.get(t.id) || prices.get(t.id) || 0,
+        annual: annualPrices.has(t.id),
+      })),
       tracks: studentsData.tracks,
       allStudentNames: studentsData.allStudentNames,
       methods: PAYMENT_METHODS,
@@ -339,9 +354,9 @@ router.post('/saveBilling', async (req, res) => {
 /** שמירת המחירים לפי מגמה. */
 router.post('/saveTrackPrices', async (req, res) => {
   try {
-    const { prices } = req.body as { prices: { trackId: string; trackName: string; monthlyAmount: number }[] };
+    const { prices } = req.body as { prices: { trackId: string; trackName: string; monthlyAmount: number; annual?: boolean }[] };
     for (const p of prices || []) {
-      const data = { trackName: norm(p.trackName), monthlyAmount: Math.max(0, num(p.monthlyAmount)) };
+      const data = { trackName: norm(p.trackName), monthlyAmount: Math.max(0, num(p.monthlyAmount)), annual: !!p.annual };
       await prisma.trackPrice.upsert({ where: { trackId: p.trackId }, create: { trackId: p.trackId, ...data }, update: data });
     }
     res.json({ success: true });
@@ -354,6 +369,52 @@ router.post('/saveTrackPrices', async (req, res) => {
  * פתיחת חודש: חיוב לכל תלמידה פעילה שעוד אין לה חיוב לחודש הזה — לפי הסכום האישי שלה, או
  * לפי המגמה שלה, פחות המלגה הקבועה.
  */
+/**
+ * חיוב שנתי למגמה עם מחיר שנתי: חיוב אחד לכל תלמידה במגמה, בחודש שנבחר. תלמידה שכבר יש לה באותה
+ * שנת לימודים חיוב בסכום השנתי — מדולגת (כך שאפשר להריץ שוב אחרי שהצטרפו בנות). כל בת משלמת עליו
+ * בקצב שלה (כמה תשלומים), והיתרה מוצגת כרגיל.
+ */
+router.post('/generateAnnualCharges', async (req, res) => {
+  try {
+    const { trackId, month, year } = req.body as { trackId?: string; month: string; year: string | number };
+    if (!trackId || !MONTH_INDEX[month] || !Number(year)) return res.status(400).json({ error: 'יש לבחור מגמה, חודש ושנה' });
+    const annual = (await getAnnualPrices()).get(trackId);
+    if (!annual) return res.status(400).json({ error: 'למגמה הזו אין מחיר שנתי' });
+    const [records, billing, studentsData] = await Promise.all([airtableFetch(TABLES.payments), prisma.studentBilling.findMany(), loadStudentsByName()]);
+    const payments = records.map(mapPayment).filter((p) => p.fullName);
+    // שנת הלימודים של החיוב (ספטמבר–אוגוסט) — לבדיקת כפילות
+    const schoolYearStart = (m: number, y: number) => (m >= 9 ? y : y - 1);
+    const target = schoolYearStart(MONTH_INDEX[month], Number(year));
+    const names = [...studentsData.tracked.entries()].filter(([, ids]) => ids.includes(trackId)).map(([n]) => n);
+    const toCreate: Record<string, any>[] = [];
+    const skipped: string[] = [];
+    for (const name of names) {
+      const b = billing.find((x) => x.studentName === name);
+      if (b && !b.active) continue;
+      const exists = payments.some(
+        (p) => p.fullName === name && p.amountDue === annual && schoolYearStart(MONTH_INDEX[p.month] || 0, Number(p.year)) === target
+      );
+      if (exists) {
+        skipped.push(name);
+        continue;
+      }
+      toCreate.push({
+        [F.fullName]: name,
+        [F.month]: month,
+        [F.year]: String(year),
+        [F.amountDue]: annual,
+        [F.scholarship]: 0,
+        [F.amountPaid]: 0,
+        [F.status]: computeStatus(annual, 0),
+      });
+    }
+    await airtableBatchCreate(TABLES.payments, toCreate);
+    res.json({ success: true, created: toCreate.length, skipped: skipped.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה ביצירת החיוב השנתי' });
+  }
+});
+
 router.post('/generateMonthlyPayments', async (req, res) => {
   try {
     const { month, year } = req.body as { month: string; year: string | number };

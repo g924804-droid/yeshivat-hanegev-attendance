@@ -282,7 +282,10 @@ model StudentBilling {
 model TrackPrice {
   trackId       String @id
   trackName     String
-  monthlyAmount Float  @default(0)
+  monthlyAmount Float  @default(0) // הסכום — חודשי, או שנתי כש-annual
+  // מגמה עם מחיר שנתי (כמו שנה ג'): לא נפתח לה חיוב בכל חודש — נוצר חיוב שנתי אחד לכל תלמידה,
+  // והתשלומים נרשמים עליו (כל בת בקצב שלה)
+  annual        Boolean @default(false)
 }
 
 // שיעור ברוטציה "כל שבועיים" (שבוע מורה א', שבוע מורה ב') — נספר מה"מתאריך" של השיעור.

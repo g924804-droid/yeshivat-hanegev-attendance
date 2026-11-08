@@ -42,7 +42,7 @@ export type StudentRow = {
   billingNotes: string;
 };
 
-export type TrackPrice = { trackId: string; trackName: string; monthlyAmount: number };
+export type TrackPrice = { trackId: string; trackName: string; monthlyAmount: number; annual?: boolean };
 
 export type Overview = {
   payments: Payment[];
