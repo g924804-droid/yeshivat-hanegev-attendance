@@ -219,7 +219,9 @@ router.get('/overview', async (req, res) => {
           personalAmount: charge.personal,
           trackAmount: charge.trackAmount,
           monthlyScholarship: charge.scholarship,
-          active: charge.active,
+          // תלמידה במגמה עם מחיר שנתי — פעילה (רק בלי חיוב חודשי), לא "סיימה"
+          active: charge.active || (info?.trackIds || []).some((id) => annualPrices.has(id)),
+          annualAmount: Math.max(0, ...(info?.trackIds || []).map((id) => annualPrices.get(id) || 0)),
           billingNotes: billing.find((x) => x.studentName === name)?.notes || '',
         };
       }),

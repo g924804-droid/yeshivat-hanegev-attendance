@@ -240,6 +240,7 @@ export function PaymentsPage() {
                     <div className="text-[11px] text-slate-400">
                       {s.tracks.join(', ')}
                       {s.monthlyScholarship > 0 && <span className="text-blue-700"> · מלגה {shekel(s.monthlyScholarship)}</span>}
+                      {!!s.annualAmount && <span className="text-navy"> · שנתי {shekel(s.annualAmount)}</span>}
                       {!s.active && ' · לא מחויבת'}
                     </div>
                   </td>

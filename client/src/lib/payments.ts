@@ -39,6 +39,8 @@ export type StudentRow = {
   trackAmount: number;
   monthlyScholarship: number;
   active: boolean;
+  /** מגמה עם מחיר שנתי — הסכום לשנה (0 = לא) */
+  annualAmount?: number;
   billingNotes: string;
 };
 
