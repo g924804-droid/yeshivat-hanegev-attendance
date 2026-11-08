@@ -52,6 +52,10 @@ export function StudentsList() {
   const [schedule, setSchedule] = useState<Lesson[]>([]);
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
   const [activePeriod, setActivePeriod] = useState(1);
+  // מסלול בלי מערכת שעות עם רישומים קבועים ליום (שנה ג': "שיעור 1 – התחלה"...)
+  const [checkpoints, setCheckpoints] = useState<string[] | null>(null);
+  const [activeCheckpoint, setActiveCheckpoint] = useState<number | null>(null);
+  const [editingCheckpoints, setEditingCheckpoints] = useState(false);
   // הגנה: לתאריך שעוד לא הגיע אי אפשר לסמן נוכחות (גם השרת חוסם)
   const [isFuture, setIsFuture] = useState(false);
   const [hebrewDate, setHebrewDate] = useState('');
@@ -69,7 +73,7 @@ export function StudentsList() {
 
   // מקבל תאריך מפורש (לא סומך על ה-state) כדי שקפיצה ליום אחר (חצים/בחירת תאריך/לחיצה על
   // "תאריך חסר") תמיד תביא את הנתונים של היום הנכון, בלי מרוץ בין קריאה ישנה לחדשה.
-  async function load(targetDate: string, lessonId?: string | null, period?: number) {
+  async function load(targetDate: string, lessonId?: string | null, period?: number, checkpoint?: number) {
     try {
       const data = await api.get<{
         track: { name: string };
@@ -77,9 +81,19 @@ export function StudentsList() {
         schedule: Lesson[];
         activeLessonId: string | null;
         activePeriod: number;
+        checkpoints?: string[] | null;
+        activeCheckpoint?: number | null;
         isFuture?: boolean;
         hebrewDate: string;
-      }>('/students/getStudentsByTrack', { trackId, date: targetDate, lessonId: lessonId || undefined, period: period || undefined });
+      }>('/students/getStudentsByTrack', {
+        trackId,
+        date: targetDate,
+        lessonId: lessonId || undefined,
+        period: period || undefined,
+        checkpoint: checkpoint || undefined,
+      });
+      setCheckpoints(data.checkpoints || null);
+      setActiveCheckpoint(data.activeCheckpoint || null);
       setTrackName(data.track.name);
       setStudents(data.students);
       setSchedule(data.schedule);
@@ -131,8 +145,9 @@ export function StudentsList() {
         existingAttendanceId: student.attendanceId || undefined,
         lessonId: activeLessonId || undefined,
         period: activePeriod,
+        checkpoint: activeCheckpoint || undefined,
       });
-      await load(date, activeLessonId, activePeriod);
+      await load(date, activeLessonId, activePeriod, activeCheckpoint || undefined);
       refreshMissing();
     } catch (err: any) {
       setError(err.message);
@@ -149,9 +164,10 @@ export function StudentsList() {
         date,
         lessonId: activeLessonId || undefined,
         period: activePeriod,
+        checkpoint: activeCheckpoint || undefined,
         status: 'נוכחת',
       });
-      await load(date, activeLessonId, activePeriod);
+      await load(date, activeLessonId, activePeriod, activeCheckpoint || undefined);
       refreshMissing();
     } catch (err: any) {
       setError(err.message);
@@ -287,10 +303,42 @@ export function StudentsList() {
               );
             })}
           </div>
+        ) : checkpoints ? (
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
+            <p className="text-sm text-amber-900 mb-2">רישומי הנוכחות של היום — כל רישום נשמר בנפרד:</p>
+            <div className="flex flex-wrap gap-2">
+              {checkpoints.map((label, i) => (
+                <button
+                  key={i}
+                  onClick={() => load(date, null, undefined, i + 1)}
+                  className={`badge cursor-pointer transition-colors ${
+                    activeCheckpoint === i + 1 ? 'bg-amber-500 text-white' : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
           <p className={`text-slate-400 text-sm ${loaded ? '' : 'animate-pulse'}`}>
             {loaded ? 'אין שיעור רשום למסלול הזה בתאריך הזה' : 'טוען שיעורים...'}
           </p>
+        )}
+        {loaded && !schedule.length && (
+          <button className="mt-2 text-xs text-navy underline" onClick={() => setEditingCheckpoints(true)}>
+            ⚙ רישומים קבועים ליום (למסלול בלי מערכת שעות)
+          </button>
+        )}
+        {editingCheckpoints && (
+          <CheckpointsModal
+            trackId={trackId!}
+            onClose={() => setEditingCheckpoints(false)}
+            onSaved={() => {
+              setEditingCheckpoints(false);
+              load(date);
+            }}
+          />
         )}
         {activeLesson && activeLesson.periods > 1 && (
           <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
@@ -411,5 +459,69 @@ export function StudentsList() {
         )}
       </div>
     </Layout>
+  );
+}
+
+const WEEKDAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי'];
+
+/** הגדרת רישומים קבועים ליום למסלול בלי מערכת שעות: שמות הרישומים ובאילו ימים */
+function CheckpointsModal({ trackId, onClose, onSaved }: { trackId: string; onClose: () => void; onSaved: () => void }) {
+  const [text, setText] = useState('');
+  const [days, setDays] = useState<number[]>([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<{ labels: string[]; weekdays: number[] }>('/students/trackCheckpoints', { trackId })
+      .then((r) => {
+        setText(r.labels.length ? r.labels.join('\n') : 'שיעור 1 – התחלה\nשיעור 1 – סוף\nשיעור 2 – התחלה\nשיעור 2 – סוף');
+        setDays(r.weekdays);
+      })
+      .catch((e) => setError(e.message));
+  }, [trackId]);
+
+  async function save() {
+    setBusy(true);
+    setError('');
+    try {
+      await api.post('/students/trackCheckpoints', { trackId, labels: text.split('\n'), weekdays: days });
+      onSaved();
+    } catch (e: any) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3">
+        <h3 className="font-bold text-navy text-lg">רישומים קבועים ליום</h3>
+        <p className="text-sm text-slate-600">
+          למסלול בלי מערכת שעות: כמה פעמים מסמנים נוכחות ביום. שורה לכל רישום. רשימה ריקה = רישום אחד ליום, כרגיל.
+        </p>
+        <textarea className="input" rows={5} value={text} onChange={(e) => setText(e.target.value)} />
+        <div>
+          <div className="text-sm mb-1">באילו ימים (בלי סימון = כל הימים):</div>
+          <div className="flex flex-wrap gap-1.5">
+            {WEEKDAYS.map((d, i) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDays(days.includes(i) ? days.filter((x) => x !== i) : [...days, i])}
+                className={`px-3 py-1 rounded-full text-sm border ${days.includes(i) ? 'bg-navy text-white border-navy' : 'bg-white text-slate-600'}`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
+        {error && <div className="text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
+        <div className="flex gap-2 justify-end">
+          <button className="btn-outline" onClick={onClose}>ביטול</button>
+          <button className="btn-primary" onClick={save} disabled={busy}>{busy ? 'שומר...' : 'שמירה'}</button>
+        </div>
+      </div>
+    </div>
   );
 }

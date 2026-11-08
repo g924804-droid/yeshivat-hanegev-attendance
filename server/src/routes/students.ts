@@ -20,6 +20,27 @@ import { requireAuth, requirePermission } from '../middleware/auth';
 import { buildAttendanceSummary, buildAttendanceExcel } from '../lib/studentAttendanceReport';
 import { getAttendanceIssues, assignRecordsToLesson, deleteAttendanceRecords } from '../lib/studentAttendanceIssues';
 import { lessonPeriodCount, lessonPeriodTimes, recordPeriod } from '../lib/lessonPeriods';
+import { prisma } from '../lib/prisma';
+
+/**
+ * רישומים קבועים ליום — למסלול בלי מערכת שעות (שנה ג'): הרשימה, אם המסלול מוגדר כך ואם התאריך הוא
+ * אחד הימים שנבחרו. כל רישום נשמר כרשומת נוכחות בלי שיעור, עם "שעה בשיעור" = מספר הרישום.
+ */
+async function trackCheckpointsFor(trackId: string, date: string): Promise<string[] | null> {
+  const cfg = await prisma.trackCheckpoints.findUnique({ where: { trackId } }).catch(() => null);
+  if (!cfg) return null;
+  let labels: string[] = [];
+  let weekdays: number[] = [];
+  try {
+    labels = JSON.parse(cfg.labels);
+    weekdays = cfg.weekdays ? JSON.parse(cfg.weekdays) : [];
+  } catch {
+    return null;
+  }
+  if (!labels.length) return null;
+  const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return !weekdays.length || weekdays.includes(dow) ? labels : null;
+}
 
 /** היום לפי שעון ישראל (YYYY-MM-DD) — השרת רץ ב-UTC, ובערב זה כבר יום אחר */
 function israelToday(): string {
@@ -173,12 +194,19 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
     // שיעור כפול: כל 45 דק' מסומנות בנפרד ("שעה 1", "שעה 2")
     const activeLesson = todaysLessons.find((l) => l.id === activeLessonId);
     const activePeriod = clampPeriod(req.query.period, lessonPeriodCount(activeLesson?.time));
+    // בלי שיעור במערכת — אולי למסלול יש רישומים קבועים ליום
+    const checkpoints = activeLessonId ? null : await trackCheckpointsFor(trackId, date);
+    const activeCheckpoint = checkpoints ? clampPeriod(req.query.checkpoint, checkpoints.length) : null;
 
 
     const students = allStudents.map((s) => {
       const attendanceRecord = dayAttendance.find((a) => {
         if (!(a.fields[FIELDS.attendance.student] || []).includes(s.id)) return false;
-        if (!activeLessonId) return true; // אין שיעור מוגדר ליום הזה — נוכחות כללית לפי תאריך בלבד
+        if (!activeLessonId) {
+          // רישומים קבועים — רשומה בלי שיעור, של הרישום הנבחר
+          if (activeCheckpoint) return !(a.fields[FIELDS.attendance.lesson] || []).length && recordPeriod(a.fields[FIELDS.attendance.period]) === activeCheckpoint;
+          return true; // אין שיעור מוגדר ליום הזה — נוכחות כללית לפי תאריך בלבד
+        }
         return (
           (a.fields[FIELDS.attendance.lesson] || []).includes(activeLessonId) &&
           recordPeriod(a.fields[FIELDS.attendance.period]) === activePeriod
@@ -222,6 +250,8 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
       })),
       activeLessonId,
       activePeriod,
+      checkpoints,
+      activeCheckpoint,
       isFuture: isFutureDate(date),
       hebrewDate,
     });
@@ -232,7 +262,7 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
 
 router.post('/markStudentAttendance', requirePermission('studentAttendance'), async (req, res) => {
   try {
-    const { studentId, status, notes, date, existingAttendanceId, lessonId, period } = req.body as {
+    const { studentId, status, notes, date, existingAttendanceId, lessonId, period, checkpoint } = req.body as {
       studentId: string;
       status: string;
       notes?: string;
@@ -240,6 +270,7 @@ router.post('/markStudentAttendance', requirePermission('studentAttendance'), as
       existingAttendanceId?: string;
       lessonId?: string;
       period?: number;
+      checkpoint?: number;
     };
     if (!studentId || !status) return res.status(400).json({ error: 'חסר מזהה תלמידה או סטטוס' });
     if (isFutureDate(date)) return res.status(400).json({ error: FUTURE_DATE_ERROR });
@@ -253,6 +284,8 @@ router.post('/markStudentAttendance', requirePermission('studentAttendance'), as
     if (lessonId) fields[FIELDS.attendance.lesson] = [lessonId];
     // חלק 1 נשאר ריק (כמו כל הרשומות הישנות) — כותבים את העמודה רק לחלק 2 ומעלה
     if (lessonId && Number(period) > 1) fields[FIELDS.attendance.period] = Math.floor(Number(period));
+    // רישום קבוע (בלי שיעור) — מספר הרישום; הראשון נשאר ריק כמו "חלק 1"
+    if (!lessonId && Number(checkpoint) > 1) fields[FIELDS.attendance.period] = Math.floor(Number(checkpoint));
     if (req.user!.role === 'מורה') {
       const teacherIds = await findTeacherIds(req.user!.name);
       if (teacherIds[0]) fields[FIELDS.attendance.teacher] = [teacherIds[0]];
@@ -274,14 +307,16 @@ router.post('/markStudentAttendance', requirePermission('studentAttendance'), as
  */
 router.post('/bulkMarkAttendance', requirePermission('studentAttendance'), async (req, res) => {
   try {
-    const { trackId, date, lessonId, status, period } = req.body as {
+    const { trackId, date, lessonId, status, period, checkpoint } = req.body as {
       trackId: string;
       date: string;
       lessonId?: string;
       status?: string;
       period?: number;
+      checkpoint?: number;
     };
-    const part = lessonId && Number(period) > 1 ? Math.floor(Number(period)) : 1;
+    const byCheckpoint = !lessonId && Number(checkpoint) >= 1;
+    const part = lessonId && Number(period) > 1 ? Math.floor(Number(period)) : byCheckpoint ? Math.floor(Number(checkpoint)) : 1;
     if (!trackId || !date) return res.status(400).json({ error: 'חסר מסלול או תאריך' });
     if (isFutureDate(date)) return res.status(400).json({ error: FUTURE_DATE_ERROR });
     const markStatus = status || 'נוכחת';
@@ -304,6 +339,7 @@ router.post('/bulkMarkAttendance', requirePermission('studentAttendance'), async
     for (const studentId of studentIds) {
       const alreadyMarked = dayAttendance.some((a) => {
         if (!(a.fields[FIELDS.attendance.student] || []).includes(studentId)) return false;
+        if (byCheckpoint) return !(a.fields[FIELDS.attendance.lesson] || []).length && recordPeriod(a.fields[FIELDS.attendance.period]) === part;
         if (!lessonId) return true;
         return (
           (a.fields[FIELDS.attendance.lesson] || []).includes(lessonId) &&
@@ -418,6 +454,35 @@ router.get('/studentSchedules', requirePermission('studentAttendance'), async (r
     res.json({ students, ...schedule });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת מערכות השעות' });
+  }
+});
+
+/** הגדרת רישומים קבועים ליום למסלול (מי שרואה את כל המסלולים) */
+router.get('/trackCheckpoints', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    const cfg = await prisma.trackCheckpoints.findUnique({ where: { trackId: String(req.query.trackId || '') } });
+    res.json({ labels: cfg ? JSON.parse(cfg.labels) : [], weekdays: cfg?.weekdays ? JSON.parse(cfg.weekdays) : [] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה' });
+  }
+});
+
+router.post('/trackCheckpoints', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    const { trackId, labels, weekdays } = req.body as { trackId?: string; labels?: string[]; weekdays?: number[] };
+    if (!trackId) return res.status(400).json({ error: 'חסר מסלול' });
+    const clean = (labels || []).map((l) => String(l).trim().slice(0, 60)).filter(Boolean).slice(0, 8);
+    if (!clean.length) {
+      await prisma.trackCheckpoints.deleteMany({ where: { trackId } });
+      return res.json({ success: true });
+    }
+    const days = (weekdays || []).map(Number).filter((d) => d >= 0 && d <= 6);
+    const data = { labels: JSON.stringify(clean), weekdays: days.length ? JSON.stringify(days) : null };
+    await prisma.trackCheckpoints.upsert({ where: { trackId }, create: { trackId, ...data }, update: data });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירה' });
   }
 });
 

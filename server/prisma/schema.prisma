@@ -446,3 +446,12 @@ model TeacherLink {
   @@unique([teacherId, userId])
   @@index([userId])
 }
+
+// "רישומים קבועים ליום" למסלול בלי מערכת שעות (כמו שנה ג'): כמה פעמים מסמנים נוכחות באותו יום ובאילו
+// שמות ("שיעור 1 – התחלה"...), ובאילו ימים. כל רישום נשמר בנפרד (עמודת "שעה בשיעור" = מספר הרישום).
+model TrackCheckpoints {
+  trackId   String   @id
+  labels    String // JSON: ["שיעור 1 – התחלה", ...]
+  weekdays  String? // JSON: [3] (0 = ראשון) — ריק = כל הימים
+  updatedAt DateTime @updatedAt
+}
