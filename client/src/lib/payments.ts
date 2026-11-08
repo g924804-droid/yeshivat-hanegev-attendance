@@ -92,7 +92,8 @@ export function currentMonthColumn(now = new Date()): MonthColumn {
 }
 
 export function shekel(n: number): string {
-  return `${Math.round(n).toLocaleString('he-IL')} ₪`;
+  // עד 2 ספרות אחרי הנקודה (562.5 ← "562.5 ₪"), ובלי ".00" בסכום שלם
+  return `${(Math.round(n * 100) / 100).toLocaleString('he-IL', { maximumFractionDigits: 2 })} ₪`;
 }
 
 export const STATUS_HE: Record<Payment['status'], string> = { Paid: 'שולם', Partial: 'שולם חלקית', Unpaid: 'לא שולם' };

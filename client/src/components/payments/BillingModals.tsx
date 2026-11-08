@@ -79,7 +79,7 @@ export function BillingModal({
           <label className="block text-sm">
             סכום שנתי אישי
             <input
-              type="number"
+              type="number" step="any"
               min={0}
               className="input mt-1 py-1.5"
               placeholder={`ריק = לפי המגמה (${shekel(trackAnnual)})`}
@@ -102,7 +102,7 @@ export function BillingModal({
             </label>
             <label className="text-sm">
               מספר תשלומים (עד {ANNUAL_MAX_INSTALLMENTS})
-              <input type="number" min={1} max={ANNUAL_MAX_INSTALLMENTS} className="input mt-1 py-1.5 w-24" value={planInstallments} onChange={(e) => setPlanInstallments(e.target.value)} />
+              <input type="number" step="any" min={1} max={ANNUAL_MAX_INSTALLMENTS} className="input mt-1 py-1.5 w-24" value={planInstallments} onChange={(e) => setPlanInstallments(e.target.value)} />
             </label>
           </div>
           {installments > 0 && (
@@ -128,7 +128,7 @@ export function BillingModal({
       <label className="block text-sm">
         סכום חודשי אישי
         <input
-          type="number"
+          type="number" step="any"
           min={0}
           className="input mt-1"
           placeholder={student?.trackAmount ? `ריק = לפי המגמה (${shekel(student.trackAmount)})` : ''}
@@ -143,7 +143,7 @@ export function BillingModal({
       </label>
       <label className="block text-sm">
         מלגה חודשית קבועה
-        <input type="number" min={0} className="input mt-1" placeholder="0" value={scholarship} onChange={(e) => setScholarship(e.target.value)} />
+        <input type="number" step="any" min={0} className="input mt-1" placeholder="0" value={scholarship} onChange={(e) => setScholarship(e.target.value)} />
       </label>
       <p className="text-sm text-slate-600">
         בכל חודש: לתשלום <strong>{shekel(owed)}</strong>
@@ -212,7 +212,7 @@ export function GenerateMonthModal({
             <option key={m}>{m}</option>
           ))}
         </select>
-        <input type="number" className="input w-28" value={year} onChange={(e) => setYear(e.target.value)} />
+        <input type="number" step="any" className="input w-28" value={year} onChange={(e) => setYear(e.target.value)} />
       </div>
       {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
       <div className="flex gap-2">
@@ -264,11 +264,11 @@ export function NewChargeModal({
     <ModalShell title={`חיוב ל${column.month} ${column.year} — ${student.name}`} onClose={onClose}>
       <label className="block text-sm">
         סכום
-        <input type="number" min={0} className="input mt-1" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <input type="number" step="any" min={0} className="input mt-1" value={amount} onChange={(e) => setAmount(e.target.value)} />
       </label>
       <label className="block text-sm">
         מלגה
-        <input type="number" min={0} className="input mt-1" placeholder="0" value={scholarship} onChange={(e) => setScholarship(e.target.value)} />
+        <input type="number" step="any" min={0} className="input mt-1" placeholder="0" value={scholarship} onChange={(e) => setScholarship(e.target.value)} />
       </label>
       {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
       <div className="flex gap-2">
@@ -349,7 +349,7 @@ export function TrackPricesModal({ prices, onClose, onSaved }: { prices: TrackPr
                 <option value="annual">שנתי</option>
               </select>
               <input
-                type="number"
+                type="number" step="any"
                 min={0}
                 className="input py-1.5 w-28"
                 placeholder="ללא חיוב"
@@ -367,7 +367,7 @@ export function TrackPricesModal({ prices, onClose, onSaved }: { prices: TrackPr
                         <option key={m}>{m}</option>
                       ))}
                     </select>
-                    <input type="number" className="input py-1 w-20" value={chargeYear} onChange={(e) => setChargeYear(e.target.value)} />
+                    <input type="number" step="any" className="input py-1 w-20" value={chargeYear} onChange={(e) => setChargeYear(e.target.value)} />
                     <button className="btn-primary py-1 text-xs" onClick={() => createAnnual(p)} disabled={busy}>
                       יצירה
                     </button>

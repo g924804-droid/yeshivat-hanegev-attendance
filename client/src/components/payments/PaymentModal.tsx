@@ -106,7 +106,7 @@ export function PaymentModal({
           <div className="flex justify-between items-center">
             <span>סכום קבוע</span>
             {editingCharge ? (
-              <input type="number" className="input py-1 w-28" value={amountDue} onChange={(e) => setAmountDue(e.target.value)} />
+              <input type="number" step="any" className="input py-1 w-28" value={amountDue} onChange={(e) => setAmountDue(e.target.value)} />
             ) : (
               <span className="flex items-center gap-1">
                 {shekel(payment.amountDue)}
@@ -120,7 +120,7 @@ export function PaymentModal({
             <div className="flex justify-between items-center">
               <span>תוספת</span>
               {editingCharge ? (
-                <input type="number" className="input py-1 w-28" value={extra} onChange={(e) => setExtra(e.target.value)} />
+                <input type="number" step="any" className="input py-1 w-28" value={extra} onChange={(e) => setExtra(e.target.value)} />
               ) : (
                 <span>{shekel(payment.extra)}</span>
               )}
@@ -129,7 +129,7 @@ export function PaymentModal({
           <div className="flex justify-between items-center">
             <span>מלגה</span>
             <input
-              type="number"
+              type="number" step="any"
               min={0}
               className="input py-1 w-28"
               placeholder="0"
@@ -189,7 +189,7 @@ export function PaymentModal({
                     ))}
                   </select>
                   <input
-                    type="number"
+                    type="number" step="any"
                     min={0}
                     className="input py-1.5 w-32"
                     placeholder="סכום"
