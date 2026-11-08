@@ -70,6 +70,28 @@ export function LettersModal({
     const inRange = (p: Payment) => p.monthKey >= fromKey && p.monthKey <= toKey;
     const list = (who === 'one' && onlyStudent ? [onlyStudent] : students).map((s) => {
       const rows = payments.filter((p) => p.fullName === s.name && inRange(p)).sort((a, b) => a.monthKey - b.monthKey);
+      // מגמה עם מחיר שנתי (שנה ג'), ועוד לא נפתח לה החיוב השנתי — מציגים במכתב את שכר הלימוד השנתי
+      // כשורה, כדי שגם היא תקבל מכתב (החיוב עצמו נפתח כשהיא משלמת)
+      const annual = s.annualAmount || 0;
+      if (annual > 0 && !payments.some((p) => p.fullName === s.name && p.amountDue === annual)) {
+        rows.unshift({
+          id: 'annual-' + s.name,
+          fullName: s.name,
+          month: 'שכר לימוד שנתי',
+          year: '',
+          monthKey: 0,
+          amountDue: annual,
+          extra: 0,
+          scholarship: 0,
+          owed: annual,
+          amountPaid: 0,
+          balance: annual,
+          status: 'Unpaid',
+          paymentDate: null,
+          paymentMethod: null,
+          entries: [],
+        } as unknown as Payment);
+      }
       return { student: s, rows, balance: rows.reduce((sum, p) => sum + p.balance, 0) };
     });
     return list.filter((r) => r.rows.length && (who !== 'debtors' || r.balance > 0));
