@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { api } from '../../lib/api';
-import { MonthColumn, SCHOOL_MONTHS, StudentRow, TrackPrice, shekel } from '../../lib/payments';
+import { MonthColumn, SCHOOL_MONTHS, StudentRow, TrackPrice, shekel, ANNUAL_PLAN_METHODS, ANNUAL_MAX_INSTALLMENTS } from '../../lib/payments';
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -38,6 +38,14 @@ export function BillingModal({
   const [scholarship, setScholarship] = useState(String(student?.monthlyScholarship || ''));
   const [active, setActive] = useState(student?.active ?? true);
   const [notes, setNotes] = useState(student?.billingNotes || '');
+  // מגמה עם מחיר שנתי (שנה ג') — איך הבת משלמת, ולכמה תשלומים. מופיע במכתב להורים.
+  const trackAnnual = student?.trackAnnualAmount || 0;
+  const [personalAnnual, setPersonalAnnual] = useState(
+    student?.annualAmount && student.annualAmount !== trackAnnual ? String(student.annualAmount) : ''
+  );
+  const annual = trackAnnual ? Number(personalAnnual) || trackAnnual : student?.annualAmount || 0;
+  const [planMethod, setPlanMethod] = useState(student?.planMethod || '');
+  const [planInstallments, setPlanInstallments] = useState(String(student?.planInstallments || ''));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const candidates = allStudentNames.filter((n) => !existingNames.includes(n));
@@ -52,6 +60,7 @@ export function BillingModal({
         monthlyScholarship: Number(scholarship) || 0,
         active,
         notes,
+        ...(annual ? { planMethod, planInstallments: Number(planInstallments) || 0, annualAmount: Number(personalAnnual) || 0 } : {}),
       });
       onSaved();
     } catch (err: any) {
@@ -61,8 +70,48 @@ export function BillingModal({
   }
 
   const owed = Math.max(0, (Number(amount) || student?.trackAmount || 0) - (Number(scholarship) || 0));
+  const installments = Number(planInstallments) || 0;
   return (
     <ModalShell title={student ? `הגדרות תשלום — ${student.name}` : 'הוספת תלמידה לתשלומים'} onClose={onClose}>
+      {annual > 0 && (
+        <div className="bg-slate-50 border rounded-xl px-3 py-2 space-y-2">
+          <div className="text-sm font-semibold text-navy">שכר לימוד שנתי</div>
+          <label className="block text-sm">
+            סכום שנתי אישי
+            <input
+              type="number"
+              min={0}
+              className="input mt-1 py-1.5"
+              placeholder={`ריק = לפי המגמה (${shekel(trackAnnual)})`}
+              value={personalAnnual}
+              onChange={(e) => setPersonalAnnual(e.target.value)}
+            />
+            <span className="text-xs text-slate-500">
+              לפי המגמה: {shekel(trackAnnual)}. ממלאים רק אם לבת הזו יש סכום אחר (הנחה וכו'). חל על חיוב שנתי שייפתח מעכשיו ועל המכתב.
+            </span>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <label className="text-sm">
+              אופן תשלום
+              <select className="input mt-1 py-1.5" value={planMethod} onChange={(e) => setPlanMethod(e.target.value)}>
+                <option value="">—</option>
+                {ANNUAL_PLAN_METHODS.map((m) => (
+                  <option key={m}>{m}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              מספר תשלומים (עד {ANNUAL_MAX_INSTALLMENTS})
+              <input type="number" min={1} max={ANNUAL_MAX_INSTALLMENTS} className="input mt-1 py-1.5 w-24" value={planInstallments} onChange={(e) => setPlanInstallments(e.target.value)} />
+            </label>
+          </div>
+          {installments > 0 && (
+            <p className="text-xs text-slate-600">
+              {installments === 1 ? `תשלום אחד של ${shekel(annual)}` : `${installments} תשלומים של ${shekel(Math.round((annual / installments) * 100) / 100)}`} — יופיע במכתב להורים.
+            </p>
+          )}
+        </div>
+      )}
       {!student && (
         <label className="block text-sm">
           תלמידה
@@ -74,6 +123,8 @@ export function BillingModal({
           </datalist>
         </label>
       )}
+      {!annual && (
+      <>
       <label className="block text-sm">
         סכום חודשי אישי
         <input
@@ -102,6 +153,8 @@ export function BillingModal({
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
         לחייב אותה בכל חודש (לבטל כשהתלמידה סיימה או עזבה)
       </label>
+      </>
+      )}
       <label className="block text-sm">
         הערות
         <input className="input mt-1" value={notes} onChange={(e) => setNotes(e.target.value)} />

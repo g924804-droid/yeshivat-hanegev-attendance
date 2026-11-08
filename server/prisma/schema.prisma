@@ -276,6 +276,10 @@ model StudentBilling {
   monthlyScholarship Float   @default(0)
   active             Boolean @default(true) // false = לא ליצור לה יותר חיובים חודשיים (למשל סיימה)
   notes              String?
+  // תוכנית תשלום למגמה עם מחיר שנתי (שנה ג'): אופן התשלום ומספר התשלומים — מופיע במכתב להורים
+  planMethod         String?
+  planInstallments   Int?
+  annualAmount       Float? // סכום שנתי אישי (במקום מחיר המגמה השנתי) — הנחה וכו'
 }
 
 // סכום חודשי לפי מגמה (מסלול ב-Airtable) — כל תלמידה במגמה מחויבת בו, אלא אם הוגדר לה סכום אישי.

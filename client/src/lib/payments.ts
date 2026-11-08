@@ -41,8 +41,17 @@ export type StudentRow = {
   active: boolean;
   /** מגמה עם מחיר שנתי — הסכום לשנה (0 = לא) */
   annualAmount?: number;
+  /** הסכום השנתי של המגמה (לפני סכום אישי) */
+  trackAnnualAmount?: number;
+  /** תוכנית תשלום (מגמה שנתית): אופן התשלום ומספר התשלומים */
+  planMethod?: string;
+  planInstallments?: number;
   billingNotes: string;
 };
+
+/** אופני תשלום ומקסימום תשלומים לשכר לימוד שנתי (שנה ג') — בטופס במכתב ובהגדרות התלמידה */
+export const ANNUAL_PLAN_METHODS = ['מזומן', "צ'קים", 'הוראת קבע', 'העברה בנקאית'];
+export const ANNUAL_MAX_INSTALLMENTS = 9;
 
 export type TrackPrice = { trackId: string; trackName: string; monthlyAmount: number; annual?: boolean };
 

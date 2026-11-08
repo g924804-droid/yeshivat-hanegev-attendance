@@ -221,8 +221,13 @@ router.get('/overview', async (req, res) => {
           monthlyScholarship: charge.scholarship,
           // תלמידה במגמה עם מחיר שנתי — פעילה (רק בלי חיוב חודשי), לא "סיימה"
           active: charge.active || (info?.trackIds || []).some((id) => annualPrices.has(id)),
-          annualAmount: Math.max(0, ...(info?.trackIds || []).map((id) => annualPrices.get(id) || 0)),
+          annualAmount: (info?.trackIds || []).some((id) => annualPrices.has(id))
+            ? billing.find((x) => x.studentName === name)?.annualAmount || Math.max(0, ...(info?.trackIds || []).map((id) => annualPrices.get(id) || 0))
+            : 0,
+          trackAnnualAmount: Math.max(0, ...(info?.trackIds || []).map((id) => annualPrices.get(id) || 0)),
           billingNotes: billing.find((x) => x.studentName === name)?.notes || '',
+          planMethod: billing.find((x) => x.studentName === name)?.planMethod || '',
+          planInstallments: billing.find((x) => x.studentName === name)?.planInstallments || 0,
         };
       }),
       trackPrices: studentsData.tracks.map((t) => ({
@@ -335,8 +340,9 @@ router.put('/updatePayment', async (req, res) => {
 /** הגדרות קבועות לתלמידה: סכום חודשי, מלגה חודשית, והאם עדיין לחייב אותה. */
 router.post('/saveBilling', async (req, res) => {
   try {
-    const { studentName, monthlyAmount, monthlyScholarship, active, notes } = req.body as {
+    const { studentName, monthlyAmount, monthlyScholarship, active, notes, planMethod, planInstallments, annualAmount } = req.body as {
       studentName: string; monthlyAmount: number; monthlyScholarship: number; active: boolean; notes?: string;
+      planMethod?: string; planInstallments?: number; annualAmount?: number;
     };
     const name = norm(studentName);
     if (!name) return res.status(400).json({ error: 'חסר שם תלמידה' });
@@ -345,6 +351,10 @@ router.post('/saveBilling', async (req, res) => {
       monthlyScholarship: Math.max(0, num(monthlyScholarship)),
       active: active !== false,
       notes: notes || null,
+      // תוכנית תשלום למגמה עם מחיר שנתי (שנה ג') — מופיעה במכתב להורים
+      ...(planMethod !== undefined ? { planMethod: norm(planMethod) || null } : {}),
+      ...(annualAmount !== undefined ? { annualAmount: Math.max(0, num(annualAmount)) || null } : {}),
+      ...(planInstallments !== undefined ? { planInstallments: Math.max(0, Math.min(9, Math.floor(num(planInstallments)))) || null } : {}),
     };
     await prisma.studentBilling.upsert({ where: { studentName: name }, create: { studentName: name, ...data }, update: data });
     res.json({ success: true });
@@ -393,8 +403,9 @@ router.post('/generateAnnualCharges', async (req, res) => {
     for (const name of names) {
       const b = billing.find((x) => x.studentName === name);
       if (b && !b.active) continue;
+      const amount = b?.annualAmount || annual;
       const exists = payments.some(
-        (p) => p.fullName === name && p.amountDue === annual && schoolYearStart(MONTH_INDEX[p.month] || 0, Number(p.year)) === target
+        (p) => p.fullName === name && p.amountDue === amount && schoolYearStart(MONTH_INDEX[p.month] || 0, Number(p.year)) === target
       );
       if (exists) {
         skipped.push(name);
@@ -404,10 +415,10 @@ router.post('/generateAnnualCharges', async (req, res) => {
         [F.fullName]: name,
         [F.month]: month,
         [F.year]: String(year),
-        [F.amountDue]: annual,
+        [F.amountDue]: amount,
         [F.scholarship]: 0,
         [F.amountPaid]: 0,
-        [F.status]: computeStatus(annual, 0),
+        [F.status]: computeStatus(amount, 0),
       });
     }
     await airtableBatchCreate(TABLES.payments, toCreate);

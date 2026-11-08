@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Printer, X } from 'lucide-react';
 import { api } from '../../lib/api';
-import { MonthColumn, Payment, StudentRow, shekel } from '../../lib/payments';
+import { MonthColumn, Payment, StudentRow, shekel, ANNUAL_PLAN_METHODS, ANNUAL_MAX_INSTALLMENTS } from '../../lib/payments';
 
 type Who = 'debtors' | 'all' | 'one';
 
@@ -138,6 +138,7 @@ export function LettersModal({
             </tbody>
           </table>
           ${balance > 0 ? `<p><strong>יתרה לתשלום: ${shekel(balance)}</strong></p>` : ''}
+          ${planLine(student)}
           <p>${paragraphs(balance > 0 ? closingDebt : closingPaid)}</p>
           <div class="sign">${paragraphs(signature)}</div>
         </div>`;
@@ -238,4 +239,20 @@ export function LettersModal({
       </div>
     </div>
   );
+}
+
+/**
+ * במכתב — רק לבנות של מגמה עם מחיר שנתי (שנה ג'): טופס שההורים ממלאים — אופן התשלום (לסימון)
+ * ומספר התשלומים (קו פתוח, עד 9). מה שכבר נקבע בהגדרות התלמידה מסומן/ממולא מראש.
+ */
+function planLine(student: StudentRow): string {
+  if (!(student.annualAmount || 0)) return '';
+  const box = (m: string) =>
+    `<span style="margin-left:18px;white-space:nowrap"><span style="display:inline-block;width:13px;height:13px;border:1.5px solid #333;vertical-align:middle;text-align:center;line-height:11px;font-size:12px">${student.planMethod === m ? '✓' : ''}</span> ${esc(m)}</span>`;
+  const n = student.planInstallments || 0;
+  const line = n ? `<b>${n}</b>` : '<span style="display:inline-block;width:70px;border-bottom:1px solid #333">&nbsp;</span>';
+  return `<div style="border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;margin:10px 0">
+    <div><b>אופן התשלום:</b> ${ANNUAL_PLAN_METHODS.map(box).join('')}</div>
+    <div style="margin-top:8px"><b>מספר תשלומים:</b> ${line} <span style="color:#555">(עד ${ANNUAL_MAX_INSTALLMENTS} תשלומים)</span></div>
+  </div>`;
 }
