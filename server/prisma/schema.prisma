@@ -455,3 +455,16 @@ model TrackCheckpoints {
   weekdays  String? // JSON: [3] (0 = ראשון) — ריק = כל הימים
   updatedAt DateTime @updatedAt
 }
+
+// הערה לכל המסלול ביום מסוים בנוכחות תלמידות (למשל "מבחנים — אושר לא לבוא") — כל מי שממלאת נוכחות
+// למסלול באותו יום רואה אותה
+model TrackDayNote {
+  id        String   @id @default(cuid())
+  trackId   String
+  date      String // YYYY-MM-DD
+  text      String
+  createdBy String?
+  updatedAt DateTime @updatedAt
+
+  @@unique([trackId, date])
+}

@@ -252,6 +252,10 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
       activePeriod,
       checkpoints,
       activeCheckpoint,
+      dayNote: await prisma.trackDayNote
+        .findUnique({ where: { trackId_date: { trackId, date } }, select: { text: true, createdBy: true } })
+        .catch(() => null),
+      canEditDayNote: canSeeAllStudentTracks(req.user!),
       isFuture: isFutureDate(date),
       hebrewDate,
     });
@@ -454,6 +458,26 @@ router.get('/studentSchedules', requirePermission('studentAttendance'), async (r
     res.json({ students, ...schedule });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת מערכות השעות' });
+  }
+});
+
+/** הערה לכל המסלול ביום מסוים (למשל "מבחנים — אושר לא לבוא"). טקסט ריק = מחיקה. מנהלת/מזכירה. */
+router.post('/trackDayNote', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    const { trackId, date, text } = req.body as { trackId?: string; date?: string; text?: string };
+    if (!trackId || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return res.status(400).json({ error: 'חסרים פרטים' });
+    const t = String(text || '').trim().slice(0, 500);
+    if (!t) await prisma.trackDayNote.deleteMany({ where: { trackId, date } });
+    else
+      await prisma.trackDayNote.upsert({
+        where: { trackId_date: { trackId, date: date! } },
+        create: { trackId, date: date!, text: t, createdBy: req.user!.name },
+        update: { text: t, createdBy: req.user!.name },
+      });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירת ההערה' });
   }
 });
 

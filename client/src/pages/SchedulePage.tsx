@@ -419,7 +419,7 @@ export function SchedulePage() {
                               className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-slate-100 border border-slate-300 text-slate-700 px-1.5 py-0.5 max-w-full"
                               title="הערה קבועה — מופיעה בכל השבועות (עריכה בעיפרון)"
                             >
-                              <span className="truncate">קבועה: {l.notes}</span>
+                              <span className="truncate">{l.notes}</span>
                             </div>
                           )}
                         </div>

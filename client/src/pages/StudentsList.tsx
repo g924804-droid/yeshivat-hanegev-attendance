@@ -56,6 +56,20 @@ export function StudentsList() {
   const [checkpoints, setCheckpoints] = useState<string[] | null>(null);
   const [activeCheckpoint, setActiveCheckpoint] = useState<number | null>(null);
   const [editingCheckpoints, setEditingCheckpoints] = useState(false);
+  // הערה לכל המסלול ביום הזה (מבחנים, טיול...) — כל מי שממלאת נוכחות רואה אותה
+  const [dayNote, setDayNote] = useState<{ text: string; createdBy: string | null } | null>(null);
+  const [canEditDayNote, setCanEditDayNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+
+  async function saveDayNote(text = noteDraft || '') {
+    try {
+      await api.post('/students/trackDayNote', { trackId, date, text });
+      setNoteDraft(null);
+      load(date, activeLessonId, activePeriod, activeCheckpoint || undefined);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
   // הגנה: לתאריך שעוד לא הגיע אי אפשר לסמן נוכחות (גם השרת חוסם)
   const [isFuture, setIsFuture] = useState(false);
   const [hebrewDate, setHebrewDate] = useState('');
@@ -83,6 +97,8 @@ export function StudentsList() {
         activePeriod: number;
         checkpoints?: string[] | null;
         activeCheckpoint?: number | null;
+        dayNote?: { text: string; createdBy: string | null } | null;
+        canEditDayNote?: boolean;
         isFuture?: boolean;
         hebrewDate: string;
       }>('/students/getStudentsByTrack', {
@@ -93,6 +109,8 @@ export function StudentsList() {
         checkpoint: checkpoint || undefined,
       });
       setCheckpoints(data.checkpoints || null);
+      setDayNote(data.dayNote || null);
+      setCanEditDayNote(!!data.canEditDayNote);
       setActiveCheckpoint(data.activeCheckpoint || null);
       setTrackName(data.track.name);
       setStudents(data.students);
@@ -205,6 +223,47 @@ export function StudentsList() {
       </div>
 
       {error && <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
+      {noteDraft !== null ? (
+        <div className="mb-4 card border-2 border-amber-300 bg-amber-50">
+          <label className="text-sm font-semibold text-amber-900">הערה לכל המסלול ביום הזה (כל מי שממלאת נוכחות תראה אותה)</label>
+          <textarea
+            className="input mt-1"
+            rows={2}
+            autoFocus
+            placeholder="לדוגמה: מבחנים ביועץ מס — אושר לבנות לא לבוא"
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+          />
+          <div className="flex gap-2 mt-2">
+            <button className="btn-primary" onClick={() => saveDayNote()}>שמירה</button>
+            {dayNote && (
+              <button className="btn-outline text-red-600 border-red-200" onClick={() => saveDayNote('')}>
+                מחיקת ההערה
+              </button>
+            )}
+            <button className="btn-outline" onClick={() => setNoteDraft(null)}>ביטול</button>
+          </div>
+        </div>
+      ) : dayNote ? (
+        <div className="mb-4 rounded-xl border-2 border-amber-400 bg-amber-50 px-4 py-3 flex items-start gap-3">
+          <span className="text-xl">📌</span>
+          <div className="flex-1">
+            <div className="font-bold text-amber-900 whitespace-pre-wrap">{dayNote.text}</div>
+            {dayNote.createdBy && <div className="text-xs text-amber-700 mt-0.5">נרשם ע"י {dayNote.createdBy}</div>}
+          </div>
+          {canEditDayNote && (
+            <button className="text-xs text-navy underline" onClick={() => setNoteDraft(dayNote.text)}>
+              עריכה
+            </button>
+          )}
+        </div>
+      ) : (
+        canEditDayNote && (
+          <button className="mb-4 text-sm text-navy underline" onClick={() => setNoteDraft('')}>
+            📌 הוספת הערה ליום הזה (לכל המסלול)
+          </button>
+        )
+      )}
       {isFuture && (
         <div className="mb-4 text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-2">
           התאריך הזה עוד לא הגיע — אי אפשר לסמן נוכחות לשיעור שעוד לא התקיים.
