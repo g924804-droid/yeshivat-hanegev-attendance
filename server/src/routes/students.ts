@@ -283,6 +283,17 @@ router.post('/markStudentAttendance', requirePermission('studentAttendance'), as
       checkpoint?: number;
     };
     if (!studentId || !status) return res.status(400).json({ error: 'חסר מזהה תלמידה או סטטוס' });
+    // "באישור" — רק ההנהלה (מנהלת / מזכירה שרואה את כל המסלולים): גם לסמן, וגם לשנות סימון כזה
+    if (!canSeeAllStudentTracks(req.user!)) {
+      if (status.endsWith('באישור')) return res.status(403).json({ error: 'רק ההנהלה יכולה לסמן חיסור או איחור באישור' });
+      if (existingAttendanceId) {
+        const existing = await airtableFetch(TABLES.attendance, { filterByFormula: `RECORD_ID()="${existingAttendanceId}"`, maxRecords: 1 });
+        const e = existing[0];
+        if (e && e.fields[FIELDS.attendance.status] !== 'Present' && isExcusedNote(e.fields[FIELDS.attendance.notes])) {
+          return res.status(403).json({ error: 'ההיעדרות אושרה ע"י ההנהלה — לא ניתן לשנות אותה' });
+        }
+      }
+    }
     if (isFutureDate(date)) return res.status(400).json({ error: FUTURE_DATE_ERROR });
 
     const fields: Record<string, any> = {

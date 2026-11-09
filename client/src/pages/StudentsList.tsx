@@ -476,7 +476,7 @@ export function StudentsList() {
                 <td>{s.avgGrade ?? '—'}</td>
                 <td>
                   <div className="flex gap-1.5 justify-center">
-                    {STATUS_OPTIONS.map((opt) => (
+                    {STATUS_OPTIONS.filter((opt) => canEditDayNote || !opt.endsWith('באישור') || s.status === opt).map((opt) => (
                       <button
                         key={opt}
                         onClick={() => mark(s, opt)}
