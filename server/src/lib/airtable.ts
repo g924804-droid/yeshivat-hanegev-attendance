@@ -295,12 +295,22 @@ export async function deleteAttendanceFromAirtable(systemId: string): Promise<vo
   }
 }
 
+/**
+ * חיסור / איחור באישור (למשל מבחן שאושר לא לבוא): נשמר ב-Airtable כחסרה / איחור, עם הסימן הזה
+ * בתחילת ההערות — ולא נספר באחוז ההיעדרויות.
+ */
+export const EXCUSED_MARK = '[באישור]';
+export const isExcusedNote = (notes: unknown) => String(notes || '').trimStart().startsWith(EXCUSED_MARK);
+export const stripExcusedMark = (notes: unknown) => String(notes || '').replace(EXCUSED_MARK, '').trim();
+
 /** ממפה סטטוס נוכחות תלמידה בין עברית לאנגלית (טבלת Airtable משתמשת בערכים אנגליים). */
 export const STUDENT_STATUS_HE_TO_EN: Record<string, string> = {
   נוכחת: 'Present',
   חסרה: 'Absent',
   איחור: 'Late',
   חופשה: 'Absent',
+  'חסרה באישור': 'Absent',
+  'איחור באישור': 'Late',
 };
 
 export const STUDENT_STATUS_EN_TO_HE: Record<string, string> = {

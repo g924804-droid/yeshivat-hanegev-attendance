@@ -7,6 +7,9 @@ import {
   TABLES,
   STUDENT_STATUS_HE_TO_EN,
   STUDENT_STATUS_EN_TO_HE,
+  EXCUSED_MARK,
+  isExcusedNote,
+  stripExcusedMark,
 } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
 import { getFullSchedule } from '../lib/scheduleData';
@@ -230,7 +233,10 @@ router.get('/getStudentsByTrack', requirePermission('studentAttendance'), async 
         className: s.fields[FIELDS.students.className],
         phone: s.fields[FIELDS.students.phone],
         attendanceId: attendanceRecord?.id || null,
-        status: statusEn ? STUDENT_STATUS_EN_TO_HE[statusEn] || statusEn : null,
+        status: statusEn
+          ? (STUDENT_STATUS_EN_TO_HE[statusEn] || statusEn) +
+            (statusEn !== 'Present' && isExcusedNote(attendanceRecord?.fields[FIELDS.attendance.notes]) ? ' באישור' : '')
+          : null,
         avgGrade,
       };
     });
@@ -283,7 +289,8 @@ router.post('/markStudentAttendance', requirePermission('studentAttendance'), as
       [FIELDS.attendance.date]: date || new Date().toISOString().slice(0, 10),
       [FIELDS.attendance.student]: [studentId],
       [FIELDS.attendance.status]: STUDENT_STATUS_HE_TO_EN[status] || status,
-      [FIELDS.attendance.notes]: notes || '',
+      // "באישור" — סימן בתחילת ההערות (ראו EXCUSED_MARK)
+      [FIELDS.attendance.notes]: status.endsWith('באישור') ? `${EXCUSED_MARK} ${stripExcusedMark(notes)}`.trim() : stripExcusedMark(notes),
     };
     if (lessonId) fields[FIELDS.attendance.lesson] = [lessonId];
     // חלק 1 נשאר ריק (כמו כל הרשומות הישנות) — כותבים את העמודה רק לחלק 2 ומעלה

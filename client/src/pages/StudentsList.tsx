@@ -19,11 +19,13 @@ type Student = {
 type Lesson = { id: string; className: string; time: string; room: string; teacherName: string; periods: number; periodTimes: string[] };
 type MissingSlot = { date: string; time: string; lessonId: string; period: number; periods: number };
 
-const STATUS_OPTIONS = ['נוכחת', 'חסרה', 'איחור'];
+const STATUS_OPTIONS = ['נוכחת', 'חסרה', 'איחור', 'חסרה באישור', 'איחור באישור'];
 const STATUS_COLOR: Record<string, string> = {
   נוכחת: 'bg-green-100 text-green-800',
   חסרה: 'bg-red-100 text-red-700',
   איחור: 'bg-amber-100 text-amber-800',
+  'חסרה באישור': 'bg-sky-100 text-sky-800',
+  'איחור באישור': 'bg-sky-100 text-sky-800',
 };
 
 function addDays(dateStr: string, delta: number): string {
@@ -490,6 +492,8 @@ export function StudentsList() {
                                   ? 'ring-green-500'
                                   : opt === 'חסרה'
                                   ? 'ring-red-500'
+                                  : opt.endsWith('באישור')
+                                  ? 'ring-sky-500'
                                   : 'ring-amber-500'
                               }`
                             : 'bg-slate-100 text-slate-500 font-normal'
@@ -498,7 +502,7 @@ export function StudentsList() {
                         {s.status === opt && (
                           <span
                             className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white shrink-0 ${
-                              opt === 'נוכחת' ? 'bg-green-600' : opt === 'חסרה' ? 'bg-red-600' : 'bg-amber-600'
+                              opt === 'נוכחת' ? 'bg-green-600' : opt === 'חסרה' ? 'bg-red-600' : opt.endsWith('באישור') ? 'bg-sky-600' : 'bg-amber-600'
                             }`}
                           >
                             <Check size={12} strokeWidth={3.5} />

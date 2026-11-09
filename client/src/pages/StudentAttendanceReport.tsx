@@ -5,7 +5,7 @@ import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { todayStr, toHebrewDateString } from '../lib/utils';
 
-type Counts = { total: number; present: number; absent: number; late: number; missed: number; pct: number };
+type Counts = { total: number; present: number; absent: number; late: number; excused?: number; missed: number; pct: number };
 type LessonRow = Counts & { category: string; lesson: string; teacher: string; over: boolean };
 type AbsenceEvent = { date: string; hebDate: string; category: string; lesson: string; status: 'חסרה' | 'איחור'; notes: string };
 type StudentSummary = Counts & {
@@ -169,11 +169,11 @@ export function StudentAttendanceReport() {
         const lessonRows = groupByCategory(s.lessons)
           .map(
             ([category, rows]) =>
-              `<tr class="cat"><td colspan="6">${esc(category)}</td></tr>` +
+              `<tr class="cat"><td colspan="7">${esc(category)}</td></tr>` +
               rows
                 .map(
                   (l) => `<tr class="${l.over ? 'over' : ''}"><td class="r">${esc(l.lesson)}</td><td>${l.total}</td><td>${l.absent}</td>
-                    <td>${l.late}</td><td>${l.missed}</td><td class="${l.over ? 'red' : ''}">${l.pct}%</td></tr>`
+                    <td>${l.late}</td><td>${l.excused || 0}</td><td>${l.missed}</td><td class="${l.over ? 'red' : ''}">${l.pct}%</td></tr>`
                 )
                 .join('')
           )
@@ -199,7 +199,7 @@ export function StudentAttendanceReport() {
           ${verdict}
           ${
             lessonRows
-              ? `<h3>נוכחות לפי שיעור (לאורך כל התקופה)</h3><table><thead><tr><th>שם השיעור</th><th>שיעורים</th><th>חסרה</th><th>איחור</th><th>${missedHeader}</th><th>אחוז היעדרות</th></tr></thead><tbody>${lessonRows}</tbody></table>`
+              ? `<h3>נוכחות לפי שיעור (לאורך כל התקופה)</h3><table><thead><tr><th>שם השיעור</th><th>שיעורים</th><th>חסרה</th><th>איחור</th><th>באישור</th><th>${missedHeader}</th><th>אחוז היעדרות</th></tr></thead><tbody>${lessonRows}</tbody></table>`
               : '<p>לא נרשמה נוכחות בתקופה זו.</p>'
           }
           ${

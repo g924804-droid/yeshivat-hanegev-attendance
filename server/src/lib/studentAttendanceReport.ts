@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { airtableFetch, TABLES } from './airtable';
+import { airtableFetch, TABLES, isExcusedNote, stripExcusedMark } from './airtable';
 import { FIELDS } from './airtableFields';
 import { getFullSchedule, ParsedLesson } from './scheduleData';
 import { hebrewDate } from './hebrewDate';
@@ -9,7 +9,7 @@ import { recordPeriod } from './lessonPeriods';
 /** אחוז ההיעדרויות המקסימלי המותר בכל שיעור (חיסורים, ואיחורים אם נספרים). */
 export const ABSENCE_LIMIT_PCT = 20;
 
-type Counts = { total: number; present: number; absent: number; late: number; missed: number; pct: number };
+type Counts = { total: number; present: number; absent: number; late: number; excused: number; missed: number; pct: number };
 
 /**
  * שיעור = קטגוריה (קודש י"ג / סולם שנה ב וכו') + שם השיעור. שיעור שחוזר כל שבוע נספר כשורה
@@ -44,9 +44,11 @@ function count(statuses: string[], lateCounts: boolean): Counts {
   const present = statuses.filter((s) => s === 'Present').length;
   const absent = statuses.filter((s) => s === 'Absent').length;
   const late = statuses.filter((s) => s === 'Late').length;
-  const total = present + absent + late;
+  // חיסור / איחור באישור — השיעור נספר, אבל לא כהיעדרות
+  const excused = statuses.filter((s) => s === 'ExcusedAbsent' || s === 'ExcusedLate').length;
+  const total = present + absent + late + excused;
   const missed = absent + (lateCounts ? late : 0);
-  return { total, present, absent, late, missed, pct: total ? Math.round((missed / total) * 1000) / 10 : 0 };
+  return { total, present, absent, late, excused, missed, pct: total ? Math.round((missed / total) * 1000) / 10 : 0 };
 }
 
 /** שמות שיעורים ומורות — משותף לדוח הנוכחות ולמסך תיקון הנתונים. */
@@ -142,8 +144,8 @@ export async function buildAttendanceSummary(opts: {
       categoryId,
       lesson: lessonName(lesson),
       teacher: teacherNames(lesson),
-      status,
-      notes: [rec.fields[FIELDS.attendance.notes], rec.fields['סיבת העדרות']].filter(Boolean).join(' · '),
+      status: isExcusedNote(rec.fields[FIELDS.attendance.notes]) && status !== 'Present' ? (status === 'Late' ? 'ExcusedLate' : 'ExcusedAbsent') : status,
+      notes: [stripExcusedMark(rec.fields[FIELDS.attendance.notes]), rec.fields['סיבת העדרות']].filter(Boolean).join(' · '),
     };
     const key = `${studentId}|${lesson.id}|${date}|${recordPeriod(rec.fields[FIELDS.attendance.period])}`; // שיעור כפול: כל חלק נספר בנפרד
     const prev = byKey.get(key);
@@ -207,7 +209,7 @@ export async function buildAttendanceSummary(opts: {
   students.sort((a, b) => a.name.localeCompare(b.name, 'he'));
 
   const nameById = new Map(students.map((s) => [s.id, s.name]));
-  const statusHe: Record<string, string> = { Present: 'נוכחת', Absent: 'חסרה', Late: 'איחור' };
+  const statusHe: Record<string, string> = { Present: 'נוכחת', Absent: 'חסרה', Late: 'איחור', ExcusedAbsent: 'חסרה באישור', ExcusedLate: 'איחור באישור' };
   return {
     from,
     to,
@@ -251,6 +253,7 @@ export async function buildAttendanceExcel(summary: AttendanceSummary): Promise<
     { header: 'נוכחת', key: 'present', width: 9 },
     { header: 'חסרה', key: 'absent', width: 9 },
     { header: 'איחור', key: 'late', width: 9 },
+    { header: 'באישור', key: 'excused', width: 9 },
     { header: missedHeader, key: 'missed', width: 14 },
   ];
 
