@@ -144,11 +144,16 @@ router.get('/search', async (req, res) => {
   try {
     const q = norm(req.query.q);
     const status = norm(req.query.status); // '' | פעילה | בוגרת
-    const [students, tracks, profiles] = await Promise.all([
+    const gradFilter = normalizeSchoolYear(req.query.gradYear); // מחזור (שנת סיום)
+    const yearFilter = normalizeSchoolYear(req.query.schoolYear); // למדה בשנה הזו
+    const [students, tracks, profiles, yearRows] = await Promise.all([
       airtableFetch(TABLES.students),
       airtableFetch(TABLES.tracks),
       prisma.studentProfile.findMany(),
+      prisma.studentYear.findMany({ select: { studentId: true, schoolYear: true } }),
     ]);
+    const yearsOf = new Map<string, Set<string>>();
+    for (const y of yearRows) yearsOf.set(y.studentId, (yearsOf.get(y.studentId) || new Set()).add(y.schoolYear));
     const trackName = new Map(tracks.map((t) => [t.id, norm(t.fields[FIELDS.tracks.name])]));
     const profileById = new Map(profiles.map((p) => [p.studentId, p]));
     const qId = idKey(q);
@@ -166,10 +171,13 @@ router.get('/search', async (req, res) => {
           tracks: ((s.fields[FIELDS.students.track] as string[] | undefined) || []).map((id) => trackName.get(id) || '').filter(Boolean),
           status: p?.status || 'פעילה',
           gradYear: p?.gradYear || '',
+          years: [...(yearsOf.get(s.id) || [])].sort(),
         };
       })
       .filter((s) => s.name)
       .filter((s) => !status || s.status === status)
+      .filter((s) => !gradFilter || s.gradYear === gradFilter)
+      .filter((s) => !yearFilter || s.years.includes(yearFilter))
       .filter((s) => {
         if (!q) return true;
         // מספר — לפי ת.ז. (גם חלק ממנה)
@@ -178,7 +186,10 @@ router.get('/search', async (req, res) => {
         return qWords.every((w) => hay.includes(w));
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'he'));
-    res.json({ results: results.slice(0, 300), total: results.length });
+    // הערכים לבחירה — מחזורים ושנות לימוד שקיימים במערכת
+    const gradYears = [...new Set(profiles.map((p) => p.gradYear).filter(Boolean) as string[])].sort();
+    const schoolYears = [...new Set(yearRows.map((y) => y.schoolYear))].sort();
+    res.json({ results: results.slice(0, 300), total: results.length, gradYears, schoolYears });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בחיפוש' });
   }

@@ -76,6 +76,10 @@ function StudentSearch() {
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
+  const [gradYear, setGradYear] = useState('');
+  const [schoolYear, setSchoolYear] = useState('');
+  const [gradYears, setGradYears] = useState<string[]>([]);
+  const [schoolYears, setSchoolYears] = useState<string[]>([]);
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState('');
@@ -87,16 +91,23 @@ function StudentSearch() {
   useEffect(() => {
     const t = setTimeout(() => {
       api
-        .get<{ results: SearchResult[]; total: number }>('/studentFiles/search', { q, status })
+        .get<{ results: SearchResult[]; total: number; gradYears: string[]; schoolYears: string[] }>('/studentFiles/search', {
+          q,
+          status,
+          gradYear: gradYear || undefined,
+          schoolYear: schoolYear || undefined,
+        })
         .then((r) => {
           setResults(r.results);
           setTotal(r.total);
+          setGradYears(r.gradYears || []);
+          setSchoolYears(r.schoolYears || []);
           setError('');
         })
         .catch((e) => setError(e.message));
     }, 250);
     return () => clearTimeout(t);
-  }, [q, status, reload]);
+  }, [q, status, gradYear, schoolYear, reload]);
 
   return (
     <Layout title="תיק תלמידה">
@@ -116,6 +127,18 @@ function StudentSearch() {
             <option value="">כולן</option>
             <option value="פעילה">תלמידות פעילות</option>
             <option value="בוגרת">בוגרות</option>
+          </select>
+          <select className="input w-auto" value={gradYear} onChange={(e) => setGradYear(e.target.value)} title="מחזור — שנת הסיום">
+            <option value="">כל המחזורים</option>
+            {gradYears.map((y) => (
+              <option key={y} value={y}>מחזור {y}</option>
+            ))}
+          </select>
+          <select className="input w-auto" value={schoolYear} onChange={(e) => setSchoolYear(e.target.value)} title="בנות שלמדו בשנה הזו">
+            <option value="">כל שנות הלימוד</option>
+            {schoolYears.map((y) => (
+              <option key={y} value={y}>למדו ב{y}</option>
+            ))}
           </select>
           <button className="btn-outline" onClick={() => setShowAdd(true)}>
             <UserPlus size={18} /> הוספת תלמידה / בוגרת
