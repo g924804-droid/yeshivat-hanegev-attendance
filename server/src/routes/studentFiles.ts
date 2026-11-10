@@ -822,6 +822,9 @@ function parseAmount(t: string): number | null {
   return null;
 }
 
+/** אופן תשלום שאומר שהגבייה לא עברה — הסכום נשאר חוב ("אין הרשאה", "אכ"מ" = אין כיסוי מספיק) */
+const FAILED_COLLECTION = /אין\s*הרשאה|אכ["״']?מ|אין\s*כיסוי\s*מספיק/;
+
 type PayMonth = { month: number; amount: number | null; amountText: string | null; method: string | null; debt: number; debtText: string | null };
 type PayRow = { row: string; sheet: string; id: string; first: string; last: string; track: string; notes: string[]; months: PayMonth[] };
 
@@ -848,6 +851,14 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
     })
     .filter(Boolean) as { i: number; month: number }[];
 
+  // חודש "פעיל" בגיליון = חודש שמולא ליותר ממחצית הבנות. חודש ריק אצל רוב הבנות (סוף שנה שעוד לא
+  // הוזן, קיץ) — לא נחשב חוב; חודש ריק רק אצל בת אחת בחודש פעיל — חוב.
+  const dataRows = rows.slice(headerIdx + 1).filter((r) => cellText(r[firstCol]) && cellText(r[lastCol]));
+  const activeMonth = new Set(
+    monthCols
+      .filter(({ i }) => dataRows.filter((r) => cellText(r[i]) || cellText(r[i + 1])).length > dataRows.length / 2)
+      .map(({ month }) => month)
+  );
   const out: PayRow[] = [];
   rows.slice(headerIdx + 1).forEach((r, k) => {
     const t = (i: number) => (i >= 0 ? cellText(r[i]) : '');
@@ -855,6 +866,8 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
     const last = t(lastCol);
     if (!first || !last) return;
     const months: PayMonth[] = [];
+    // התשלום החודשי של הבת — לחודשים שלא שולמו (ריקים / "אין הרשאה")
+    const fee = parseAmount(t(feeCol));
     monthCols.forEach(({ i, month }, n) => {
       const next = monthCols[n + 1]?.i ?? h.length;
       let methodCol = -1;
@@ -875,6 +888,18 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
         debt: debtNum ?? 0,
         debtText: debtRaw && debtRaw !== 'ללא' && debtNum === null ? str(debtRaw, 200) : null,
       };
+      // "אין הרשאה" / "אכ"מ" — הגבייה לא עברה: הסכום שבתא (ואם אין — התשלום החודשי) נשאר חוב
+      if (m.method && FAILED_COLLECTION.test(m.method)) {
+        const due = amount || fee || 0;
+        m.amount = null;
+        m.amountText = amountRaw ? `לא נגבה: ${amountRaw}` : 'לא נגבה';
+        if (!m.debt && due) m.debt = due;
+      }
+      // חודש ריק לגמרי (בלי סכום, בלי אופן תשלום ובלי חוב רשום) — לא שולם: החוב הוא התשלום החודשי
+      else if (!amountRaw && !m.method && !debtRaw && fee && activeMonth.has(month)) {
+        m.amountText = 'לא שולם';
+        m.debt = fee;
+      }
       if (m.amount !== null || m.amountText || m.method || m.debt || m.debtText) months.push(m);
     });
     const notes: string[] = [];
@@ -986,6 +1011,17 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
       matched.push({ ...r, student, paid, debt, extra: extras.get(norm(name)) || [] });
     }
     const textCells = matched.reduce((s, r) => s + r.months.filter((m) => m.amountText || m.debtText).length, 0);
+    // בנות עם הרבה חודשים ריקים (נחשבו חוב) — לבדיקה ידנית: אולי שילמו בבת אחת (רשום בהערות)
+    const review = matched
+      .map((r) => ({
+        name: studentName(r.student),
+        sheet: r.sheet,
+        emptyMonths: r.months.filter((m) => m.amountText === 'לא שולם').length,
+        debt: r.debt,
+        notes: r.notes.filter((n) => !n.startsWith('תשלום חודשי') && !n.startsWith('הנחה')).join(' · '),
+      }))
+      .filter((x) => x.emptyMonths >= 4)
+      .sort((a, b) => b.emptyMonths - a.emptyMonths);
 
     if (!commit) {
       return res.json({
@@ -997,6 +1033,7 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
         totalDebt: Math.round(matched.reduce((s, r) => s + r.debt, 0)),
         withDebt: matched.filter((r) => r.debt > 0).length,
         textCells,
+        review,
         extrasCount: matched.filter((r) => r.extra.length).length,
         people: matched.map((r) => ({
           name: studentName(r.student),
@@ -1022,7 +1059,7 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
       await prisma.studentYearMonth.deleteMany({ where: { studentId, schoolYear } });
       if (r.months.length) await prisma.studentYearMonth.createMany({ data: r.months.map((m) => ({ studentId, schoolYear, ...m })) });
     }
-    res.json({ success: true, imported: matched.length, problems });
+    res.json({ success: true, imported: matched.length, problems, review });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בייבוא' });
   }

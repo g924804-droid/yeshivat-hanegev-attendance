@@ -273,7 +273,27 @@ type PayPreview = {
   extrasCount: number;
   people: { name: string; sheet: string; paid: number; debt: number; months: number; notes: number }[];
   problems: { row: string; message: string }[];
+  review?: ReviewRow[];
 };
+type ReviewRow = { name: string; sheet: string; emptyMonths: number; debt: number; notes: string };
+
+/** בנות עם 4+ חודשים ריקים בקובץ (נחשבו חוב) — לבדיקה: אולי שילמו בבת אחת, כפי שרשום בהערה */
+function ReviewList({ rows }: { rows: ReviewRow[] }) {
+  if (!rows.length) return null;
+  return (
+    <div className="mt-2 bg-sky-50 text-sky-900 rounded-xl px-4 py-2 text-sm max-h-56 overflow-y-auto">
+      <div className="font-semibold mb-1">
+        לבדיקה ({rows.length}) — חודשים ריקים בקובץ נחשבו חוב. אם הבת שילמה בבת אחת (כמו שרשום בהערה), מתקנים בתיק שלה:
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} className="border-t border-sky-100 py-1">
+          <b>{r.name}</b> ({r.sheet}) · {r.emptyMonths} חודשים ריקים · חוב {money(r.debt)}
+          {r.notes && <div className="text-xs text-sky-800">הערה: {r.notes}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** ייבוא דוח תשלומים שנתי — גיליון לכל כיתה, עמודה לכל חודש */
 function PaymentsImportModal({ onClose }: { onClose: () => void }) {
@@ -281,6 +301,7 @@ function PaymentsImportModal({ onClose }: { onClose: () => void }) {
   const [schoolYear, setSchoolYear] = useState('');
   const [preview, setPreview] = useState<PayPreview | null>(null);
   const [done, setDone] = useState<number | null>(null);
+  const [doneReview, setDoneReview] = useState<ReviewRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -294,7 +315,10 @@ function PaymentsImportModal({ onClose }: { onClose: () => void }) {
       fd.append('commit', String(commit));
       fd.append('schoolYear', schoolYear);
       const r = await api.postForm<any>('/studentFiles/importPayments', fd);
-      if (commit) setDone(r.imported);
+      if (commit) {
+        setDone(r.imported);
+        setDoneReview(r.review || []);
+      }
       else {
         setPreview(r);
         setSchoolYear(r.schoolYear);
@@ -311,6 +335,7 @@ function PaymentsImportModal({ onClose }: { onClose: () => void }) {
       {done !== null ? (
         <div>
           <div className="bg-green-50 text-green-800 rounded-xl px-4 py-3">הייבוא הסתיים: עודכנו התשלומים של {done} בנות.</div>
+          <ReviewList rows={doneReview} />
           <button className="btn-primary mt-4" onClick={onClose}>
             סגירה
           </button>
@@ -368,6 +393,7 @@ function PaymentsImportModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
               )}
+              <ReviewList rows={preview.review || []} />
               <div className="max-h-64 overflow-y-auto mt-2 border rounded-xl">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 sticky top-0">
