@@ -6,6 +6,7 @@ import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useAuth } from '../lib/permissions';
 import { currentMonth, safeFixed, formatHours, academicHours, compareByFamilyName, familyName, givenName } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
+import { AccessTab } from '../components/AccessTab';
 import { printMonthlyReport } from '../lib/printReport';
 import { confirmAndDeleteContract } from '../lib/deleteContract';
 
@@ -144,12 +145,13 @@ const CONTRACT_STATUS_STYLE: Record<ContractRow['status'], string> = {
   בוטל: 'bg-slate-100 text-slate-500',
 };
 
-const TABS = ['reports', 'employees', 'receipts', 'sync'] as const;
+const TABS = ['reports', 'employees', 'receipts', 'access', 'sync'] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABEL: Record<Tab, string> = {
   reports: 'דוחות',
   employees: 'עובדים',
   receipts: 'קבלות',
+  access: 'סיסמאות והרשאות',
   sync: 'סנכרון',
 };
 
@@ -180,6 +182,7 @@ export function AdminReports() {
       {tab === 'employees' && <EmployeesTab />}
       {tab === 'receipts' && <ReceiptsTab />}
       {tab === 'sync' && <SyncTab />}
+      {tab === 'access' && <AccessTab />}
     </Layout>
   );
 }

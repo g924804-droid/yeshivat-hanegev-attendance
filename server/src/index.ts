@@ -25,6 +25,7 @@ import announcementsRoutes from './routes/announcements';
 import settingsRoutes from './routes/settings';
 import expensesRoutes from './routes/expenses';
 import studentFilesRoutes from './routes/studentFiles';
+import accessRoutes from './routes/access';
 import { warmAirtableCache } from './lib/airtable';
 
 const app = express();
@@ -53,6 +54,7 @@ app.use('/api/announcements', announcementsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/expenses', expensesRoutes);
 app.use('/api/studentFiles', studentFilesRoutes);
+app.use('/api/access', accessRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

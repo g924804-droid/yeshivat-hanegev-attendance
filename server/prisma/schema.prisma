@@ -246,6 +246,8 @@ model SiteSettings {
   lastEarlyReminderMonth String?
   // קוד נעילה לשינויים בעבר במערכת השעות — salt:hash (scrypt), לא הקוד עצמו. ראו lib/scheduleLock.ts
   scheduleLockCode String?
+  // קוד לפתיחת לשונית "סיסמאות והרשאות" בניהול — salt:hash בלבד (ראו routes/access.ts)
+  accessAdminCode String?
   // מייל שבועי "תמונת מצב נוכחות תלמידות": מזהי העובדות שמקבלות (JSON), ותאריך השליחה האחרונה
   attendanceDigestRecipients String?
   lastAttendanceDigest       String?
