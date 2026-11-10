@@ -831,7 +831,7 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
     (r) => r.some((c) => /^חודש\s*\d+$/.test(cellText(c))) && r.some((c) => headerKey(cellText(c)) === 'שםפרטי')
   );
   if (headerIdx < 0) return null;
-  const h = rows[headerIdx].map((c) => cellText(c));
+  const h = Array.from(rows[headerIdx], (c) => cellText(c));
   const hk = h.map(headerKey);
   const firstCol = hk.indexOf('שםפרטי');
   // בגיליון אחד כותרת שם המשפחה נמחקה — אז זו העמודה שלפני השם הפרטי
@@ -900,8 +900,8 @@ function parseExtraSheet(rows: any[][]): Map<string, string[]> {
   const byName = new Map<string, string[]>();
   const hr = rows.findIndex((r) => r.some((c) => cellText(c) === 'משפחה') && r.some((c) => cellText(c) === 'שם'));
   if (hr < 0) return byName;
-  const titles = rows[hr].map((c) => cellText(c));
-  const dates = hr > 0 ? rows[hr - 1].map((c) => cellText(c)) : [];
+  const titles = Array.from(rows[hr], (c) => cellText(c));
+  const dates = hr > 0 ? Array.from(rows[hr - 1], (c) => cellText(c)) : [];
   const lastCol = titles.indexOf('משפחה');
   const firstCol = titles.indexOf('שם');
   for (const r of rows.slice(hr + 1)) {
