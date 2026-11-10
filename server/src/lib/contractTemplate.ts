@@ -156,7 +156,7 @@ export function hourlyContractHtml(
     <div><div class="line"></div><div class="cap">חתימת העמותה</div></div>
     <div>
       <div class="line">${opts.signature ? `<img src="${esc(opts.signature)}" alt="">` : ''}</div>
-      <div class="cap">חתימת המורה${opts.signedAt ? ` · נחתם ב-${heDate(opts.signedAt)}` : ''}</div>
+      <div class="cap">חתימת העובד/ת${opts.signedAt ? ` · נחתם ב-${heDate(opts.signedAt)}` : ''}</div>
     </div>
   </div>
 </body></html>`;
