@@ -154,6 +154,9 @@ model Receipt {
   fileName     String?
   status       String   @default("ממתין") // ממתין | אושר | נדחה
   adminNotes   String?
+  docType      String   @default("קבלה") // קבלה | חשבונית — על חשבונית ששולמה חובה להעלות אחר כך קבלה
+  paidAt       DateTime? // מתי סומן "שולם" (אושר = הועבר תשלום)
+  receiptForId String? // קבלה שהועלתה על חשבונית ששולמה — מזהה החשבונית
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

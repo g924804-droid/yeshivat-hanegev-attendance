@@ -22,7 +22,20 @@ const LIST_SELECT = {
   status: true,
   adminNotes: true,
   createdAt: true,
+  docType: true,
+  paidAt: true,
+  receiptForId: true,
 } as const;
+
+/** חשבוניות של העובדת ששולמו (סומנו "שולם") ועוד לא הועלתה עליהן קבלה */
+async function paidInvoicesWithoutReceipt(employeeId: string) {
+  const [invoices, receiptsFor] = await Promise.all([
+    prisma.receipt.findMany({ where: { employeeId, docType: 'חשבונית', status: 'אושר' }, select: { id: true, month: true, amount: true } }),
+    prisma.receipt.findMany({ where: { employeeId, receiptForId: { not: null } }, select: { receiptForId: true } }),
+  ]);
+  const closed = new Set(receiptsFor.map((r) => r.receiptForId));
+  return invoices.filter((i) => !closed.has(i.id));
+}
 
 const BANK_SELECT = { bankAccountHolder: true, bankName: true, bankBranch: true, bankAccountNumber: true } as const;
 const BANK_FIELDS = Object.keys(BANK_SELECT) as (keyof typeof BANK_SELECT)[];
@@ -71,15 +84,33 @@ router.post('/submitReceipt', upload.single('receiptFile'), async (req, res) => 
   try {
     const { description, receiptDate, amount } = req.body;
     if (!description || !amount) return res.status(400).json({ error: 'חסר תיאור או סכום' });
-    const month: string = req.body.month || new Date().toISOString().slice(0, 7);
+    const docType = req.body.docType === 'חשבונית' ? 'חשבונית' : 'קבלה';
+    const receiptForId: string | null = req.body.receiptForId || null;
+    let month: string = req.body.month;
+    if (!/^\d{4}-\d{2}$/.test(month || '')) return res.status(400).json({ error: 'יש לבחור לאיזה חודש הקבלה' });
 
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+    const openInvoices = await paidInvoicesWithoutReceipt(employee.id);
 
-    const lockErr = await monthLockError(req.user, employee.id, month);
-    if (lockErr) return res.status(403).json({ error: lockErr });
+    if (receiptForId) {
+      // קבלה על חשבונית ששולמה — סוגרת אותה. החודש הוא של החשבונית, בלי בדיקות נעילה/נוכחות
+      const inv = openInvoices.find((i) => i.id === receiptForId);
+      if (!inv) return res.status(400).json({ error: 'החשבונית לא נמצאה, או שכבר הועלתה עליה קבלה' });
+      month = inv.month;
+    } else {
+      // חשבונית ששולמה ועוד לא הועלתה עליה קבלה — חוסמת הגשה חדשה עד שתועלה הקבלה
+      if (openInvoices.length) {
+        const i = openInvoices[0];
+        return res.status(400).json({
+          error: `הועבר לך תשלום על החשבונית של חודש ${i.month} (${i.amount} ₪) — יש להעלות קודם קבלה על התשלום (בכפתור "העלאת קבלה" ליד החשבונית), ורק אז להגיש חדשה`,
+        });
+      }
+      const lockErr = await monthLockError(req.user, employee.id, month);
+      if (lockErr) return res.status(403).json({ error: lockErr });
 
-    const blocker = await getReceiptBlocker(employee, month);
-    if (blocker) return res.status(400).json({ error: blocker });
+      const blocker = await getReceiptBlocker(employee, month);
+      if (blocker) return res.status(400).json({ error: blocker });
+    }
 
     // חובה פרטי חשבון להעברה — מה שנשלח עכשיו, ואם לא נשלח: מה שכבר שמור מהפעם הקודמת
     const bankUpdate = bankFromBody(req.body);
@@ -94,6 +125,8 @@ router.post('/submitReceipt', upload.single('receiptFile'), async (req, res) => 
         month,
         receiptDate: receiptDate || new Date().toISOString().slice(0, 10),
         amount: Number(amount),
+        docType: receiptForId ? 'קבלה' : docType,
+        receiptForId,
         fileData: req.file?.buffer,
         fileMime: req.file?.mimetype,
         fileName: req.file?.originalname,
@@ -148,7 +181,12 @@ router.get('/:id/file', async (req, res) => {
 router.put('/updateReceiptStatus', requireAdmin, async (req, res) => {
   try {
     const { id, status, adminNotes } = req.body;
-    const receipt = await prisma.receipt.update({ where: { id }, data: { status, adminNotes }, select: LIST_SELECT });
+    // "אושר" = שולם (הועבר תשלום) — נשמר מתי
+    const receipt = await prisma.receipt.update({
+      where: { id },
+      data: { status, adminNotes, paidAt: status === 'אושר' ? new Date() : null },
+      select: LIST_SELECT,
+    });
     res.json({ success: true, receipt });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בעדכון קבלה' });

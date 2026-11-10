@@ -835,7 +835,25 @@ type ReceiptRow = {
   receiptDate: string;
   status: 'ממתין' | 'אושר' | 'נדחה';
   fileName: string | null;
+  docType?: 'קבלה' | 'חשבונית';
+  paidAt?: string | null;
+  receiptForId?: string | null;
 };
+
+const HE_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+/** "2026-10" ← "אוקטובר 2026" */
+const monthName = (m: string) => (/^\d{4}-\d{2}$/.test(m) ? `${HE_MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}` : m);
+const shiftMonth = (m: string, delta: number) => {
+  const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+/** הסטטוס בשפה ברורה: "אושר" = הועבר תשלום */
+const receiptStatusLabel = (r: { status: string; paidAt?: string | null }) =>
+  r.status === 'אושר'
+    ? `שולם ✓${r.paidAt ? ` ${new Date(r.paidAt).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}`
+    : r.status === 'ממתין'
+    ? 'ממתין לבדיקה'
+    : r.status;
 
 /** פרטי חשבון להעברה — חובה למי שמגישה קבלה, נשמרים לחודשים הבאים */
 type BankDetails = { bankAccountHolder: string; bankName: string; bankBranch: string; bankAccountNumber: string };
@@ -913,6 +931,10 @@ function ReceiptsCard() {
     }
   }
   const pendingCount = receipts.filter((r) => r.status === 'ממתין').length;
+  // חשבוניות ששולמו ועוד לא הועלתה עליהן קבלה — חובה להעלות קבלה לפני הגשה חדשה
+  const closedInvoices = new Set(receipts.map((r) => r.receiptForId).filter(Boolean));
+  const invoicesNeedingReceipt = receipts.filter((r) => r.docType === 'חשבונית' && r.status === 'אושר' && !closedInvoices.has(r.id));
+  const [receiptFor, setReceiptFor] = useState<ReceiptRow | null>(null);
 
   return (
     <div className="card mt-6">
@@ -921,9 +943,20 @@ function ReceiptsCard() {
           <Receipt size={18} className="text-gold-dark" /> קבלות
         </h3>
         <button className="btn-outline text-sm py-2" onClick={() => setShowAdd(true)}>
-          <Plus size={16} /> הגשת קבלה
+          <Plus size={16} /> הגשת קבלה / חשבונית
         </button>
       </div>
+      {invoicesNeedingReceipt.map((inv) => (
+        <div key={inv.id} className="mb-3 rounded-xl border-2 border-amber-400 bg-amber-50 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-amber-900">
+            <b>הועבר לך תשלום</b> על החשבונית של <b>{monthName(inv.month)}</b> ({inv.amount} ₪) — יש להעלות <b>קבלה</b> על התשלום.
+            עד אז אי אפשר להגיש קבלה או חשבונית חדשה.
+          </p>
+          <button className="btn-primary text-sm py-1.5" onClick={() => setReceiptFor(inv)}>
+            העלאת קבלה
+          </button>
+        </div>
+      ))}
       {/* פרטי חשבון להעברה — נשמרים לחודש הבא, ואפשר לעדכן כאן בכל רגע */}
       <div className={`mb-4 rounded-xl border px-4 py-3 ${bankComplete(bank) || !receipts.length ? 'bg-slate-50 border-slate-200' : 'bg-red-50 border-red-200'}`}>
         <div className="flex items-center justify-between gap-2 mb-1">
@@ -958,16 +991,19 @@ function ReceiptsCard() {
       </div>
       {pendingCount > 0 && (
         <p className="mb-3 text-sm font-semibold text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
-          {pendingCount === 1 ? 'יש לך קבלה אחת שממתינה לאישור' : `יש לך ${pendingCount} קבלות שממתינות לאישור`}
+          {pendingCount === 1 ? 'יש לך קבלה אחת שממתינה לבדיקה' : `יש לך ${pendingCount} קבלות שממתינות לבדיקה`}
         </p>
       )}
       <div className="space-y-2">
         {receipts.map((r) => (
           <div key={r.id} className="flex items-center justify-between text-sm border-b last:border-0 pb-2">
             <div>
-              <p className="font-medium">{r.description}</p>
+              <p className="font-medium">
+                {r.description}
+                <span className="badge bg-slate-100 text-slate-600 text-[10px] mr-1.5">{r.receiptForId ? 'קבלה על חשבונית' : r.docType || 'קבלה'}</span>
+              </p>
               <p className="text-slate-400 text-xs">
-                {r.month} · {r.amount} ₪
+                {monthName(r.month)} · {r.amount} ₪
                 {r.fileName && (
                   <>
                     {' · '}
@@ -978,18 +1014,23 @@ function ReceiptsCard() {
                 )}
               </p>
             </div>
-            <span className={`badge ${RECEIPT_STATUS_STYLE[r.status]}`}>{r.status}</span>
+            <span className={`badge ${RECEIPT_STATUS_STYLE[r.status]}`}>{receiptStatusLabel(r)}</span>
           </div>
         ))}
         {receipts.length === 0 && <p className="text-slate-400 text-sm text-center py-4">אין קבלות שהוגשו</p>}
       </div>
 
-      {showAdd && (
+      {(showAdd || receiptFor) && (
         <AddReceiptModal
           bank={bank}
-          onClose={() => setShowAdd(false)}
+          forInvoice={receiptFor}
+          onClose={() => {
+            setShowAdd(false);
+            setReceiptFor(null);
+          }}
           onSaved={() => {
             setShowAdd(false);
+            setReceiptFor(null);
             load();
             loadBank().catch(() => {});
           }}
@@ -999,14 +1040,30 @@ function ReceiptsCard() {
   );
 }
 
-function AddReceiptModal({ bank: savedBank, onClose, onSaved }: { bank: BankDetails; onClose: () => void; onSaved: () => void }) {
+function AddReceiptModal({
+  bank: savedBank,
+  forInvoice,
+  onClose,
+  onSaved,
+}: {
+  bank: BankDetails;
+  /** קבלה על חשבונית ששולמה — החודש והסוג קבועים */
+  forInvoice?: ReceiptRow | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  // קבלה או חשבונית — חובה לבחור (על חשבונית ששולמה מעלים אחר כך קבלה)
+  const [docType, setDocType] = useState<'קבלה' | 'חשבונית' | ''>(forInvoice ? 'קבלה' : '');
   const [bank, setBank] = useState<BankDetails>(savedBank);
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [file, setFile] = useState<File | null>(null);
   // לאיזה חודש הקבלה — לא תמיד החודש הנוכחי (קבלה על ספטמבר מוגשת לרוב בתחילת אוקטובר),
   // וזה גם החודש שלפיו נבדק שהנוכחות מלאה לפני ההגשה.
-  const [month, setMonth] = useState(currentMonth());
+  // בלי ברירת מחדל — חובה לבחור במפורש (מורות סימנו בטעות את החודש הנוכחי במקום הקודם)
+  const [month, setMonth] = useState(forInvoice ? forInvoice.month : '');
+  const thisMonth = currentMonth();
+  const prevMonth = shiftMonth(thisMonth, -1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1018,6 +1075,8 @@ function AddReceiptModal({ bank: savedBank, onClose, onSaved }: { bank: BankDeta
       fd.append('description', description);
       fd.append('amount', amount);
       fd.append('month', month);
+      fd.append('docType', docType);
+      if (forInvoice) fd.append('receiptForId', forInvoice.id);
       fd.append('receiptDate', todayStr());
       if (file) fd.append('receiptFile', file);
       for (const f of BANK_FIELDS) fd.append(f.key, bank[f.key]);
@@ -1033,13 +1092,48 @@ function AddReceiptModal({ bank: savedBank, onClose, onSaved }: { bank: BankDeta
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-3">
-        <h3 className="font-bold text-navy text-lg">הגשת קבלה</h3>
+        <h3 className="font-bold text-navy text-lg">
+          {forInvoice ? `קבלה על התשלום — חשבונית ${monthName(forInvoice.month)}` : 'הגשת קבלה / חשבונית'}
+        </h3>
+        {!forInvoice && (
+          <div>
+            <label className="label">מה את מגישה? *</label>
+            <div className="flex rounded-lg border overflow-hidden text-sm">
+              {(['קבלה', 'חשבונית'] as const).map((t) => (
+                <button key={t} type="button" onClick={() => setDocType(t)}
+                  className={`flex-1 py-2 ${docType === t ? 'bg-navy text-white' : 'bg-white text-slate-600'}`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            {docType === 'חשבונית' && (
+              <p className="text-xs text-amber-800 mt-1">אחרי שיועבר התשלום — חובה להעלות קבלה עליו, לפני הגשה של החודש הבא.</p>
+            )}
+          </div>
+        )}
         <input className="input" placeholder="תיאור" value={description} onChange={(e) => setDescription(e.target.value)} />
-        <input type="number" className="input" placeholder="סכום (₪)" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <div>
-          <label className="label">חודש הקבלה</label>
-          <input type="month" className="input" value={month} onChange={(e) => setMonth(e.target.value)} />
-        </div>
+        <input type="number" step="any" className="input" placeholder="סכום (₪)" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        {!forInvoice && (
+          <div>
+            <label className="label">על עבודה באיזה חודש? *</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[prevMonth, thisMonth].map((m) => (
+                <button key={m} type="button" onClick={() => setMonth(m)}
+                  className={`py-2 rounded-lg border text-sm ${month === m ? 'bg-navy text-white border-navy' : 'bg-white text-slate-700'}`}>
+                  {monthName(m)}
+                  <span className="block text-[11px] opacity-80">{m === prevMonth ? 'החודש הקודם' : 'החודש הנוכחי'}</span>
+                </button>
+              ))}
+            </div>
+            <input type="month" className="input mt-2 py-1.5 text-sm" value={month} onChange={(e) => setMonth(e.target.value)} title="חודש אחר" />
+            {month && (
+              <p className={`text-sm mt-1 font-semibold ${month === thisMonth ? 'text-amber-800' : 'text-navy'}`}>
+                {docType || 'הקבלה'} עבור עבודה בחודש: {monthName(month)}
+                {month === thisMonth && ' — החודש עוד לא הסתיים. בטוחה שזה לא על החודש הקודם?'}
+              </p>
+            )}
+          </div>
+        )}
         <input type="file" className="input" onChange={(e) => setFile(e.target.files?.[0] || null)} />
         <div className="border-t pt-3">
           <p className="font-semibold text-navy text-sm mb-1">פרטי חשבון להעברה</p>
@@ -1049,7 +1143,7 @@ function AddReceiptModal({ bank: savedBank, onClose, onSaved }: { bank: BankDeta
         {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
         <div className="flex gap-2 justify-end pt-2">
           <button className="btn-outline" onClick={onClose}>ביטול</button>
-          <button className="btn-primary" onClick={submit} disabled={busy || !description || !amount || !bankComplete(bank)}>שליחה</button>
+          <button className="btn-primary" onClick={submit} disabled={busy || !description || !amount || !month || !docType || !bankComplete(bank)}>שליחה</button>
         </div>
       </div>
     </div>

@@ -108,6 +108,9 @@ type ReceiptRow = {
   status: string;
   month: string;
   fileName: string | null;
+  docType?: string;
+  paidAt?: string | null;
+  receiptForId?: string | null;
   employee: { name: string; bankAccountHolder?: string | null; bankName?: string | null; bankBranch?: string | null; bankAccountNumber?: string | null };
 };
 
@@ -1319,6 +1322,7 @@ function ReceiptsTab() {
             <th>פרטי חשבון</th>
             <th>חודש</th>
             <th>סכום</th>
+            <th>סוג</th>
             <th>סטטוס</th>
             <th></th>
           </tr>
@@ -1343,10 +1347,24 @@ function ReceiptsTab() {
               </td>
               <td>{r.month}</td>
               <td>{r.amount} ₪</td>
-              <td>{r.status}</td>
+              <td className="text-xs">
+                {r.receiptForId ? 'קבלה על חשבונית' : r.docType || 'קבלה'}
+                {r.docType === 'חשבונית' && r.status === 'אושר' && (
+                  <div className={receipts.some((x) => x.receiptForId === r.id) ? 'text-green-700' : 'text-amber-700 font-semibold'}>
+                    {receipts.some((x) => x.receiptForId === r.id) ? 'קבלה התקבלה ✓' : 'ממתין לקבלה'}
+                  </div>
+                )}
+              </td>
+              <td className={r.status === 'אושר' ? 'text-green-700 font-semibold' : ''}>
+                {r.status === 'אושר'
+                  ? `שולם ✓${r.paidAt ? ` ${new Date(r.paidAt).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}`
+                  : r.status === 'ממתין'
+                  ? 'ממתין'
+                  : r.status}
+              </td>
               <td className="flex gap-1 justify-center py-1">
-                <button className="btn-gold text-xs py-1 px-2" onClick={() => updateStatus(r.id, 'אושר')}>
-                  אישור
+                <button className="btn-gold text-xs py-1 px-2" onClick={() => updateStatus(r.id, 'אושר')} title="הועבר תשלום">
+                  סימון: שולם
                 </button>
                 <button className="btn-danger text-xs py-1 px-2" onClick={() => updateStatus(r.id, 'נדחה')}>
                   דחייה
