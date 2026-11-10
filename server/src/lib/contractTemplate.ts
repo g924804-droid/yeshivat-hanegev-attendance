@@ -10,7 +10,11 @@ export type HourlyContractData = {
   startDate: string; // YYYY-MM-DD או ריק
   role: string;
   manager: string;
-  hourlyRate: number;
+  hourlyRate: number; // שעתי: תעריף לשעה אקדמית; גלובלי: שכר חודשי
+  /** שעתי (ברירת מחדל) או גלובלי — שכר חודשי קבוע */
+  payType: 'hourly' | 'global';
+  /** גלובלי: היקף המשרה (למשל "חצי משרה", "3 ימים בשבוע") — לא חובה */
+  scope: string;
   travel: string;
   approver: string;
   extraNotes: string;
@@ -47,6 +51,8 @@ export function parseHourlyContractData(body: any): HourlyContractData {
     role: str(body?.role),
     manager: str(body?.manager),
     hourlyRate: rate,
+    payType: body?.payType === 'global' ? 'global' : 'hourly',
+    scope: str(body?.scope),
     travel: str(body?.travel) || HOURLY_CONTRACT_DEFAULTS.travel,
     approver: str(body?.approver, 100) || HOURLY_CONTRACT_DEFAULTS.approver,
     extraNotes: str(body?.extraNotes, 1000),
@@ -54,7 +60,7 @@ export function parseHourlyContractData(body: any): HourlyContractData {
   if (!data.employeeName) throw new Error('חסר שם העובדת');
   if (!data.role) throw new Error('חסר תפקיד');
   if (!data.manager) throw new Error('חסר ממונה ישיר');
-  if (!Number.isFinite(rate) || rate <= 0) throw new Error('חסר תעריף לשעה');
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error(data.payType === 'global' ? 'חסר שכר חודשי' : 'חסר תעריף לשעה');
   return data;
 }
 
@@ -113,9 +119,16 @@ export function hourlyContractHtml(
   <table>
     ${row('תפקיד:', esc(d.role))}
     ${row('ממונה ישיר:', `${esc(d.manager)}<br>בעת הצורך ניתן לפנות לממונת העל הגב' רחל קרמר`)}
-    ${row('הבסיס שלפיו משולם השכר:', 'מישרה שעתית')}
-    ${row('ימים ושעות:', 'לפי מערכת השעות בסמינר')}
-    ${row('תעריף לשעה:', `ברוטו <b>${fmtRate(d.hourlyRate)} ₪</b> לשעה אקדמית **<br>השכר לשעה כולל חופשה ודמי הבראה***`)}
+    ${
+      d.payType === 'global'
+        ? row('הבסיס שלפיו משולם השכר:', 'משרה גלובלית — שכר חודשי קבוע') +
+          (d.scope ? row('היקף המשרה:', esc(d.scope)) : '') +
+          row('ימים ושעות:', 'לפי מערכת השעות בסמינר') +
+          row('שכר חודשי:', `ברוטו <b>${fmtRate(d.hourlyRate)} ₪</b> לחודש`)
+        : row('הבסיס שלפיו משולם השכר:', 'מישרה שעתית') +
+          row('ימים ושעות:', 'לפי מערכת השעות בסמינר') +
+          row('תעריף לשעה:', `ברוטו <b>${fmtRate(d.hourlyRate)} ₪</b> לשעה אקדמית **<br>השכר לשעה כולל חופשה ודמי הבראה***`)
+    }
     ${row('נסיעות:', esc(d.travel))}
     ${row('אופן התשלום:', 'העברה בנקאית')}
   </table>
@@ -134,8 +147,8 @@ export function hourlyContractHtml(
 
   <div class="notes">
     <p>* בתקופות בהן אין לימודים בסמינר, העובד יוגדר כ"לא עובד"</p>
-    <p class="hl">** יש לרשום בדוח השעות את מספר השיעורים שנמסרו בפועל, לא כולל הפסקות</p>
-    <p>*** מוסכם בזאת כי השכר השעתי נקבע מראש בשיעור מוגדל, והוא כולל קצובת הבראה עפ"י ההסכם הקיבוצי, מוסכם בזאת כי קצובת ההבראה תשולם באופן שוטף, וחלקה היחסי לכל חודש ישולם עם השכר בגין אותו חודש וכלול בה.</p>
+    ${d.payType === 'global' ? '' : `<p class="hl">** יש לרשום בדוח השעות את מספר השיעורים שנמסרו בפועל, לא כולל הפסקות</p>
+    <p>*** מוסכם בזאת כי השכר השעתי נקבע מראש בשיעור מוגדל, והוא כולל קצובת הבראה עפ"י ההסכם הקיבוצי, מוסכם בזאת כי קצובת ההבראה תשולם באופן שוטף, וחלקה היחסי לכל חודש ישולם עם השכר בגין אותו חודש וכלול בה.</p>`}
   </div>
 
   <p style="margin-top:14px"><b>תאריך:</b> ${heDate(opts.signedAt || opts.createdAt)}</p>

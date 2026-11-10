@@ -107,7 +107,7 @@ router.post('/createFromTemplate', requireAdmin, async (req, res) => {
         title: title?.trim() || `הודעה בדבר תנאי עבודה — ${data.employeeName}`,
         employeeId: employee.id,
         amount: data.hourlyRate,
-        amountUnit: 'לשעה',
+        amountUnit: data.payType === 'global' ? 'לחודש' : 'לשעה',
         status: 'ממתין לחתימה',
         uploadedAt: createdAt,
         fileData: pdf,

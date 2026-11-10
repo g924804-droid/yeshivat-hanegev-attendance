@@ -28,6 +28,8 @@ const EMPTY = {
   role: '',
   manager: '',
   hourlyRate: '',
+  payType: 'hourly',
+  scope: '',
   travel: 'כחוק',
   approver: 'מיכל פיננהנדלר',
   extraNotes: '',
@@ -68,7 +70,7 @@ export function TemplateContractModal({ onClose, onSaved }: { onClose: () => voi
     if (!employeeId) m.push('עובדת');
     if (!form.role.trim()) m.push('תפקיד');
     if (!form.manager.trim()) m.push('ממונה ישיר');
-    if (!(Number(form.hourlyRate) > 0)) m.push('תעריף לשעה');
+    if (!(Number(form.hourlyRate) > 0)) m.push(form.payType === 'global' ? 'שכר חודשי' : 'תעריף לשעה');
     return m;
   }, [employeeId, form]);
 
@@ -116,7 +118,19 @@ export function TemplateContractModal({ onClose, onSaved }: { onClose: () => voi
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-3 max-h-[92vh] overflow-y-auto">
-        <h3 className="font-bold text-navy text-lg">חוזה מתבנית — הודעה בדבר תנאי עבודה (שעתי)</h3>
+        <h3 className="font-bold text-navy text-lg">חוזה מתבנית — הודעה בדבר תנאי עבודה</h3>
+        <div className="flex rounded-lg border overflow-hidden text-sm">
+          {(['hourly', 'global'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => set('payType', t)}
+              className={`flex-1 py-1.5 ${form.payType === t ? 'bg-navy text-white' : 'bg-white text-slate-600'}`}
+            >
+              {t === 'hourly' ? 'שעתי — תעריף לשעה' : 'גלובלי — שכר חודשי'}
+            </button>
+          ))}
+        </div>
 
         <div>
           <label className="label">עובדת *</label>
@@ -167,7 +181,7 @@ export function TemplateContractModal({ onClose, onSaved }: { onClose: () => voi
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="label">תעריף לשעה אקדמית (₪ ברוטו) *</label>
+            <label className="label">{form.payType === 'global' ? 'שכר חודשי (₪ ברוטו) *' : 'תעריף לשעה אקדמית (₪ ברוטו) *'}</label>
             <input className="input" inputMode="decimal" value={form.hourlyRate} onChange={(e) => set('hourlyRate', e.target.value)} />
           </div>
           <div>
@@ -175,6 +189,12 @@ export function TemplateContractModal({ onClose, onSaved }: { onClose: () => voi
             <input className="input" value={form.travel} onChange={(e) => set('travel', e.target.value)} />
           </div>
         </div>
+        {form.payType === 'global' && (
+          <div>
+            <label className="label">היקף המשרה (לא חובה)</label>
+            <input className="input" value={form.scope} onChange={(e) => set('scope', e.target.value)} placeholder="למשל: חצי משרה / 3 ימים בשבוע" />
+          </div>
+        )}
         <div>
           <label className="label">אישור לשימוש בטכנולוגיה / פעילות חריגה — מגב'</label>
           <input className="input" value={form.approver} onChange={(e) => set('approver', e.target.value)} />
