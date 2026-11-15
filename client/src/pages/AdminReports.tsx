@@ -42,6 +42,7 @@ type ReportRow = {
     department: string | null;
     role?: string;
     employmentType?: string | null;
+    employeeStatus?: string | null;
     bankAccountHolder?: string | null;
     bankName?: string | null;
     bankBranch?: string | null;
@@ -49,7 +50,11 @@ type ReportRow = {
   };
 };
 
-type MissingEmployee = { id: string; name: string; lastName: string | null; department: string | null; employmentType?: string | null };
+/** פעיל/ה בפועל — לא סומן "לא פעיל" ולא בחופשת לידה / מחלה / סיום העסקה */
+const isWorking = (e: { isActive?: boolean; employeeStatus?: string | null }) =>
+  e.isActive !== false && (!e.employeeStatus || e.employeeStatus === 'פעיל');
+
+type MissingEmployee = { id: string; name: string; lastName: string | null; department: string | null; employmentType?: string | null; employeeStatus?: string | null };
 
 /** שורה בטבלת הדוחות: עובד/ת עם דוח, או בלי דוח בכלל החודש ("חסר"). */
 type EmployeeRow = {
@@ -58,6 +63,7 @@ type EmployeeRow = {
   lastName: string | null;
   department: string | null;
   employmentType?: string | null;
+  employeeStatus?: string | null;
   status: 'חסר' | ReportRow['status'];
   report: ReportRow | null;
 };
@@ -239,6 +245,9 @@ function ReportsTab() {
   }
 
   // כל העובדים בטבלה אחת — כולל מי שעוד לא התחיל/ה דוח — לפי א'-ב' של שם המשפחה
+  // עובדים בחופשה / לא פעילים — מוסתרים כברירת מחדל (ובכל מקרה בסוף הרשימה)
+  const [showOnLeave, setShowOnLeave] = useState(false);
+  const onLeaveCount = useMemo(() => [...reports.map((r) => r.employee), ...missing].filter((e) => !isWorking(e)).length, [reports, missing]);
   const rows = useMemo<EmployeeRow[]>(
     () =>
       [
@@ -247,16 +256,20 @@ function ReportsTab() {
           name: r.employee.name,
           lastName: r.employee.lastName,
           department: r.employee.department,
+          employeeStatus: r.employee.employeeStatus,
           status: r.status,
           report: r,
         })),
         ...missing.map((m) => ({ ...m, status: 'חסר' as const, report: null })),
-      ].sort(compareByFamilyName),
+      ].sort((a, b) => Number(!isWorking(a)) - Number(!isWorking(b)) || compareByFamilyName(a, b)),
     [reports, missing]
   );
   const shownRows = useMemo(
-    () => rows.filter((r) => r.name.includes(search.trim()) && (statusFilter === 'הכל' || r.status === statusFilter)),
-    [rows, search, statusFilter]
+    () =>
+      rows.filter(
+        (r) => r.name.includes(search.trim()) && (statusFilter === 'הכל' || r.status === statusFilter) && (showOnLeave || isWorking(r))
+      ),
+    [rows, search, statusFilter, showOnLeave]
   );
 
   useEffect(() => {
@@ -387,6 +400,12 @@ function ReportsTab() {
           <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input className="input pr-9" placeholder="חיפוש לפי שם..." value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+        {onLeaveCount > 0 && (
+          <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={showOnLeave} onChange={(e) => setShowOnLeave(e.target.checked)} />
+            גם בחופשה / לא פעילים ({onLeaveCount})
+          </label>
+        )}
         {STATUS_FILTERS.map((st) => (
           <button
             key={st}
@@ -641,6 +660,8 @@ function EmployeesTab() {
   const [reminderStatus, setReminderStatus] = useState<ReminderStatus | null>(null);
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [workAreaFilter, setWorkAreaFilter] = useState('');
+  // ברירת מחדל: רק פעילים; לא פעילים / בחופשה — בסינון נפרד, ובסוף הרשימה ב"כולם"
+  const [activeFilter, setActiveFilter] = useState<'active' | 'inactive' | 'all'>('active');
 
   async function load() {
     const [employeesData, contractsData] = await Promise.all([
@@ -679,8 +700,9 @@ function EmployeesTab() {
       employees
         .filter((e) => !departmentFilter || e.department === departmentFilter)
         .filter((e) => !workAreaFilter || e.workArea === workAreaFilter)
-        .sort(compareByFamilyName),
-    [employees, departmentFilter, workAreaFilter]
+        .filter((e) => activeFilter === 'all' || (activeFilter === 'active') === isWorking(e))
+        .sort((a, b) => Number(!isWorking(a)) - Number(!isWorking(b)) || compareByFamilyName(a, b)),
+    [employees, departmentFilter, workAreaFilter, activeFilter]
   );
 
   async function importFromAirtable() {
@@ -749,6 +771,11 @@ function EmployeesTab() {
             {WORK_AREAS.map((w) => (
               <option key={w} value={w}>{w}</option>
             ))}
+          </select>
+          <select className="input w-auto" value={activeFilter} onChange={(e) => setActiveFilter(e.target.value as 'active' | 'inactive' | 'all')}>
+            <option value="active">פעילים ({employees.filter(isWorking).length})</option>
+            <option value="inactive">לא פעילים / בחופשה ({employees.filter((e) => !isWorking(e)).length})</option>
+            <option value="all">כולם</option>
           </select>
         </div>
         <div className="flex gap-2">
@@ -827,7 +854,9 @@ function EmployeesTab() {
                   <td>{e.role}</td>
                   <td>{e.department || '—'}</td>
                   <td>{e.workArea || '—'}</td>
-                  <td>{e.isActive ? 'כן' : 'לא'}</td>
+                  <td>
+                    {isWorking(e) ? 'כן' : <span className="text-slate-500">{!e.isActive ? 'לא' : e.employeeStatus}</span>}
+                  </td>
                   <td>
                     {employeeContracts.length > 0 ? (
                       <button
