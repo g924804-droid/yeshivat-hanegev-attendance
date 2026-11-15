@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './lib/permissions';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PermissionGuard } from './components/PermissionGuard';
 import { LoadingProgress } from './components/LoadingProgress';
+import { ScrollToTop } from './components/ScrollToTop';
 import { api } from './lib/api';
 
 import { PasswordLogin } from './pages/PasswordLogin';
@@ -263,6 +264,7 @@ export default function App() {
       <NewVersionBanner />
       <AuthProvider>
         <AppRoutes />
+        <ScrollToTop />
       </AuthProvider>
     </ErrorBoundary>
   );
