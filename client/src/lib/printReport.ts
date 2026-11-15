@@ -137,7 +137,7 @@ function buildHtml(
       ${stat('ימי עבודה', report.totalWorkDays)}
       ${stat('סה"כ שעות', report.totalHours.toFixed(2))}
       ${stat('שעות עודפות', report.totalOvertime.toFixed(2))}
-      ${employeeRole !== 'מורה' ? stat('שעות חסרות', days.reduce((s, d) => s + (d.missingHours || 0), 0).toFixed(2)) : ''}
+      ${stat('שעות חסרות', days.reduce((s, d) => s + (d.missingHours || 0), 0).toFixed(2))}
       ${stat('ימי מחלה', report.sickDays)}
       ${stat('ימי חופשה', report.vacationDays)}
       ${stat('ימי חג', report.holidayDays)}
