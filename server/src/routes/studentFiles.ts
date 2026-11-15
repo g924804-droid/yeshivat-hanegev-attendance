@@ -195,6 +195,9 @@ router.get('/search', async (req, res) => {
   }
 });
 
+/** מפתח שנה+תכנית: "תשפ"ד" לכיתה, "תשפ"ד · הוראה" ללימודי הוראה */
+const yearKey = (schoolYear: string, program: string) => (program ? `${schoolYear} · ${program}` : schoolYear);
+
 // ---------- התיק המלא ----------
 
 router.get('/student/:id', async (req, res) => {
@@ -311,20 +314,28 @@ router.get('/student/:id', async (req, res) => {
       years,
       // פירוט חודשי לפי שנה — לפי סדר שנת הלימודים (ספטמבר עד אוגוסט)
       yearMonths: Object.fromEntries(
-        [...new Set(yearMonths.map((m) => m.schoolYear))].map((y) => [
+        [...new Set(yearMonths.map((m) => yearKey(m.schoolYear, m.program)))].map((y) => [
           y,
           yearMonths
-            .filter((m) => m.schoolYear === y)
+            .filter((m) => yearKey(m.schoolYear, m.program) === y)
             .sort((a, b) => ((a.month + 3) % 12) - ((b.month + 3) % 12))
             .map(({ month, amount, amountText, method, debt, debtText }) => ({ month, amount, amountText, method, debt, debtText })),
         ])
       ),
-      yearsSummary: allYears.map((y) => ({
-        schoolYear: y,
-        manual: years.find((r) => r.schoolYear === y) || null,
-        live: liveByYear.get(y) || null,
-        attendance: attByYear.get(y) || null,
-      })),
+      yearsSummary: allYears.flatMap((y) => [
+        {
+          key: y,
+          schoolYear: y,
+          program: '',
+          manual: years.find((r) => r.schoolYear === y && !r.program) || null,
+          live: liveByYear.get(y) || null,
+          attendance: attByYear.get(y) || null,
+        },
+        // לימודי הוראה (ותכניות נוספות) באותה שנה — שורה משלהן
+        ...years
+          .filter((r) => r.schoolYear === y && r.program)
+          .map((r) => ({ key: yearKey(y, r.program), schoolYear: y, program: r.program, manual: r, live: null, attendance: null })),
+      ]),
       livePayments,
       debts,
       grades: gradeRows,
@@ -415,7 +426,7 @@ router.post('/year', async (req, res) => {
     if (b.id) await prisma.studentYear.update({ where: { id: b.id }, data });
     else
       await prisma.studentYear.upsert({
-        where: { studentId_schoolYear: { studentId: b.studentId, schoolYear } },
+        where: { studentId_schoolYear_program: { studentId: b.studentId, schoolYear, program: '' } },
         create: { studentId: b.studentId, ...data },
         update: data,
       });
@@ -428,7 +439,7 @@ router.post('/year', async (req, res) => {
 router.delete('/year/:id', async (req, res) => {
   try {
     const y = await prisma.studentYear.delete({ where: { id: req.params.id } });
-    await prisma.studentYearMonth.deleteMany({ where: { studentId: y.studentId, schoolYear: y.schoolYear } });
+    await prisma.studentYearMonth.deleteMany({ where: { studentId: y.studentId, schoolYear: y.schoolYear, program: y.program } });
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה במחיקה' });
@@ -804,7 +815,7 @@ router.post('/import', upload.single('file'), async (req, res) => {
         // שנה בלי סכומים בקובץ — לא מאפסת סכומים שכבר נרשמו לשנה הזו
         const update = y.hasAmounts ? data : y.track ? { track: y.track } : {};
         await prisma.studentYear.upsert({
-          where: { studentId_schoolYear: { studentId, schoolYear: y.schoolYear } },
+          where: { studentId_schoolYear_program: { studentId, schoolYear: y.schoolYear, program: '' } },
           create: { studentId, schoolYear: y.schoolYear, ...data },
           update,
         });
@@ -837,19 +848,30 @@ function parseAmount(t: string): number | null {
 const FAILED_COLLECTION = /אין\s*הרשאה|אכ["״']?מ|אין\s*כיסוי\s*מספיק/;
 
 type PayMonth = { month: number; amount: number | null; amountText: string | null; method: string | null; debt: number; debtText: string | null };
-type PayRow = { row: string; sheet: string; id: string; first: string; last: string; track: string; notes: string[]; months: PayMonth[] };
+type PayRow = { row: string; sheet: string; program: string; id: string; first: string; last: string; track: string; spec: string; notes: string[]; months: PayMonth[] };
 
 /** גיליון כיתה: שם משפחה, שם פרטי, ת"ז, התמחות, תשלום חודשי, ואז לכל חודש: "חודש 9", אופן תשלום, סה"כ חוב */
 function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
   const headerIdx = rows.findIndex(
-    (r) => r.some((c) => /^חודש\s*\d+$/.test(cellText(c))) && r.some((c) => headerKey(cellText(c)) === 'שםפרטי')
+    (r) =>
+      r.some((c) => /^חודש\s*\d+$/.test(cellText(c))) &&
+      (r.some((c) => headerKey(cellText(c)) === 'שםפרטי') ||
+        (r.some((c) => headerKey(cellText(c)) === 'שם') && r.some((c) => headerKey(cellText(c)) === 'משפחה')))
   );
   if (headerIdx < 0) return null;
   const h = Array.from(rows[headerIdx], (c) => cellText(c));
   const hk = h.map(headerKey);
-  const firstCol = hk.indexOf('שםפרטי');
+  let firstCol = hk.indexOf('שםפרטי');
   // בגיליון אחד כותרת שם המשפחה נמחקה — אז זו העמודה שלפני השם הפרטי
-  const lastCol = hk.indexOf('שםמשפחה') >= 0 ? hk.indexOf('שםמשפחה') : firstCol - 1;
+  let lastCol = hk.indexOf('שםמשפחה') >= 0 ? hk.indexOf('שםמשפחה') : firstCol - 1;
+  // גיליון "שנה ג": כותרות "שם" / "משפחה" — אבל בפועל כמו בשאר הגיליונות: משפחה בעמודה הראשונה, שם פרטי בשנייה
+  if (firstCol < 0) {
+    const a = hk.indexOf('שם');
+    const b = hk.indexOf('משפחה');
+    lastCol = Math.min(a, b);
+    firstCol = Math.max(a, b);
+  }
+  const payNoteCol = hk.indexOf('תשלום'); // הערת תשלום חופשית ("שולם 2800 בצ'קים")
   const idCol = hk.findIndex((x) => x === 'תז' || x === 'תעודתזהות');
   const specCol = hk.indexOf('התמחות');
   const feeCol = hk.indexOf('תשלוםחודשי');
@@ -884,7 +906,7 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
       let methodCol = -1;
       let debtCol = -1;
       for (let j = i + 1; j < next; j++) {
-        if (hk[j].includes('אופן')) methodCol = j;
+        if (hk[j].includes('אופן') || hk[j].includes('צורתתשלום')) methodCol = j;
         else if (hk[j].includes('חוב')) debtCol = j;
       }
       const amountRaw = t(i);
@@ -917,13 +939,17 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
     if (t(feeCol)) notes.push(`תשלום חודשי: ${t(feeCol)}`);
     if (t(discountCol) && t(discountCol) !== '0') notes.push(`הנחה: ${t(discountCol)}%`);
     if (t(notesCol)) notes.push(t(notesCol));
+    if (t(payNoteCol)) notes.push(t(payNoteCol));
     out.push({
       row: `${sheet}, שורה ${headerIdx + k + 2}`,
       sheet,
+      // גיליון "הוראה" — לימודי הוראה באותה שנה: נשמר כשורה נפרדת ליד הכיתה
+      program: /הוראה/.test(sheet) ? 'הוראה' : /שנה\s*ג/.test(sheet) ? 'שנה ג' : '',
       id: idKey(t(idCol)),
       first,
       last,
       track: [sheet, t(specCol)].filter(Boolean).join(' · '),
+      spec: t(specCol),
       notes,
       months,
     });
@@ -999,7 +1025,7 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
     }
 
     const problems: { row: string; message: string }[] = [];
-    const matched: (PayRow & { student: AirtableRecord; paid: number; debt: number; extra: string[] })[] = [];
+    const matched: (PayRow & { student: AirtableRecord; isNew?: boolean; paid: number; debt: number; extra: string[] })[] = [];
     const seen = new Set<string>();
     for (const r of rows) {
       const name = `${r.first} ${r.last}`;
@@ -1007,19 +1033,25 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
         problems.push({ row: r.row, message: `${name}: אין ת.ז. — יש להוסיף בקובץ` });
         continue;
       }
-      const student = byId.get(r.id);
-      if (!student) {
-        problems.push({ row: r.row, message: `${name}: לא נמצאה במערכת תלמידה עם ת.ז. זו` });
-        continue;
-      }
-      if (seen.has(r.id)) {
+      // בת שלא קיימת במערכת — תיווצר (שם, ת.ז. והתמחות מהקובץ) ואז ייכנסו לה התשלומים
+      const existing = byId.get(r.id);
+      const student: AirtableRecord = existing || {
+        id: `new:${r.id}`,
+        fields: { 'שם פרטי': r.first, 'שם מלא': r.last, 'תעודת זהות': r.id.padStart(9, '0'), ...(r.spec ? { התמחות: r.spec } : {}) },
+      };
+      // שורת הוראה בלי שום תשלום בקובץ — אין מה לרשום
+      // (בשנה ג נרשמת גם שורה ריקה — שתראה בתיק שלמדה שנה ג באותה שנה)
+      if (r.program === 'הוראה' && !r.months.length && !r.notes.length) continue;
+      // אותה בת בגיליון הכיתה ובגיליון ההוראה — שתי השורות נכנסות; כפילות רק בתוך אותה תכנית
+      const dupKey = `${r.id}|${r.program}`;
+      if (seen.has(dupKey)) {
         problems.push({ row: r.row, message: `${name}: מופיעה פעמיים בקובץ — נלקחה השורה הראשונה` });
         continue;
       }
-      seen.add(r.id);
+      seen.add(dupKey);
       const paid = r.months.reduce((s, m) => s + (m.amount || 0), 0);
       const debt = r.months.reduce((s, m) => s + m.debt, 0);
-      matched.push({ ...r, student, paid, debt, extra: extras.get(norm(name)) || [] });
+      matched.push({ ...r, student, isNew: !existing, paid, debt, extra: extras.get(norm(name)) || [] });
     }
     const textCells = matched.reduce((s, r) => s + r.months.filter((m) => m.amountText || m.debtText).length, 0);
     // בנות עם הרבה חודשים ריקים (נחשבו חוב) — לבדיקה ידנית: אולי שילמו בבת אחת (רשום בהערות)
@@ -1040,6 +1072,8 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
         schoolYear,
         sheets,
         matchedCount: matched.length,
+        newStudents: [...new Map(matched.filter((r) => r.isNew).map((r) => [r.id, { name: `${r.first} ${r.last}`, sheet: r.sheet }])).values()],
+        programRows: matched.filter((r) => r.program).length,
         totalPaid: Math.round(matched.reduce((s, r) => s + r.paid, 0)),
         totalDebt: Math.round(matched.reduce((s, r) => s + r.debt, 0)),
         withDebt: matched.filter((r) => r.debt > 0).length,
@@ -1058,19 +1092,39 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
       });
     }
 
+    // יצירת הבנות החדשות ב-Airtable, ותיק עם מחזור לפי הכיתה (יג = שנה א' — מסיימת שנה אחרי; יד = שנה ב')
+    // בת חדשה שמופיעה גם בכיתה וגם בהוראה — נוצרת פעם אחת (עדיפות לשורת הכיתה)
+    const newRows = matched.filter((r) => r.isNew).sort((a, b) => Number(!!a.program) - Number(!!b.program));
+    const toCreate = [...new Map(newRows.reverse().map((r) => [r.id, r])).values()];
+    if (toCreate.length) {
+      const created = await airtableBatchCreate(TABLES.students, toCreate.map((r) => r.student.fields));
+      const start = schoolYearStart(schoolYear);
+      const createdById = new Map<string, AirtableRecord>();
+      for (let i = 0; i < toCreate.length; i++) {
+        const r = toCreate[i];
+        createdById.set(r.id, created[i]);
+        // שנה ג — כבר סיימה יד בשנה הקודמת
+        const grad =
+          start === null ? '' : /יג/.test(r.sheet) ? schoolYearLabel(start + 1) : /יד/.test(r.sheet) ? schoolYearLabel(start) : /שנה\s*ג/.test(r.sheet) ? schoolYearLabel(start - 1) : '';
+        await saveProfile(created[i].id, { status: grad && cohortFinished(grad) ? 'בוגרת' : 'פעילה', gradYear: grad });
+      }
+      for (const r of matched) if (r.isNew) r.student = createdById.get(r.id)!;
+    }
+
     for (const r of matched) {
       const studentId = r.student.id;
       const notes = [...r.notes, ...(r.extra.length ? [`תשלומים נוספים — ${r.extra.join('; ')}`] : [])].join(' | ').slice(0, 2000) || null;
       const data = { track: str(r.track, 100) || null, amountDue: r.paid + r.debt, amountPaid: r.paid, notes };
+      const program = r.program;
       await prisma.studentYear.upsert({
-        where: { studentId_schoolYear: { studentId, schoolYear } },
-        create: { studentId, schoolYear, ...data },
+        where: { studentId_schoolYear_program: { studentId, schoolYear, program } },
+        create: { studentId, schoolYear, program, ...data },
         update: data,
       });
-      await prisma.studentYearMonth.deleteMany({ where: { studentId, schoolYear } });
-      if (r.months.length) await prisma.studentYearMonth.createMany({ data: r.months.map((m) => ({ studentId, schoolYear, ...m })) });
+      await prisma.studentYearMonth.deleteMany({ where: { studentId, schoolYear, program } });
+      if (r.months.length) await prisma.studentYearMonth.createMany({ data: r.months.map((m) => ({ studentId, schoolYear, program, ...m })) });
     }
-    res.json({ success: true, imported: matched.length, problems, review });
+    res.json({ success: true, imported: matched.length, created: toCreate.length, problems, review });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בייבוא' });
   }

@@ -384,8 +384,9 @@ model StudentYear {
   amountDue  Float   @default(0)
   amountPaid Float   @default(0)
   notes      String?
+  program    String  @default("") // "" = הכיתה; "הוראה" = לימודי הוראה באותה שנה (שורה נפרדת בדוח)
 
-  @@unique([studentId, schoolYear])
+  @@unique([studentId, schoolYear, program])
   @@index([studentId])
 }
 
@@ -415,8 +416,9 @@ model StudentYearMonth {
   method     String?
   debt       Float   @default(0)
   debtText   String?
+  program    String  @default("")
 
-  @@unique([studentId, schoolYear, month])
+  @@unique([studentId, schoolYear, program, month])
   @@index([studentId])
 }
 

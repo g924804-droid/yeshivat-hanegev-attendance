@@ -14,7 +14,7 @@ type SearchResult = {
   gradYear: string;
 };
 
-type YearRow = { id: string; schoolYear: string; track: string | null; amountDue: number; amountPaid: number; notes: string | null };
+type YearRow = { id: string; schoolYear: string; program?: string; track: string | null; amountDue: number; amountPaid: number; notes: string | null };
 type Debt = { id: string; schoolYear: string | null; subject: string; description: string | null; done: boolean; doneAt: string | null };
 type StudentFile = {
   student: { id: string; name: string; fields: Record<string, string>; year: string; tracks: string[]; needsCompletion: boolean };
@@ -30,7 +30,9 @@ type StudentFile = {
   years: YearRow[];
   yearMonths: Record<string, { month: number; amount: number | null; amountText: string | null; method: string | null; debt: number; debtText: string | null }[]>;
   yearsSummary: {
+    key?: string;
     schoolYear: string;
+    program?: string;
     manual: YearRow | null;
     live: { owed: number; paid: number; balance: number; months: number } | null;
     attendance: { present: number; absent: number; late: number } | null;
@@ -289,6 +291,7 @@ type PayPreview = {
   schoolYear: string;
   sheets: { name: string; rows: number }[];
   matchedCount: number;
+  newStudents?: { name: string; sheet: string }[];
   totalPaid: number;
   totalDebt: number;
   withDebt: number;
@@ -414,6 +417,12 @@ function PaymentsImportModal({ onClose }: { onClose: () => void }) {
                       {p.row}: {p.message}
                     </div>
                   ))}
+                </div>
+              )}
+              {!!preview.newStudents?.length && (
+                <div className="mt-2 bg-violet-50 text-violet-900 rounded-xl px-4 py-2 text-sm">
+                  <b>ייווצרו כתלמידות חדשות ({preview.newStudents.length})</b> — לא נמצאו במערכת לפי ת.ז.; ייכנסו עם השם, הת.ז. וההתמחות מהקובץ:{' '}
+                  {preview.newStudents.map((n) => `${n.name} (${n.sheet})`).join(' · ')}
                 </div>
               )}
               <ReviewList rows={preview.review || []} />
@@ -767,17 +776,19 @@ function StudentFileView({ id }: { id: string }) {
                   const due = (y.manual?.amountDue || 0) + (y.live?.owed || 0);
                   const paid = (y.manual?.amountPaid || 0) + (y.live?.paid || 0);
                   const balance = Math.max(0, (y.manual ? y.manual.amountDue - y.manual.amountPaid : 0)) + (y.live?.balance || 0);
-                  const months = data.yearMonths?.[y.schoolYear] || [];
-                  const open = openYears.has(y.schoolYear);
+                  const yk = y.key || y.schoolYear;
+                  const months = data.yearMonths?.[yk] || [];
+                  const open = openYears.has(yk);
                   return (
-                    <Fragment key={y.schoolYear}>
+                    <Fragment key={yk}>
                     <tr className="border-b">
                       <td className="py-2 px-2 font-semibold">
                         {y.schoolYear}
+                        {y.program && <span className="mr-1 text-xs font-normal bg-violet-100 text-violet-800 rounded px-1.5 py-0.5">{y.program}</span>}
                         {!!months.length && (
                           <button
                             className="block text-xs text-navy font-normal print:hidden"
-                            onClick={() => setOpenYears((s) => { const n = new Set(s); if (n.has(y.schoolYear)) n.delete(y.schoolYear); else n.add(y.schoolYear); return n; })}
+                            onClick={() => setOpenYears((s) => { const n = new Set(s); if (n.has(yk)) n.delete(yk); else n.add(yk); return n; })}
                           >
                             {open ? '▲ הסתרת פירוט' : '▼ פירוט חודשי'}
                           </button>
