@@ -855,7 +855,7 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
   const headerIdx = rows.findIndex(
     (r) =>
       r.some((c) => /^חודש\s*\d+$/.test(cellText(c))) &&
-      (r.some((c) => headerKey(cellText(c)) === 'שםפרטי') ||
+      (r.some((c) => headerKey(cellText(c)) === 'שםפרטי' || headerKey(cellText(c)) === 'שםמשפחה') ||
         (r.some((c) => headerKey(cellText(c)) === 'שם') && r.some((c) => headerKey(cellText(c)) === 'משפחה')))
   );
   if (headerIdx < 0) return null;
@@ -864,6 +864,8 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
   let firstCol = hk.indexOf('שםפרטי');
   // בגיליון אחד כותרת שם המשפחה נמחקה — אז זו העמודה שלפני השם הפרטי
   let lastCol = hk.indexOf('שםמשפחה') >= 0 ? hk.indexOf('שםמשפחה') : firstCol - 1;
+  // כותרת השם הפרטי נמחקה / שובשה (";") — זו העמודה שאחרי שם המשפחה
+  if (firstCol < 0 && lastCol >= 0) firstCol = lastCol + 1;
   // גיליון "שנה ג": כותרות "שם" / "משפחה" — אבל בפועל כמו בשאר הגיליונות: משפחה בעמודה הראשונה, שם פרטי בשנייה
   if (firstCol < 0) {
     const a = hk.indexOf('שם');
@@ -872,7 +874,14 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
     firstCol = Math.max(a, b);
   }
   const payNoteCol = hk.indexOf('תשלום'); // הערת תשלום חופשית ("שולם 2800 בצ'קים")
-  const idCol = hk.findIndex((x) => x === 'תז' || x === 'תעודתזהות');
+  const idCol = hk.findIndex((x) => x.endsWith('תז') || x === 'תעודתזהות'); // גם "מס' ת"ז"
+  const annualMethodCol = hk.findIndex((x) => x.includes('אופן') && x.includes('שנתי'));
+  // "אופן תשלום חודש 9" — עמודת אופן תשלום של חודש מסוים (לפעמים לפני עמודת החודש)
+  const monthMethodCol = new Map<number, number>();
+  hk.forEach((x, i) => {
+    const m = x.match(/^(?:אופן|צורת)תשלוםחודש(\d+)$/);
+    if (m) monthMethodCol.set(Number(m[1]), i);
+  });
   const specCol = hk.indexOf('התמחות');
   const feeCol = hk.indexOf('תשלוםחודשי');
   const notesCol = hk.indexOf('הערות');
@@ -906,9 +915,11 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
       let methodCol = -1;
       let debtCol = -1;
       for (let j = i + 1; j < next; j++) {
+        if (hk[j].includes('שנתי') || /חודש\d/.test(hk[j])) continue; // אופן תשלום שנתי / של חודש אחר
         if (hk[j].includes('אופן') || hk[j].includes('צורתתשלום')) methodCol = j;
         else if (hk[j].includes('חוב')) debtCol = j;
       }
+      if (monthMethodCol.has(month)) methodCol = monthMethodCol.get(month)!;
       const amountRaw = t(i);
       const amount = parseAmount(amountRaw);
       const debtRaw = t(debtCol);
@@ -940,6 +951,7 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
     if (t(discountCol) && t(discountCol) !== '0') notes.push(`הנחה: ${t(discountCol)}%`);
     if (t(notesCol)) notes.push(t(notesCol));
     if (t(payNoteCol)) notes.push(t(payNoteCol));
+    if (t(annualMethodCol)) notes.push(`אופן תשלום שנתי: ${t(annualMethodCol)}`);
     out.push({
       row: `${sheet}, שורה ${headerIdx + k + 2}`,
       sheet,
@@ -1017,6 +1029,31 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
     }
     if (!rows.length) return res.status(400).json({ error: 'לא נמצא בקובץ גיליון עם עמודות "שם פרטי" ו"חודש 9"...' });
 
+    // ת.ז. שהועתקה בטעות בגיליון הוראה / שנה ג (למשל ת.ז. של הבת מהשורה הסמוכה):
+    // אם לבת יש בגיליון הכיתה ת.ז. אחרת (אחת בלבד) — לוקחים את זו שבגיליון הכיתה
+    const fixes: { row: string; message: string }[] = [];
+    const nameKey = (r: PayRow) => norm(`${r.first} ${r.last}`).replace(/\s+/g, ' ');
+    const classIds = new Map<string, Set<string>>();
+    const classNamesOfId = new Map<string, Set<string>>();
+    for (const r of rows) {
+      if (r.program || !r.id) continue;
+      classIds.set(nameKey(r), (classIds.get(nameKey(r)) || new Set()).add(r.id));
+      classNamesOfId.set(r.id, (classNamesOfId.get(r.id) || new Set()).add(nameKey(r)));
+    }
+    for (const r of rows) {
+      if (!r.program) continue;
+      const ids = classIds.get(nameKey(r));
+      const idTakenByOther = !!r.id && !!classNamesOfId.get(r.id) && !classNamesOfId.get(r.id)!.has(nameKey(r));
+      if (ids && ids.size === 1 && !ids.has(r.id) && idTakenByOther) {
+        const right = [...ids][0];
+        fixes.push({
+          row: r.row,
+          message: `${r.first} ${r.last}: הת.ז. בשורה הזו (מסתיימת ב-${r.id.slice(-4) || '—'}) שונה מזו שבגיליון הכיתה — נלקחה הת.ז. מגיליון הכיתה (מסתיימת ב-${right.slice(-4)})`,
+        });
+        r.id = right;
+      }
+    }
+
     const students = await airtableFetch(TABLES.students);
     const byId = new Map<string, AirtableRecord>();
     for (const s of students) {
@@ -1089,6 +1126,7 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
           notes: r.months.filter((m) => m.amountText || m.debtText).length,
         })),
         problems,
+        fixes,
       });
     }
 
@@ -1124,7 +1162,7 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
       await prisma.studentYearMonth.deleteMany({ where: { studentId, schoolYear, program } });
       if (r.months.length) await prisma.studentYearMonth.createMany({ data: r.months.map((m) => ({ studentId, schoolYear, program, ...m })) });
     }
-    res.json({ success: true, imported: matched.length, created: toCreate.length, problems, review });
+    res.json({ success: true, imported: matched.length, created: toCreate.length, problems, fixes, review });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בייבוא' });
   }

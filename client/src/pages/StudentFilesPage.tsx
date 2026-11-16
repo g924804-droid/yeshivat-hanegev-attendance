@@ -299,6 +299,7 @@ type PayPreview = {
   extrasCount: number;
   people: { name: string; sheet: string; paid: number; debt: number; months: number; notes: number }[];
   problems: { row: string; message: string }[];
+  fixes?: { row: string; message: string }[];
   review?: ReviewRow[];
 };
 type ReviewRow = { name: string; sheet: string; emptyMonths: number; debt: number; notes: string };
@@ -413,6 +414,16 @@ function PaymentsImportModal({ onClose }: { onClose: () => void }) {
                 <div className="mt-2 bg-amber-50 text-amber-800 rounded-xl px-4 py-2 text-sm max-h-40 overflow-y-auto">
                   <div className="font-semibold mb-1">לא ייובאו ({preview.problems.length}):</div>
                   {preview.problems.map((p, i) => (
+                    <div key={i}>
+                      {p.row}: {p.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!!preview.fixes?.length && (
+                <div className="mt-2 bg-sky-50 text-sky-900 rounded-xl px-4 py-2 text-sm max-h-40 overflow-y-auto">
+                  <div className="font-semibold mb-1">תוקן אוטומטית ({preview.fixes.length}) — כדאי לתקן גם בקובץ:</div>
+                  {preview.fixes.map((p, i) => (
                     <div key={i}>
                       {p.row}: {p.message}
                     </div>
