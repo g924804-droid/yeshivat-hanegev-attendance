@@ -118,6 +118,60 @@ function normalizeSchoolYear(v: unknown): string {
 
 // ---------- טעינה ----------
 
+/**
+ * [שם משפחה, שם פרטי] — למיון לפי א"ב של המשפחה. "שם מלא" הוא לרוב שם המשפחה, אבל ברשומות ישנות
+ * כל השם כתוב בו ("אלוש אגם" — משפחה ואז פרטי) והשם הפרטי ריק, או שהשם הפרטי כלול בו.
+ */
+function familySortKey(s: AirtableRecord, nameFreq: Map<string, number>): [string, string] {
+  const first = norm(s.fields['שם פרטי']);
+  const full = norm(s.fields['שם מלא']);
+  if (first) {
+    const last = norm(full.split(' ').filter((w) => !first.split(' ').includes(w)).join(' ')) || full;
+    // בהרבה רשומות השדות הפוכים (משפחה ב"שם פרטי"). שם פרטי חוזר אצל הרבה בנות (שירה, אביגיל),
+    // שם משפחה — פחות; לכן השם שחוזר יותר הוא השם הפרטי
+    const g1 = isGivenName(first);
+    const g2 = isGivenName(last);
+    if (g2 && !g1) return [first, last];
+    if (g1 && !g2) return [last, first];
+    if ((nameFreq.get(last) || 0) > (nameFreq.get(first) || 0)) return [first, last];
+    return [last, first];
+  }
+  // כל השם ב"שם מלא": בדרך כלל משפחה ואז פרטי ("אלוש אגם"), אבל לפעמים הפוך ("רחל כהן")
+  const words = full.split(' ').filter(Boolean);
+  if (words.length > 1 && isGivenName(words[0]) && !isGivenName(words[words.length - 1])) {
+    return [words[words.length - 1], words.slice(0, -1).join(' ')];
+  }
+  const [last = '', ...rest] = words;
+  return [last, rest.join(' ')];
+}
+
+/** שמות פרטיים נפוצים של בנות — קובעים מה שם פרטי כשהשדות הפוכים (לפני הספירה) */
+const GIVEN_NAMES = new Set(
+  (
+    'אביגיל אבישג אביטל אגם אדל אודיה אודל אוריה אורין אורית אושרה אושרית אורטל אחינעם איילה אילה איילת אילת אלה אלונה אליה אלישבע אלמוג אמונה אסנת אוסנת אסתר אפרת ' +
+    'בת שבע בת ציון בתיה ברכה ברכי גאולה גילה גילי דבורה דבורי דורית דינה דנה דסי דפנה הדס הדסה הדר הודיה הילה הלל הללי ורד זהבה זהבית חגית חדווה חוה חיה חיה תהילה חנה חני ' +
+    'טובה טוהר טליה טלאור טל יהודית יוכבד יונית יסכה יעל יפה יפית ליאת ליבי לאה מוריה מיכל מיכאלה מירב מירי מירים מרים מלכה מנוחה מעיין נגה נוגה נועה נעמה נעמי נחמה ' +
+    'נטע סיון סימה ספיר עדי עדן עדינה עטרה עינב ענבל ענבר עפרה צביה ציפורה ציפי קרן רבקה רבקי רוני רוחמה רות רחל רחלי רינה רינת רעות שגית שושנה שושי שחר שילת שי שירה שירז ' +
+    'שירן שלומית שלי שמחה שני שקד שרה שרית תאיר תהילה תמר תמרה תפארת'
+  )
+    .split(' ')
+    .concat(['בת שבע', 'בת ציון', 'חיה תהילה', 'שירה שרה', 'טובה ברכה', 'אילת חן'])
+);
+// "שי" ו"שמחה" הם גם שמות משפחה — לא נכריע לפיהם
+GIVEN_NAMES.delete('שי');
+const isGivenName = (v: string) => GIVEN_NAMES.has(v) || (v.includes(' ') && v.split(' ').every((w) => GIVEN_NAMES.has(w)));
+
+/** כמה בנות יש עם כל שם (בשדה "שם פרטי" או "שם מלא") — לזיהוי מה שם פרטי ומה שם משפחה */
+function nameFrequency(students: AirtableRecord[]): Map<string, number> {
+  const freq = new Map<string, number>();
+  for (const st of students) {
+    const first = norm(st.fields['שם פרטי']);
+    if (!first) continue;
+    for (const v of [first, norm(st.fields['שם מלא'])]) if (v) freq.set(v, (freq.get(v) || 0) + 1);
+  }
+  return freq;
+}
+
 function studentName(s: AirtableRecord): string {
   return norm(s.fields[FIELDS.students.name]) || norm(`${norm(s.fields['שם פרטי'])} ${norm(s.fields['שם מלא'])}`);
 }
@@ -156,6 +210,7 @@ router.get('/search', async (req, res) => {
     for (const y of yearRows) yearsOf.set(y.studentId, (yearsOf.get(y.studentId) || new Set()).add(y.schoolYear));
     const trackName = new Map(tracks.map((t) => [t.id, norm(t.fields[FIELDS.tracks.name])]));
     const profileById = new Map(profiles.map((p) => [p.studentId, p]));
+    const nameFreq = nameFrequency(students);
     const qId = idKey(q);
     const qWords = q.toLowerCase().split(' ').filter(Boolean);
 
@@ -166,6 +221,7 @@ router.get('/search', async (req, res) => {
           id: s.id,
           name: studentName(s),
           firstName: norm(s.fields['שם פרטי']),
+          sortKey: familySortKey(s, nameFreq),
           idNumber: norm(s.fields['תעודת זהות']),
           year: norm(s.fields['שנה']),
           tracks: ((s.fields[FIELDS.students.track] as string[] | undefined) || []).map((id) => trackName.get(id) || '').filter(Boolean),
@@ -185,7 +241,8 @@ router.get('/search', async (req, res) => {
         const hay = `${s.name} ${s.firstName}`.toLowerCase();
         return qWords.every((w) => hay.includes(w));
       })
-      .sort((a, b) => a.name.localeCompare(b.name, 'he'));
+      .sort((a, b) => a.sortKey[0].localeCompare(b.sortKey[0], 'he') || a.sortKey[1].localeCompare(b.sortKey[1], 'he'))
+      .map(({ sortKey, ...r }) => r);
     // הערכים לבחירה — מחזורים ושנות לימוד שקיימים במערכת
     const gradYears = [...new Set(profiles.map((p) => p.gradYear).filter(Boolean) as string[])].sort();
     const schoolYears = [...new Set(yearRows.map((y) => y.schoolYear))].sort();
