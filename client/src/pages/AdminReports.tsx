@@ -1012,7 +1012,8 @@ function AddEmployeeModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
           <option>ישיבה קטנה</option>
           <option>ישיבה גדולה</option>
           <option>תיכון</option>
-          <option>סמינר</option>
+          <option>סמינר מאיר</option>
+          <option>סמינר מעלות</option>
           <option>ניהול</option>
         </select>
         <select className="input" value={form.workArea} onChange={(e) => setForm({ ...form, workArea: e.target.value })}>
@@ -1157,7 +1158,8 @@ function EditEmployeeModal({
               <option>ישיבה קטנה</option>
               <option>ישיבה גדולה</option>
               <option>תיכון</option>
-              <option>סמינר</option>
+              <option>סמינר מאיר</option>
+              <option>סמינר מעלות</option>
               <option>ניהול</option>
             </select>
           </div>
