@@ -15,6 +15,16 @@ type SearchResult = {
 };
 
 type YearRow = { id: string; schoolYear: string; program?: string; track: string | null; amountDue: number; amountPaid: number; notes: string | null };
+type SheetGrade = {
+  id: string;
+  subject: string;
+  detail: string | null;
+  term: string | null;
+  score: number | null;
+  scoreText: string | null;
+  schoolYear?: string;
+  yearLabel?: string;
+};
 type Debt = { id: string; schoolYear: string | null; subject: string; description: string | null; done: boolean; doneAt: string | null };
 type StudentFile = {
   student: { id: string; name: string; fields: Record<string, string>; year: string; tracks: string[]; needsCompletion: boolean };
@@ -44,7 +54,7 @@ type StudentFile = {
     schoolYear: string;
     yearLabel: string;
     cohort: string;
-    grades: { id: string; subject: string; detail: string | null; term: string | null; score: number | null; scoreText: string | null }[];
+    grades: SheetGrade[];
   }[];
   totals: { balance: number; openDebts: number };
 };
@@ -421,7 +431,7 @@ function GradesImportModal({ onClose }: { onClose: () => void }) {
                       <th className="py-1 px-2">מחזור</th>
                       <th className="py-1 px-2">שנים</th>
                       <th className="py-1 px-2">ציונים</th>
-                      <th className="py-1 px-2">חסר / לא עבר</th>
+                      <th className="py-1 px-2">חסר / לא עברה / לא נכחה</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -774,6 +784,16 @@ function StudentFileView({ id }: { id: string }) {
   const [editPersonal, setEditPersonal] = useState(false);
   const [editYear, setEditYear] = useState<Partial<YearRow> | null>(null);
   const [editDebt, setEditDebt] = useState<Partial<Debt> | null>(null);
+  const [editGrade, setEditGrade] = useState<Partial<SheetGrade> | null>(null);
+  const deleteSheetGrade = async (g: SheetGrade) => {
+    if (!window.confirm(`למחוק את הציון ב${g.subject}${g.term ? ` (${g.term})` : ''}?`)) return;
+    try {
+      await api.delete(`/studentFiles/sheetGrade/${g.id}`);
+      load();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
   const [openYears, setOpenYears] = useState<Set<string>>(new Set());
 
   const load = () =>
@@ -1082,9 +1102,15 @@ function StudentFileView({ id }: { id: string }) {
           <div className="space-y-4">
             {data.sheetGrades.map((y) => (
               <div key={y.schoolYear} className="break-inside-avoid">
-                <div className="font-semibold text-navy mb-1">
+                <div className="font-semibold text-navy mb-1 flex items-center gap-2">
                   {[y.yearLabel, y.schoolYear].filter(Boolean).join(' — ')}
-                  {y.cohort && <span className="text-xs font-normal text-gray-500 mr-2">{y.cohort}</span>}
+                  {y.cohort && <span className="text-xs font-normal text-gray-500">{y.cohort}</span>}
+                  <button
+                    className="text-xs font-normal text-navy border rounded-lg px-2 py-0.5 mr-auto print:hidden flex items-center gap-1"
+                    onClick={() => setEditGrade({ schoolYear: y.schoolYear, yearLabel: y.yearLabel })}
+                  >
+                    <Plus size={13} /> הוספת ציון
+                  </button>
                 </div>
                 <table className="w-full text-sm">
                   <thead>
@@ -1093,17 +1119,31 @@ function StudentFileView({ id }: { id: string }) {
                       <th className="py-1 px-2">מורה / נושא</th>
                       <th className="py-1 px-2">מחצית</th>
                       <th className="py-1 px-2">ציון</th>
+                      <th className="py-1 px-2 print:hidden"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {y.grades.map((g) => {
-                      const bad = (g.score !== null && g.score < 55) || /חסר|לא\s*עבר|לא\s*עובר/.test(g.scoreText || '');
+                      // לא עברה / חסר / לא נכחה / ציון נכשל — אדום בולט
+                      const bad = (g.score !== null && g.score < 55) || /חסר|לא\s*עבר|לא\s*עובר|לא\s*נכח|נכשל/.test(g.scoreText || '');
                       return (
                         <tr key={g.id} className="border-b">
                           <td className="py-1 px-2">{g.subject}</td>
                           <td className="py-1 px-2 text-gray-600">{g.detail || ''}</td>
                           <td className="py-1 px-2 text-gray-600">{g.term || ''}</td>
-                          <td className={`py-1 px-2 font-semibold ${bad ? 'text-red-700' : ''}`}>{g.score ?? g.scoreText}</td>
+                          <td className="py-1 px-2 font-semibold">
+                            <span className={bad ? 'inline-block bg-red-100 text-red-700 border border-red-300 rounded-md px-2 py-0.5' : ''}>
+                              {g.score ?? g.scoreText}
+                            </span>
+                          </td>
+                          <td className="py-1 px-2 print:hidden whitespace-nowrap text-left">
+                            <button className="text-navy p-1" title="עריכה" onClick={() => setEditGrade(g)}>
+                              <Pencil size={14} />
+                            </button>
+                            <button className="text-red-600 p-1" title="מחיקה" onClick={() => deleteSheetGrade(g)}>
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -1142,6 +1182,9 @@ function StudentFileView({ id }: { id: string }) {
         )}
       </Section>
 
+      {editGrade && (
+        <EditSheetGradeModal studentId={id} grade={editGrade} onClose={() => setEditGrade(null)} onSaved={() => { setEditGrade(null); load(); }} />
+      )}
       {editPersonal && (
         <EditPersonalModal data={data} onClose={() => setEditPersonal(false)} onSaved={() => { setEditPersonal(false); load(); }} />
       )}
@@ -1304,6 +1347,47 @@ function EditYearModal({ studentId, year, onClose, onSaved }: { studentId: strin
         <input className="input mt-1" value={y.notes} onChange={(e) => setY({ ...y, notes: e.target.value })} />
       </label>
       <p className="text-xs text-gray-500 mt-2">לשנים שמנוהלות במסך התשלומים אין צורך להוסיף — הן מופיעות כאן אוטומטית.</p>
+      <SaveButtons saving={saving} onSave={save} onClose={onClose} error={error} />
+    </Modal>
+  );
+}
+
+function EditSheetGradeModal({ studentId, grade, onClose, onSaved }: { studentId: string; grade: Partial<SheetGrade>; onClose: () => void; onSaved: () => void }) {
+  const [g, setG] = useState({
+    subject: grade.subject || '',
+    detail: grade.detail || '',
+    term: grade.term || '',
+    value: grade.score !== null && grade.score !== undefined ? String(grade.score) : grade.scoreText || '',
+  });
+  const { saving, error, save } = useSave(
+    () => api.post('/studentFiles/sheetGrade', { id: grade.id, studentId, schoolYear: grade.schoolYear, yearLabel: grade.yearLabel, ...g }),
+    onSaved
+  );
+  return (
+    <Modal title={grade.id ? 'עריכת ציון' : `הוספת ציון${grade.schoolYear ? ` — ${grade.schoolYear}` : ''}`} onClose={onClose}>
+      <label className="text-sm block">
+        מקצוע
+        <input className="input mt-1" value={g.subject} onChange={(e) => setG({ ...g, subject: e.target.value })} autoFocus={!grade.id} />
+      </label>
+      <label className="text-sm block mt-3">
+        מורה / נושא
+        <input className="input mt-1" value={g.detail} onChange={(e) => setG({ ...g, detail: e.target.value })} />
+      </label>
+      <label className="text-sm block mt-3">
+        מחצית
+        <input className="input mt-1 w-40" placeholder="מחצית א" value={g.term} onChange={(e) => setG({ ...g, term: e.target.value })} />
+      </label>
+      <label className="text-sm block mt-3">
+        ציון
+        <input
+          className="input mt-1 w-40"
+          placeholder='90 / חסר / עברה'
+          value={g.value}
+          onChange={(e) => setG({ ...g, value: e.target.value })}
+          autoFocus={!!grade.id}
+        />
+        <span className="text-xs text-gray-500 block mt-1">אפשר מספר או מילים ("חסר", "לא עובר", "סיימה בהצלחה")</span>
+      </label>
       <SaveButtons saving={saving} onSave={save} onClose={onClose} error={error} />
     </Modal>
   );

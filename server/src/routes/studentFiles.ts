@@ -489,6 +489,46 @@ router.delete('/debt/:id', async (req, res) => {
   }
 });
 
+// ---------- ציון מגיליון הציונים — עריכה / הוספה / מחיקה ----------
+
+router.post('/sheetGrade', async (req, res) => {
+  try {
+    const b = req.body as { id?: string; studentId?: string; schoolYear?: string; yearLabel?: string; subject?: string; detail?: string; term?: string; value?: string };
+    const subject = str(b.subject, 200);
+    if (!subject) return res.status(400).json({ error: 'יש לכתוב מקצוע' });
+    const value = str(b.value, 200);
+    const num = /^\d+(\.\d+)?$/.test(value) ? Number(value) : null;
+    const data = {
+      subject,
+      detail: str(b.detail, 200) || null,
+      term: str(b.term, 100) || null,
+      score: num,
+      scoreText: num === null ? value || null : null,
+    };
+    if (b.id) await prisma.studentSheetGrade.update({ where: { id: b.id }, data });
+    else {
+      const schoolYear = normalizeSchoolYear(b.schoolYear);
+      if (!b.studentId || !schoolYear) return res.status(400).json({ error: 'חסרה שנת לימודים' });
+      const last = await prisma.studentSheetGrade.findFirst({ where: { studentId: b.studentId, schoolYear }, orderBy: { sort: 'desc' } });
+      await prisma.studentSheetGrade.create({
+        data: { studentId: b.studentId, schoolYear, yearLabel: str(b.yearLabel, 50) || last?.yearLabel || null, cohort: last?.cohort || null, sort: (last?.sort ?? -1) + 1, ...data },
+      });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירה' });
+  }
+});
+
+router.delete('/sheetGrade/:id', async (req, res) => {
+  try {
+    await prisma.studentSheetGrade.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה במחיקה' });
+  }
+});
+
 // ---------- ייבוא מאקסל ----------
 
 // עמודות הקובץ — מזוהות לפי הכותרת (כמה כינויים לכל עמודה)
@@ -1472,7 +1512,7 @@ router.post('/importGrades', upload.single('file'), async (req, res) => {
           sheet: p.sheet,
           grades: p.grades.length,
           years: [...new Set(p.grades.map((g) => g.schoolYear))].sort(),
-          missing: p.grades.filter((g) => g.scoreText && /חסר|לא\s*עבר|לא\s*עובר/.test(g.scoreText)).length,
+          missing: p.grades.filter((g) => (g.score !== null && g.score < 55) || (g.scoreText && /חסר|לא\s*עבר|לא\s*עובר|לא\s*נכח|נכשל/.test(g.scoreText))).length,
         })),
         problems,
       });
