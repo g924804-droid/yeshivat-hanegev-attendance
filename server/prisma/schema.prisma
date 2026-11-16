@@ -422,6 +422,23 @@ model StudentYearMonth {
   @@index([studentId])
 }
 
+// ציון מגיליון הציונים באקסל (מחזור בכל גיליון) — לתיק תלמידה, בנפרד מהציונים השוטפים ב-Airtable
+model StudentSheetGrade {
+  id         String  @id @default(cuid())
+  studentId  String
+  schoolYear String // תשפ"ב
+  yearLabel  String? // שנה א / שנה ב'
+  cohort     String? // שם הגיליון ("מחזור ג")
+  subject    String
+  detail     String? // מורה / נושא
+  term       String? // מחצית א / שנתי
+  score      Float?
+  scoreText  String? // "חסר", "לא עובר", "סיימה בהצלחה"
+  sort       Int     @default(0)
+
+  @@index([studentId])
+}
+
 // חודש שננעל (ב-1 לחודש) ונפתח מחדש לעובדת מסוימת ע"י מנהלת — ראו lib/monthLock.ts
 model MonthUnlock {
   id         String   @id @default(cuid())

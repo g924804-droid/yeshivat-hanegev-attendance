@@ -40,6 +40,12 @@ type StudentFile = {
   livePayments: { schoolYear: string; month: string; year: number; owed: number; scholarship: number; paid: number; balance: number }[];
   debts: Debt[];
   grades: { id: string; test: string; score: number | null; date: string; notes: string }[];
+  sheetGrades?: {
+    schoolYear: string;
+    yearLabel: string;
+    cohort: string;
+    grades: { id: string; subject: string; detail: string | null; term: string | null; score: number | null; scoreText: string | null }[];
+  }[];
   totals: { balance: number; openDebts: number };
 };
 
@@ -88,6 +94,7 @@ function StudentSearch() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showPayImport, setShowPayImport] = useState(false);
+  const [showGradesImport, setShowGradesImport] = useState(false);
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -151,6 +158,9 @@ function StudentSearch() {
           <button className="btn-outline" onClick={() => setShowPayImport(true)}>
             <Upload size={18} /> ייבוא דוח תשלומים
           </button>
+          <button className="btn-outline" onClick={() => setShowGradesImport(true)}>
+            <Upload size={18} /> ייבוא ציונים
+          </button>
         </div>
       </div>
 
@@ -201,6 +211,7 @@ function StudentSearch() {
       {showAdd && <AddStudentModal onClose={() => setShowAdd(false)} onCreated={(id) => navigate(`/student-files/${id}`)} />}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => setReload((n) => n + 1)} />}
       {showPayImport && <PaymentsImportModal onClose={() => setShowPayImport(false)} />}
+      {showGradesImport && <GradesImportModal onClose={() => setShowGradesImport(false)} />}
     </Layout>
   );
 }
@@ -323,6 +334,131 @@ function ReviewList({ rows }: { rows: ReviewRow[] }) {
 }
 
 /** ייבוא דוח תשלומים שנתי — גיליון לכל כיתה, עמודה לכל חודש */
+type GradesPreview = {
+  sheets: { name: string; rows: number; years: string[] }[];
+  matchedCount: number;
+  gradesCount: number;
+  makeupCount: number;
+  people: { name: string; sheet: string; grades: number; years: string[]; missing: number }[];
+  problems: { row: string; message: string }[];
+};
+
+/** ייבוא גיליון ציונים — גיליון לכל מחזור, עמודה לכל מקצוע / מחצית; וגיליון "השלמה - מועד ב" לחובות לימודיים */
+function GradesImportModal({ onClose }: { onClose: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<GradesPreview | null>(null);
+  const [done, setDone] = useState<{ imported: number; makeups: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const send = async (commit: boolean) => {
+    if (!file) return;
+    setBusy(true);
+    setError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('commit', String(commit));
+      const r = await api.postForm<any>('/studentFiles/importGrades', fd);
+      if (commit) setDone({ imported: r.imported, makeups: r.makeups });
+      else setPreview(r);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="ייבוא גיליון ציונים" onClose={onClose} wide>
+      {done ? (
+        <div>
+          <div className="bg-green-50 text-green-800 rounded-xl px-4 py-3">
+            הייבוא הסתיים: נכנסו ציונים ל-{done.imported} בנות{done.makeups ? `, ו-${done.makeups} השלמות לחובות הלימודיים` : ''}.
+          </div>
+          <button className="btn-primary mt-4" onClick={onClose}>
+            סגירה
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-gray-700 mb-3">
+            קובץ עם לשונית לכל מחזור: שם, ת"ז, ובשורות הכותרת — "שנה א - תשפ"ב", מקצוע, מורה, מחצית. הבנות מזוהות לפי ת.ז.
+            לשונית "השלמה - מועד ב" נכנסת לחובות הלימודיים (לפי שם). ייבוא חוזר מחליף את הציונים של אותן שנים.
+          </p>
+          <input
+            type="file"
+            accept=".xlsx"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] || null);
+              setPreview(null);
+            }}
+          />
+          {error && <div className="mt-3 text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
+          {preview && (
+            <div className="mt-4">
+              <div className="text-sm bg-slate-50 rounded-xl px-4 py-3 space-y-1">
+                <div>לשוניות: {preview.sheets.map((sh) => `${sh.name} (${sh.rows})`).join(' · ')}</div>
+                <div>
+                  <b>{preview.matchedCount}</b> בנות · <b>{preview.gradesCount}</b> ציונים · <b>{preview.makeupCount}</b> השלמות / מועדי ב
+                </div>
+              </div>
+              {!!preview.problems.length && (
+                <div className="mt-2 bg-amber-50 text-amber-800 rounded-xl px-4 py-2 text-sm max-h-40 overflow-y-auto">
+                  <div className="font-semibold mb-1">לא ייובאו ({preview.problems.length}):</div>
+                  {preview.problems.map((p, i) => (
+                    <div key={i}>
+                      {p.row}: {p.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-3 max-h-64 overflow-y-auto border rounded-xl">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="text-right text-gray-500 border-b">
+                      <th className="py-1 px-2">שם</th>
+                      <th className="py-1 px-2">מחזור</th>
+                      <th className="py-1 px-2">שנים</th>
+                      <th className="py-1 px-2">ציונים</th>
+                      <th className="py-1 px-2">חסר / לא עבר</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.people.map((p, i) => (
+                      <tr key={i} className="border-b">
+                        <td className="py-1 px-2">{p.name}</td>
+                        <td className="py-1 px-2">{p.sheet}</td>
+                        <td className="py-1 px-2">{p.years.join(', ')}</td>
+                        <td className="py-1 px-2">{p.grades}</td>
+                        <td className={`py-1 px-2 ${p.missing ? 'text-red-700 font-semibold' : ''}`}>{p.missing || ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2 mt-4">
+            {!preview ? (
+              <button className="btn-primary" disabled={!file || busy} onClick={() => send(false)}>
+                {busy ? 'בודק...' : 'בדיקה'}
+              </button>
+            ) : (
+              <button className="btn-gold" disabled={busy || !(preview.matchedCount || preview.makeupCount)} onClick={() => send(true)}>
+                {busy ? 'מייבא...' : `אישור וייבוא (${preview.matchedCount})`}
+              </button>
+            )}
+            <button className="btn-outline" onClick={onClose}>
+              ביטול
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
 function PaymentsImportModal({ onClose }: { onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [schoolYear, setSchoolYear] = useState('');
@@ -941,6 +1077,44 @@ function StudentFileView({ id }: { id: string }) {
       </Section>
 
       {/* ציונים */}
+      {!!data.sheetGrades?.length && (
+        <Section title="ציונים — מגיליון הציונים">
+          <div className="space-y-4">
+            {data.sheetGrades.map((y) => (
+              <div key={y.schoolYear} className="break-inside-avoid">
+                <div className="font-semibold text-navy mb-1">
+                  {[y.yearLabel, y.schoolYear].filter(Boolean).join(' — ')}
+                  {y.cohort && <span className="text-xs font-normal text-gray-500 mr-2">{y.cohort}</span>}
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-right text-gray-500 border-b">
+                      <th className="py-1 px-2">מקצוע</th>
+                      <th className="py-1 px-2">מורה / נושא</th>
+                      <th className="py-1 px-2">מחצית</th>
+                      <th className="py-1 px-2">ציון</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {y.grades.map((g) => {
+                      const bad = (g.score !== null && g.score < 55) || /חסר|לא\s*עבר|לא\s*עובר/.test(g.scoreText || '');
+                      return (
+                        <tr key={g.id} className="border-b">
+                          <td className="py-1 px-2">{g.subject}</td>
+                          <td className="py-1 px-2 text-gray-600">{g.detail || ''}</td>
+                          <td className="py-1 px-2 text-gray-600">{g.term || ''}</td>
+                          <td className={`py-1 px-2 font-semibold ${bad ? 'text-red-700' : ''}`}>{g.score ?? g.scoreText}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
       <Section title="ציונים">
         {!data.grades.length ? (
           <div className="text-sm text-gray-500">אין ציונים במערכת</div>

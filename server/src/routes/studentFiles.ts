@@ -207,11 +207,12 @@ router.get('/student/:id', async (req, res) => {
     const name = studentName(s);
     const nameKeys = [...new Set([name, norm(s.fields['שם מלא'])].filter((n) => n.split(' ').length > 1))];
 
-    const [tracks, profile, years, yearMonths, debts, payments, grades, attendance] = await Promise.all([
+    const [tracks, profile, years, yearMonths, sheetGrades, debts, payments, grades, attendance] = await Promise.all([
       airtableFetch(TABLES.tracks),
       prisma.studentProfile.findUnique({ where: { studentId: s.id } }),
       prisma.studentYear.findMany({ where: { studentId: s.id }, orderBy: { schoolYear: 'asc' } }),
       prisma.studentYearMonth.findMany({ where: { studentId: s.id } }),
+      prisma.studentSheetGrade.findMany({ where: { studentId: s.id }, orderBy: [{ schoolYear: 'asc' }, { sort: 'asc' }] }),
       prisma.studentAcademicDebt.findMany({ where: { studentId: s.id }, orderBy: [{ done: 'asc' }, { createdAt: 'asc' }] }),
       nameKeys.length
         ? airtableFetch(TABLES.payments, {
@@ -339,6 +340,16 @@ router.get('/student/:id', async (req, res) => {
       livePayments,
       debts,
       grades: gradeRows,
+      // ציונים מגיליון הציונים (אקסל) — לפי שנה
+      sheetGrades: [...new Set(sheetGrades.map((g) => g.schoolYear))].map((y) => {
+        const rows = sheetGrades.filter((g) => g.schoolYear === y);
+        return {
+          schoolYear: y,
+          yearLabel: rows.find((g) => g.yearLabel)?.yearLabel || '',
+          cohort: rows.find((g) => g.cohort)?.cohort || '',
+          grades: rows.map(({ id, subject, detail, term, score, scoreText }) => ({ id, subject, detail, term, score, scoreText })),
+        };
+      }),
       totals: {
         balance: Math.round((manualBalance + liveBalance + (profile?.openingDebt || 0)) * 100) / 100,
         openDebts: debts.filter((d) => !d.done).length,
@@ -1250,6 +1261,238 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
       if (r.months.length) await prisma.studentYearMonth.createMany({ data: r.months.map((m) => ({ studentId, schoolYear, program, ...m })) });
     }
     res.json({ success: true, imported: matched.length, created: toCreate.length, problems, fixes, review });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בייבוא' });
+  }
+});
+
+// ---------- ייבוא גיליון ציונים ----------
+
+type SheetGradeRow = { schoolYear: string; yearLabel: string; subject: string; detail: string; term: string; score: number | null; scoreText: string | null; sort: number };
+type GradePerson = { row: string; sheet: string; id: string; name: string; grades: SheetGradeRow[] };
+
+/**
+ * גיליון מחזור: שורה 1 — שם, ת"ז, ואז לכל עמודה "שנה א - תשפ"ב"; שורה 2 — מקצוע; שורה 3 — מורה / נושא;
+ * שורה 4 (לא תמיד) — מחצית. אחר כך בת בכל שורה. התאים: ציון, או "חסר" / "לא עובר" / "סיימה בהצלחה".
+ */
+function parseGradeSheet(sheet: string, rows: any[][]): GradePerson[] | null {
+  const isId = (x: string) => x.endsWith('תז') || x === 'תעודתזהות';
+  const hr = rows.slice(0, 5).findIndex((r) => Array.from(r, (c) => headerKey(cellText(c))).some(isId));
+  if (hr < 0) return null;
+  const idCol = Array.from(rows[hr], (c) => headerKey(cellText(c))).findIndex(isId);
+  const dataStart = rows.findIndex((r, i) => i > hr && idKey(cellText(r[idCol])).length >= 5);
+  if (dataStart < 0) return null;
+  const width = Math.max(...rows.map((r) => r.length));
+  const headerAt = (ri: number, c: number) => {
+    if (ri >= dataStart) return '';
+    const v = cellText(rows[ri]?.[c]);
+    return headerKey(v) === 'מקצוע' ? '' : v;
+  };
+  type Col = { c: number; schoolYear: string; yearLabel: string; subject: string; detail: string; term: string };
+  const cols: Col[] = [];
+  let year = '';
+  let yearLabel = '';
+  let subject = '';
+  for (let c = idCol + 1; c < width; c++) {
+    const yl = headerAt(hr, c);
+    const ym = yl.match(/תש[א-ת]{0,2}["״'׳]{0,2}[א-ת]/);
+    if (ym) {
+      year = normalizeSchoolYear(ym[0]);
+      yearLabel = norm(yl.split(/\s+-\s+|\s+–\s+/)[0]);
+    }
+    const sub = headerAt(hr + 1, c);
+    if (sub) subject = sub;
+    const detail = headerAt(hr + 2, c);
+    const termRaw = headerAt(hr + 3, c);
+    // בלי מקצוע ובלי מורה, ובשורת המחצית מילה שאינה מחצית ("תפילה", "נוכחות שעות") — זה שם המקצוע
+    if (!sub && !detail && termRaw && !/מחצית|שנתי|אלול|מועד|ציון/.test(termRaw)) {
+      if (year) cols.push({ c, schoolYear: year, yearLabel, subject: termRaw, detail: '', term: '' });
+      continue;
+    }
+    if (!year || !(sub || detail || subject)) continue;
+    cols.push({ c, schoolYear: year, yearLabel, subject: sub || subject || detail, detail, term: termRaw });
+  }
+  const out: GradePerson[] = [];
+  rows.slice(dataStart).forEach((r, k) => {
+    const id = idKey(cellText(r[idCol]));
+    const name = Array.from({ length: idCol }, (_, i) => cellText(r[i]))
+      .filter((v) => v && !/^\d+$/.test(v))
+      .join(' ');
+    if (!id && !name) return;
+    const grades: SheetGradeRow[] = [];
+    cols.forEach((col, n) => {
+      const v = cellText(r[col.c]);
+      if (!v || /^[-–—]+$/.test(v)) return;
+      const num = /^\d+(\.\d+)?$/.test(v) ? Number(v) : null;
+      grades.push({
+        schoolYear: col.schoolYear,
+        yearLabel: col.yearLabel,
+        subject: str(col.subject, 200),
+        detail: str(col.detail, 200),
+        term: str(col.term, 100),
+        score: num,
+        scoreText: num === null ? str(v, 200) : null,
+        sort: n,
+      });
+    });
+    out.push({ row: `${sheet}, שורה ${dataStart + k + 1}`, sheet, id, name, grades });
+  });
+  return out;
+}
+
+/** "השלמה - מועד ב": שם, מחזור, השלמה, תשלום, תאריך, תאריך הגשה — בלי ת"ז, לפי שם */
+function parseMakeupSheet(sheet: string, rows: any[][]) {
+  const hr = rows.slice(0, 5).findIndex((r) => Array.from(r, (c) => headerKey(cellText(c))).some((x) => x.startsWith('השלמה')));
+  if (hr < 0) return [];
+  const hk = Array.from(rows[hr], (c) => headerKey(cellText(c)));
+  const col = (t: (x: string) => boolean) => hk.findIndex(t);
+  const nameCol = col((x) => x === 'שם' || x === 'שםהתלמידה');
+  const cohortCol = col((x) => x === 'מחזור');
+  const itemCol = col((x) => x.startsWith('השלמה'));
+  const payCol = col((x) => x === 'תשלום');
+  const dateCol = col((x) => x === 'תאריך');
+  const doneCol = col((x) => x.includes('הגשה'));
+  const out: { row: string; name: string; cohort: string; subject: string; description: string; done: boolean }[] = [];
+  rows.slice(hr + 1).forEach((r, k) => {
+    const t = (i: number) => (i >= 0 ? cellText(r[i]) : '');
+    const name = t(nameCol);
+    const subject = t(itemCol);
+    if (!name || !subject) return;
+    const desc = ['מועד ב / השלמה', t(payCol) && `תשלום: ${t(payCol)}`, t(dateCol) && `תאריך: ${t(dateCol)}`, t(doneCol) && `הוגש: ${t(doneCol)}`]
+      .filter(Boolean)
+      .join(' · ');
+    out.push({ row: `${sheet}, שורה ${hr + k + 2}`, name, cohort: t(cohortCol), subject: str(subject, 200), description: str(desc, 500), done: !!t(doneCol) });
+  });
+  return out;
+}
+
+router.post('/importGrades', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'חסר קובץ' });
+    const commit = req.body.commit === 'true';
+    const fileName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    if (!/\.xlsx$/i.test(fileName)) return res.status(400).json({ error: 'אפשר לייבא רק קובץ Excel (xlsx)' });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(req.file.buffer as any);
+
+    const people: GradePerson[] = [];
+    const makeups: ReturnType<typeof parseMakeupSheet> = [];
+    const sheets: { name: string; rows: number; years: string[] }[] = [];
+    for (const ws of wb.worksheets) {
+      const name = ws.name.trim();
+      const data = sheetRows(ws);
+      if (/השלמה|מועד/.test(name)) {
+        const m = parseMakeupSheet(name, data);
+        makeups.push(...m);
+        sheets.push({ name, rows: m.length, years: [] });
+        continue;
+      }
+      const parsed = parseGradeSheet(name, data);
+      if (!parsed) continue;
+      people.push(...parsed);
+      sheets.push({ name, rows: parsed.length, years: [...new Set(parsed.flatMap((p) => p.grades.map((g) => g.schoolYear)))].sort() });
+    }
+    if (!people.length && !makeups.length) return res.status(400).json({ error: 'לא נמצא בקובץ גיליון עם עמודת ת"ז ושורת "שנה א - תשפ"ב"' });
+
+    const students = await airtableFetch(TABLES.students);
+    const byId = new Map<string, AirtableRecord>();
+    for (const st of students) {
+      const k = idKey(st.fields['תעודת זהות']);
+      if (k && !byId.has(k)) byId.set(k, st);
+    }
+    const problems: { row: string; message: string }[] = [];
+    const matched: (GradePerson & { student: AirtableRecord })[] = [];
+    const seen = new Set<string>();
+    for (const p of people) {
+      if (!p.id) {
+        problems.push({ row: p.row, message: `${p.name}: אין ת.ז. — יש להוסיף בקובץ` });
+        continue;
+      }
+      const student = byId.get(p.id);
+      if (!student) {
+        problems.push({ row: p.row, message: `${p.name}: לא נמצאה במערכת תלמידה עם ת.ז. זו` });
+        continue;
+      }
+      if (!p.grades.length) continue;
+      if (seen.has(p.id)) {
+        problems.push({ row: p.row, message: `${p.name}: מופיעה פעמיים בקובץ — נלקחה השורה הראשונה` });
+        continue;
+      }
+      seen.add(p.id);
+      matched.push({ ...p, student });
+    }
+
+    // השלמות — לפי שם (בשני הסדרים: פרטי+משפחה / משפחה+פרטי)
+    const wordsKey = (n: string) => norm(n).split(' ').filter(Boolean).sort().join(' ');
+    const byName = new Map<string, AirtableRecord[]>();
+    for (const st of students) {
+      const k = wordsKey(studentName(st));
+      if (k) byName.set(k, [...(byName.get(k) || []), st]);
+    }
+    // קודם לפי השם כפי שכתוב בגיליונות המחזורים באותו קובץ (שם יש גם ת"ז) — אותו כתיב בדיוק
+    const fileIds = new Map<string, Set<string>>();
+    for (const p of people) if (p.id && p.name) fileIds.set(wordsKey(p.name), (fileIds.get(wordsKey(p.name)) || new Set()).add(p.id));
+    // ואם לא — לפי שם משפחה + תחילת השם הפרטי ("מירי" / "מירים", "ברכי" / "ברכה") באותו קובץ
+    const fuzzyFileId = (name: string): string | null => {
+      const w = norm(name).split(' ').filter(Boolean);
+      const hits = new Set<string>();
+      for (const p of people) {
+        if (!p.id) continue;
+        const pw = norm(p.name).split(' ').filter(Boolean);
+        const shared = w.filter((x) => pw.includes(x));
+        const rest = w.filter((x) => !pw.includes(x));
+        const prest = pw.filter((x) => !w.includes(x));
+        const close = (a: string, b: string) => a.length >= 3 && b.length >= 3 && (a.startsWith(b.slice(0, 3)) || b.startsWith(a.slice(0, 3)));
+        if (shared.length >= 1 && rest.length === 1 && prest.length === 1 && close(rest[0], prest[0])) hits.add(p.id);
+      }
+      return hits.size === 1 ? [...hits][0] : null;
+    };
+    const makeupMatched: (ReturnType<typeof parseMakeupSheet>[number] & { student: AirtableRecord })[] = [];
+    for (const m of makeups) {
+      const ids = fileIds.get(wordsKey(m.name));
+      const fileId = ids && ids.size === 1 ? [...ids][0] : fuzzyFileId(m.name);
+      const viaFile = fileId ? byId.get(fileId) : undefined;
+      const found = viaFile ? [viaFile] : byName.get(wordsKey(m.name)) || [];
+      if (found.length !== 1) {
+        problems.push({ row: m.row, message: `${m.name}: ${found.length ? 'יש כמה תלמידות בשם הזה' : 'לא נמצאה תלמידה בשם הזה'} — ההשלמה לא נרשמה` });
+        continue;
+      }
+      makeupMatched.push({ ...m, student: found[0] });
+    }
+
+    if (!commit) {
+      return res.json({
+        preview: true,
+        sheets,
+        matchedCount: matched.length,
+        gradesCount: matched.reduce((n, p) => n + p.grades.length, 0),
+        makeupCount: makeupMatched.length,
+        people: matched.map((p) => ({
+          name: studentName(p.student),
+          sheet: p.sheet,
+          grades: p.grades.length,
+          years: [...new Set(p.grades.map((g) => g.schoolYear))].sort(),
+          missing: p.grades.filter((g) => g.scoreText && /חסר|לא\s*עבר|לא\s*עובר/.test(g.scoreText)).length,
+        })),
+        problems,
+      });
+    }
+
+    for (const p of matched) {
+      const studentId = p.student.id;
+      const years = [...new Set(p.grades.map((g) => g.schoolYear))];
+      // ייבוא חוזר מחליף את הציונים של אותן שנים
+      await prisma.studentSheetGrade.deleteMany({ where: { studentId, schoolYear: { in: years } } });
+      await prisma.studentSheetGrade.createMany({ data: p.grades.map((g) => ({ studentId, cohort: p.sheet, ...g })) });
+    }
+    for (const m of makeupMatched) {
+      const studentId = m.student.id;
+      const existing = await prisma.studentAcademicDebt.findFirst({ where: { studentId, subject: m.subject } });
+      const data = { description: m.description, done: m.done, doneAt: m.done ? existing?.doneAt || new Date() : null };
+      if (existing) await prisma.studentAcademicDebt.update({ where: { id: existing.id }, data });
+      else await prisma.studentAcademicDebt.create({ data: { studentId, subject: m.subject, ...data } });
+    }
+    res.json({ success: true, imported: matched.length, makeups: makeupMatched.length, problems });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בייבוא' });
   }
