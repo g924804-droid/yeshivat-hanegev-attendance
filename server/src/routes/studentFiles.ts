@@ -848,7 +848,21 @@ function parseAmount(t: string): number | null {
 const FAILED_COLLECTION = /אין\s*הרשאה|אכ["״']?מ|אין\s*כיסוי\s*מספיק/;
 
 type PayMonth = { month: number; amount: number | null; amountText: string | null; method: string | null; debt: number; debtText: string | null };
-type PayRow = { row: string; sheet: string; program: string; id: string; first: string; last: string; track: string; spec: string; notes: string[]; months: PayMonth[] };
+type PayRow = {
+  row: string;
+  sheet: string;
+  program: string;
+  id: string;
+  first: string;
+  last: string;
+  track: string;
+  spec: string;
+  notes: string[];
+  months: PayMonth[];
+  /** גיליון בלי חודשים (סכום שנתי) — כמה היה לשלם וכמה שולם */
+  fixedDue?: number;
+  fixedPaid?: number;
+};
 
 /** גיליון כיתה: שם משפחה, שם פרטי, ת"ז, התמחות, תשלום חודשי, ואז לכל חודש: "חודש 9", אופן תשלום, סה"כ חוב */
 function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
@@ -969,6 +983,77 @@ function parsePaymentSheet(sheet: string, rows: any[][]): PayRow[] | null {
   return out;
 }
 
+/**
+ * גיליון "הוראה" / "שנה ג" בלי עמודות חודשים (תשפ"ה): משפחה, שם, ת"ז, ואחריהן הערות חופשיות
+ * ("הוק · 240 מחודש 12 · 1920 עד חודש 7"). אם יש עמודת "סכום" — זה הסכום השנתי, ו"לא שולם" באופן התשלום = חוב.
+ */
+function parseFreeformProgramSheet(sheet: string, rows: any[][]): PayRow[] | null {
+  const program = /הוראה/.test(sheet) ? 'הוראה' : /שנה\s*ג/.test(sheet) ? 'שנה ג' : '';
+  if (!program) return null;
+  const isId = (x: string) => x.endsWith('תז') || x === 'תעודתזהות';
+  const headerIdx = rows.findIndex((r) => {
+    const k = Array.from(r, (c) => headerKey(cellText(c)));
+    return k.some(isId) && k.some((x) => x === 'משפחה' || x === 'שםמשפחה');
+  });
+  if (headerIdx < 0) return null;
+  const h = Array.from(rows[headerIdx], (c) => cellText(c));
+  const hk = h.map(headerKey);
+  const a = hk.findIndex((x) => x === 'משפחה' || x === 'שםמשפחה');
+  const b = hk.findIndex((x) => x === 'שם' || x === 'שםפרטי');
+  if (b < 0) return null;
+  const lastCol = Math.min(a, b);
+  const firstCol = Math.max(a, b);
+  const idCol = hk.findIndex(isId);
+  const amountCol = hk.findIndex((x) => x === 'סכום');
+  const methodCol = hk.findIndex((x) => x.includes('אופן'));
+  const skipCol = new Set([lastCol, firstCol, idCol, amountCol, methodCol]);
+  hk.forEach((x, i) => {
+    if (/פלאפון|טלפון|נייד/.test(x)) skipCol.add(i);
+  });
+  const width = Math.max(h.length, ...rows.slice(headerIdx + 1).map((r) => r.length));
+  const out: PayRow[] = [];
+  rows.slice(headerIdx + 1).forEach((r, k) => {
+    const t = (i: number) => (i >= 0 ? cellText(r[i]) : '');
+    const first = t(firstCol);
+    const last = t(lastCol);
+    // שורות כותרת של חלק נוסף ("כיתה י"ד", "משפחה | שם")
+    if (!first || !last || /כיתה/.test(first + last) || headerKey(last) === 'משפחה' || headerKey(first) === 'שם') return;
+    const notes: string[] = [];
+    for (let i = 0; i < width; i++) {
+      if (skipCol.has(i)) continue;
+      const v = t(i);
+      if (!v || (i === 0 && /^\d{1,3}$/.test(v))) continue; // מספור שורות
+      const label = h[i] && !/\d{3}/.test(h[i]) ? h[i] : '';
+      notes.push(label ? `${label}: ${v}` : v);
+    }
+    const method = t(methodCol);
+    let fixedDue: number | undefined;
+    let fixedPaid: number | undefined;
+    const amount = parseAmount(t(amountCol));
+    if (amount !== null) {
+      fixedDue = amount;
+      fixedPaid = /לא\s*שולם/.test(method) ? 0 : amount;
+    }
+    if (t(amountCol) && amount === null) notes.unshift(`סכום: ${t(amountCol)}`);
+    if (method) notes.unshift(`אופן תשלום: ${method}`);
+    out.push({
+      row: `${sheet}, שורה ${headerIdx + k + 2}`,
+      sheet,
+      program,
+      id: idKey(t(idCol)),
+      first,
+      last,
+      track: sheet,
+      spec: '',
+      notes,
+      months: [],
+      fixedDue,
+      fixedPaid,
+    });
+  });
+  return out;
+}
+
 /** גיליון "תשלומים נוספים": שורת תאריכים, שורת שמות האירועים (משפחה, שם, ...), ואז בת בכל שורה */
 function parseExtraSheet(rows: any[][]): Map<string, string[]> {
   const byName = new Map<string, string[]>();
@@ -1022,7 +1107,7 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
         sheets.push({ name, rows: extras.size });
         continue;
       }
-      const parsed = parsePaymentSheet(name, data);
+      const parsed = parsePaymentSheet(name, data) ?? parseFreeformProgramSheet(name, data);
       if (!parsed) continue;
       rows.push(...parsed);
       sheets.push({ name, rows: parsed.length });
@@ -1086,8 +1171,8 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
         continue;
       }
       seen.add(dupKey);
-      const paid = r.months.reduce((s, m) => s + (m.amount || 0), 0);
-      const debt = r.months.reduce((s, m) => s + m.debt, 0);
+      const paid = r.fixedPaid ?? r.months.reduce((s, m) => s + (m.amount || 0), 0);
+      const debt = r.fixedDue !== undefined ? Math.max(0, r.fixedDue - (r.fixedPaid || 0)) : r.months.reduce((s, m) => s + m.debt, 0);
       matched.push({ ...r, student, isNew: !existing, paid, debt, extra: extras.get(norm(name)) || [] });
     }
     const textCells = matched.reduce((s, r) => s + r.months.filter((m) => m.amountText || m.debtText).length, 0);
