@@ -1173,7 +1173,9 @@ router.post('/importPayments', upload.single('file'), async (req, res) => {
       seen.add(dupKey);
       const paid = r.fixedPaid ?? r.months.reduce((s, m) => s + (m.amount || 0), 0);
       const debt = r.fixedDue !== undefined ? Math.max(0, r.fixedDue - (r.fixedPaid || 0)) : r.months.reduce((s, m) => s + m.debt, 0);
-      matched.push({ ...r, student, isNew: !existing, paid, debt, extra: extras.get(norm(name)) || [] });
+      // תשלומים נוספים (לפי שם) — רק בשורת הכיתה; בשורת הוראה / שנה ג רק אם לבת אין שורת כיתה בקובץ
+      const extraHere = !r.program || !rows.some((x) => !x.program && x.id === r.id);
+      matched.push({ ...r, student, isNew: !existing, paid, debt, extra: (extraHere && extras.get(norm(name))) || [] });
     }
     const textCells = matched.reduce((s, r) => s + r.months.filter((m) => m.amountText || m.debtText).length, 0);
     // בנות עם הרבה חודשים ריקים (נחשבו חוב) — לבדיקה ידנית: אולי שילמו בבת אחת (רשום בהערות)
