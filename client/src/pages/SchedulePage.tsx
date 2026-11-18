@@ -1161,6 +1161,7 @@ function LessonModal({
 
         {deleting && lesson && !duplicate && (
           <div className="bg-red-50 border border-red-200 rounded-lg px-2 py-2 space-y-1.5">
+            <p className="text-sm font-medium text-red-800">כדי למחוק — לחצו על הכפתור האדום "אישור מחיקה" למטה.</p>
             <label className="label">מחיקת השיעור מתאריך</label>
             <input type="date" className="input" value={deleteFrom} onChange={(e) => setDeleteFrom(e.target.value)} />
             <p className="text-xs text-red-800">
@@ -1170,8 +1171,12 @@ function LessonModal({
               {deleteFrom < today && ' תאריך שכבר עבר — רק עם קוד נעילה.'}
             </p>
             <div className="flex gap-2">
-              <button className="btn-outline text-red-700 border-red-300 hover:bg-red-100" onClick={handleDelete} disabled={busy}>
-                <Trash2 size={14} /> מחיקה מ-{heDate(deleteFrom)}
+              <button
+                className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 disabled:opacity-50"
+                onClick={handleDelete}
+                disabled={busy}
+              >
+                <Trash2 size={14} /> {busy ? 'מוחק...' : `אישור מחיקה מ-${heDate(deleteFrom)}`}
               </button>
               <button className="btn-outline" onClick={() => setDeleting(false)}>ביטול</button>
             </div>
@@ -1182,7 +1187,7 @@ function LessonModal({
         )}
         {error && <div className="text-sm bg-red-50 text-red-700 rounded-xl px-3 py-2">{error}</div>}
 
-        <div className="flex gap-2 justify-between pt-2">
+        {!deleting && <div className="flex gap-2 justify-between pt-2">
           {lesson && !duplicate ? (
             <button className="btn-outline text-red-600 border-red-200 hover:bg-red-50" onClick={() => setDeleting(true)} disabled={busy || deleting}>
               <Trash2 size={14} /> מחיקה
@@ -1200,7 +1205,7 @@ function LessonModal({
               {multiDay && combos.length > 1 ? `שמירה (${combos.length} שיעורים)` : duplicate ? 'שמירה כשיעור חדש' : 'שמירה'}
             </button>
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );
