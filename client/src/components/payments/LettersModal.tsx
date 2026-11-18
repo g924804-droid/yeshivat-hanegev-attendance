@@ -120,7 +120,9 @@ export function LettersModal({
 
     const letters = recipients
       .map(({ student, rows, balance }) => {
-        const parents = [student.fatherName, student.motherName].filter(Boolean);
+        // הורה שנפטר (ז"ל / זצ"ל / ע"ה) — לא פונים אליו בכותרת המכתב
+        const deceased = /ז[״"']{1,2}ל|זצ[״"']{1,2}ל|ע[״"']{1,2}ה|זכרונו לברכה|זכרונה לברכה/;
+        const parents = [student.fatherName, student.motherName].filter((n) => n && !deceased.test(n));
         const toLine = parents.length ? `לכבוד ${parents.join(' ו')}` : 'לכבוד ההורים';
         const address = [student.address, student.city].filter(Boolean).join(', ');
         const body = rows
