@@ -6,6 +6,14 @@ import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { todayStr, toHebrewDateString } from '../lib/utils';
 
 type Counts = { total: number; present: number; absent: number; late: number; excused?: number; missed: number; pct: number };
+
+/** "2" / "2 + איחור 1" / "2 + 2 איחורים" — חיסורים, ואיחורים שעוד לא השלימו לחיסור (כל 3 = חיסור) */
+function missedText(c: Counts, lateCounts: boolean): string {
+  const rest = lateCounts ? c.late % 3 : 0;
+  const lates = rest === 1 ? 'איחור 1' : `${rest} איחורים`;
+  if (!rest) return String(c.missed);
+  return c.missed ? `${c.missed} + ${lates}` : lates;
+}
 type LessonRow = Counts & { category: string; lesson: string; teacher: string; over: boolean };
 type AbsenceEvent = { date: string; hebDate: string; category: string; lesson: string; status: 'חסרה' | 'איחור'; notes: string };
 type StudentSummary = Counts & {
@@ -162,7 +170,7 @@ export function StudentAttendanceReport() {
     const limit = summary.limitPct;
     const today = toHebrewDateString(new Date());
     const lines = (text: string) => esc(text).replace(/\n/g, '<br>');
-    const missedHeader = summary.lateCounts ? 'היעדרויות (חיסור+איחור)' : 'חיסורים';
+    const missedHeader = summary.lateCounts ? 'היעדרויות (חיסור + כל 3 איחורים)' : 'חיסורים';
 
     const reports = list
       .map((s) => {
@@ -173,7 +181,7 @@ export function StudentAttendanceReport() {
               rows
                 .map(
                   (l) => `<tr class="${l.over ? 'over' : ''}"><td class="r">${esc(l.lesson)}</td><td>${l.total}</td><td>${l.absent}</td>
-                    <td>${l.late}</td><td>${l.excused || 0}</td><td>${l.missed}</td><td class="${l.over ? 'red' : ''}">${l.pct}%</td></tr>`
+                    <td>${l.late}</td><td>${l.excused || 0}</td><td>${missedText(l, summary.lateCounts)}</td><td class="${l.over ? 'red' : ''}">${l.pct}%</td></tr>`
                 )
                 .join('')
           )
@@ -274,7 +282,7 @@ export function StudentAttendanceReport() {
           </label>
           <label className="text-sm flex items-center gap-1.5 pb-7">
             <input type="checkbox" checked={lateCounts} onChange={(e) => setLateCounts(e.target.checked)} />
-            איחור נחשב כהיעדרות
+            כל 3 איחורים = חיסור אחד
           </label>
           <button className="btn-primary py-2 mb-5" onClick={load} disabled={loading || !from || !to}>
             {loading ? 'טוען...' : 'הצגת הדוח'}
@@ -341,6 +349,7 @@ export function StudentAttendanceReport() {
                   <th>נוכחת</th>
                   <th>חסרה</th>
                   <th>איחור</th>
+                  <th>נחשב כחיסורים</th>
                   <th className="text-right">שיעורים מעל {summary.limitPct}%</th>
                   <th>דוח</th>
                 </tr>
@@ -363,6 +372,7 @@ export function StudentAttendanceReport() {
                       <td className="text-green-700">{s.present}</td>
                       <td className="text-red-600">{s.absent || ''}</td>
                       <td className="text-amber-700">{s.late || ''}</td>
+                      <td className="font-medium">{s.missed || s.late ? missedText(s, summary.lateCounts) : ''}</td>
                       <td className="text-right">
                         <div className="flex flex-wrap gap-1">
                           {s.lessons
@@ -389,7 +399,7 @@ export function StudentAttendanceReport() {
                     </tr>
                     {openId === s.id && (
                       <tr className="border-b bg-slate-50">
-                        <td colSpan={8} className="p-3 text-right">
+                        <td colSpan={9} className="p-3 text-right">
                           {s.lessons.length ? (
                             <table className="w-full text-xs text-center bg-white rounded-lg mb-3">
                               <thead>
@@ -399,6 +409,7 @@ export function StudentAttendanceReport() {
                                   <th>שיעורים</th>
                                   <th>חסרה</th>
                                   <th>איחור</th>
+                                  <th>נחשב כחיסורים</th>
                                   <th>אחוז היעדרות</th>
                                 </tr>
                               </thead>
@@ -406,7 +417,7 @@ export function StudentAttendanceReport() {
                                 {groupByCategory(s.lessons).map(([category, rows]) => (
                                   <Fragment key={category}>
                                     <tr className="bg-slate-100">
-                                      <td colSpan={6} className="py-1 px-2 text-right font-bold text-navy">{category}</td>
+                                      <td colSpan={7} className="py-1 px-2 text-right font-bold text-navy">{category}</td>
                                     </tr>
                                     {rows.map((l) => (
                                       <tr key={l.lesson} className={`border-b last:border-0 ${l.over ? 'bg-red-50' : ''}`}>
@@ -415,6 +426,7 @@ export function StudentAttendanceReport() {
                                         <td>{l.total}</td>
                                         <td>{l.absent || ''}</td>
                                         <td>{l.late || ''}</td>
+                                        <td>{l.missed || l.late ? missedText(l, summary.lateCounts) : ''}</td>
                                         <td className={l.over ? 'text-red-600 font-bold' : ''}>{l.pct}%</td>
                                       </tr>
                                     ))}

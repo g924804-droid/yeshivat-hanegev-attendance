@@ -9,6 +9,9 @@ import { recordPeriod } from './lessonPeriods';
 /** אחוז ההיעדרויות המקסימלי המותר בכל שיעור (חיסורים, ואיחורים אם נספרים). */
 export const ABSENCE_LIMIT_PCT = 20;
 
+/** כמה איחורים שווים לחיסור אחד (כשאיחורים נספרים) */
+export const LATES_PER_ABSENCE = 3;
+
 type Counts = { total: number; present: number; absent: number; late: number; excused: number; missed: number; pct: number };
 
 /**
@@ -47,7 +50,8 @@ function count(statuses: string[], lateCounts: boolean): Counts {
   // חיסור / איחור באישור — השיעור נספר, אבל לא כהיעדרות
   const excused = statuses.filter((s) => s === 'ExcusedAbsent' || s === 'ExcusedLate').length;
   const total = present + absent + late + excused;
-  const missed = absent + (lateCounts ? late : 0);
+  // כל 3 איחורים = חיסור אחד (איחור בודד או שניים לא נספרים)
+  const missed = absent + (lateCounts ? Math.floor(late / LATES_PER_ABSENCE) : 0);
   return { total, present, absent, late, excused, missed, pct: total ? Math.round((missed / total) * 1000) / 10 : 0 };
 }
 
@@ -247,7 +251,7 @@ const RED_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { a
 /** אקסל: סיכום לכל תלמידה, פירוט לפי שיעור, וכל הרישומים בטווח. */
 export async function buildAttendanceExcel(summary: AttendanceSummary): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  const missedHeader = summary.lateCounts ? 'היעדרויות (חיסור+איחור)' : 'היעדרויות (חיסורים)';
+  const missedHeader = summary.lateCounts ? 'היעדרויות (חיסור + כל 3 איחורים)' : 'היעדרויות (חיסורים)';
   const countColumns = [
     { header: 'שיעורים שנרשמו', key: 'total', width: 12 },
     { header: 'נוכחת', key: 'present', width: 9 },
@@ -255,7 +259,9 @@ export async function buildAttendanceExcel(summary: AttendanceSummary): Promise<
     { header: 'איחור', key: 'late', width: 9 },
     { header: 'באישור', key: 'excused', width: 9 },
     { header: missedHeader, key: 'missed', width: 14 },
+    ...(summary.lateCounts ? [{ header: 'איחורים שעוד לא נספרו כחיסור', key: 'lateRest', width: 14 }] : []),
   ];
+  const rest = (c: { late: number }) => (summary.lateCounts ? c.late % LATES_PER_ABSENCE || '' : '');
 
   const ws = wb.addWorksheet('סיכום לפי תלמידה');
   ws.columns = [
@@ -266,7 +272,7 @@ export async function buildAttendanceExcel(summary: AttendanceSummary): Promise<
   ];
   for (const s of summary.students) {
     const overLessons = s.lessons.filter((l) => l.over).map((l) => `${l.lesson} (${l.pct}%)`).join(', ');
-    const row = ws.addRow({ ...s, tracks: s.tracks.join(', '), overLessons });
+    const row = ws.addRow({ ...s, tracks: s.tracks.join(', '), overLessons, lateRest: rest(s) });
     if (s.overLimit) {
       row.fill = RED_FILL;
       row.getCell('overLessons').font = { bold: true, color: { argb: 'FFB91C1C' } };
@@ -285,7 +291,7 @@ export async function buildAttendanceExcel(summary: AttendanceSummary): Promise<
   ];
   for (const s of summary.students) {
     for (const l of s.lessons) {
-      const row = ls.addRow({ name: s.name, ...l, pct: l.pct / 100 });
+      const row = ls.addRow({ name: s.name, ...l, pct: l.pct / 100, lateRest: rest(l) });
       row.getCell('pct').numFmt = '0.0%';
       if (l.over) row.fill = RED_FILL;
     }
