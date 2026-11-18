@@ -274,6 +274,14 @@ model PaymentEntry {
   @@index([paymentId])
 }
 
+// ייבוא דוח מס"ב: איזו תלמידה שייכת לכל משלם — נזכר מהייבוא הקודם. המפתח: גיבוב של ת"ז / חשבון
+// המשלם (לא המספר עצמו) + השם הפרטי של הבת כפי שכתוב בקובץ (משפחה עם שתי בנות).
+model MasavPayer {
+  key         String   @id
+  studentName String
+  updatedAt   DateTime @updatedAt
+}
+
 // הגדרות חיוב קבועות לתלמידה — לפי שם, כי טבלת התשלומים ב-Airtable מקושרת לתלמידות רק לפי שם.
 model StudentBilling {
   studentName        String  @id

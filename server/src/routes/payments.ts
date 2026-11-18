@@ -4,8 +4,11 @@ import { airtableFetch, airtableCreate, airtableUpdate, airtableBatchCreate, air
 import { FIELDS } from '../lib/airtableFields';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requirePermission } from '../middleware/auth';
+import multer from 'multer';
+import { parseMasavFile, dateFromFileName, matchStudent, splitCustomer } from '../lib/masav';
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 router.use(requireAuth);
 router.use(requirePermission('payments'));
 
@@ -546,6 +549,180 @@ router.post('/recordPayment', async (req, res) => {
     res.json({ success: true, recordId: record.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה ביצירת חיוב' });
+  }
+});
+
+/**
+ * ייבוא דוח מס"ב (הוראות קבע ששודרו), שלב 1: קריאת הקובץ והתאמת כל שורה לתלמידה — לפי משלם שכבר הותאם
+ * בעבר, ואחרת לפי שם המשפחה, שם הבת ושמות ההורים. לא נשמר כלום.
+ */
+router.post('/masavPreview', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'לא נבחר קובץ' });
+    const fileName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    const rows = await parseMasavFile(req.file.buffer);
+    if (!rows.length) return res.status(400).json({ error: 'לא נמצאו שורות תשלום בקובץ' });
+    const date = dateFromFileName(fileName) || new Date().toISOString().slice(0, 10);
+    const [y, m] = date.split('-').map(Number);
+    const month = MONTH_INDEX[req.body.month] ? String(req.body.month) : MONTH_HE[m];
+    const year = Number(req.body.year) ? String(req.body.year) : String(y);
+    const tag = fileName.replace(/\.[^.]+$/, '');
+
+    const [records, studentsData, saved, imported] = await Promise.all([
+      airtableFetch(TABLES.payments),
+      loadStudentsByName(),
+      prisma.masavPayer.findMany(),
+      prisma.paymentEntry.findMany({ where: { notes: { startsWith: `מס"ב ${tag} #` } }, select: { notes: true } }),
+    ]);
+    const payments = records.map(mapPayment).filter((p) => p.fullName);
+    const monthPayments = new Map(payments.filter((p) => p.month === month && p.year === year).map((p) => [p.fullName, p]));
+    const parentsOf = (name: string) => {
+      const i = studentsData.byName.get(name);
+      return i ? [i.fatherName, i.motherName].filter(Boolean) : [];
+    };
+    const monthCands = [...monthPayments.keys()].map((name) => ({ name, parents: parentsOf(name) }));
+    const allNames = [...new Set([...monthPayments.keys(), ...studentsData.tracked.keys()])].sort((a, b) => a.localeCompare(b, 'he'));
+    const allCands = allNames.map((name) => ({ name, parents: parentsOf(name) }));
+    const savedMap = new Map(saved.map((s) => [s.key, s.studentName]));
+    const importedLines = new Set(imported.map((e) => Number((e.notes || '').split('#')[1])));
+
+    const items = rows.map((r) => {
+      const key = r.payerKey ? `${r.payerKey}|${splitCustomer(r.customer).girlWords.join(' ')}` : '';
+      let studentName: string | null = (key && savedMap.get(key)) || null;
+      let how: string = studentName ? 'saved' : 'none';
+      let candidates: string[] = [];
+      if (!studentName) {
+        let mm = matchStudent(r.customer, monthCands);
+        if (!mm.name) {
+          const m2 = matchStudent(r.customer, allCands);
+          if (m2.name) mm = m2;
+          else if (!mm.candidates.length) mm = m2;
+        }
+        studentName = mm.name;
+        how = mm.how;
+        candidates = mm.candidates;
+      }
+      const p = studentName ? monthPayments.get(studentName) : undefined;
+      return {
+        line: r.line,
+        customer: r.customer,
+        amount: r.amount,
+        kind: r.kind,
+        notes: r.notes,
+        key,
+        studentName,
+        how,
+        candidates,
+        hasCharge: !!p,
+        owed: p?.owed ?? null,
+        alreadyPaid: p?.amountPaid ?? null,
+        imported: importedLines.has(r.line),
+      };
+    });
+    res.json({ tag, date, month, year, items, studentNames: allNames, total: Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100) / 100 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בקריאת הקובץ' });
+  }
+});
+
+/**
+ * ייבוא דוח מס"ב, שלב 2: רישום התשלומים (הוראת קבע) לחודש שנבחר. בת בלי חיוב באותו חודש — נפתח לה
+ * חיוב (chargeAmount = הסכום החודשי שלה). שורה שכבר יובאה מאותו קובץ — מדולגת. ההתאמות נשמרות לפעם הבאה.
+ */
+router.post('/masavApply', async (req, res) => {
+  try {
+    const { tag, date, month, year, items } = req.body as {
+      tag: string;
+      date: string;
+      month: string;
+      year: string;
+      items: { line: number; key?: string; studentName: string; amount: number; kind?: string; chargeAmount?: number }[];
+    };
+    if (!tag || !MONTH_INDEX[month] || !Number(year) || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return res.status(400).json({ error: 'חסרים פרטים' });
+    const valid = (items || []).filter((i) => norm(i.studentName) && num(i.amount) > 0);
+    if (!valid.length) return res.status(400).json({ error: 'אין שורות לרישום' });
+
+    const done = new Set(
+      (await prisma.paymentEntry.findMany({ where: { notes: { startsWith: `מס"ב ${tag} #` } }, select: { notes: true } })).map((e) =>
+        Number((e.notes || '').split('#')[1])
+      )
+    );
+    const todo = valid.filter((i) => !done.has(i.line));
+    const records = await airtableFetch(TABLES.payments);
+    const byName = new Map(
+      records
+        .map(mapPayment)
+        .filter((p) => p.month === month && p.year === String(year))
+        .map((p) => [p.fullName, p])
+    );
+
+    // חיובים חסרים
+    const missing = [...new Set(todo.map((i) => norm(i.studentName)).filter((n) => !byName.has(n)))];
+    for (const name of missing) {
+      const sum = todo.filter((i) => norm(i.studentName) === name).reduce((s, i) => s + num(i.amount), 0);
+      const due = num(todo.find((i) => norm(i.studentName) === name && num(i.chargeAmount) > 0)?.chargeAmount) || sum;
+      const rec = await airtableCreate(TABLES.payments, {
+        [F.fullName]: name,
+        [F.month]: month,
+        [F.year]: String(year),
+        [F.amountDue]: due,
+        [F.scholarship]: 0,
+        [F.amountPaid]: 0,
+        [F.status]: computeStatus(due, 0),
+      });
+      byName.set(name, mapPayment(rec));
+    }
+
+    await prisma.paymentEntry.createMany({
+      data: todo.map((i) => {
+        const p = byName.get(norm(i.studentName))!;
+        return {
+          paymentId: p.id,
+          studentName: p.fullName,
+          month: p.month,
+          year: p.year,
+          method: 'הוראת קבע',
+          amount: num(i.amount),
+          date,
+          notes: `מס"ב ${tag} #${i.line}${i.kind ? ` (${i.kind})` : ''}`,
+          createdBy: req.user!.name,
+        };
+      }),
+    });
+
+    // עדכון הסכום ששולם בכל חודש — בבת אחת
+    const added = new Map<string, number>();
+    for (const i of todo) {
+      const id = byName.get(norm(i.studentName))!.id;
+      added.set(id, (added.get(id) || 0) + num(i.amount));
+    }
+    const updates = [...added.entries()].map(([id, sum]) => {
+      const p = [...byName.values()].find((x) => x.id === id)!;
+      const paid = Math.round((p.amountPaid + sum) * 100) / 100;
+      return {
+        id,
+        fields: {
+          [F.amountPaid]: paid,
+          [F.status]: computeStatus(p.owed, paid),
+          [F.paymentDate]: date,
+          [F.paymentMethod]: METHOD_TO_AIRTABLE['הוראת קבע'],
+        },
+      };
+    });
+    await airtableBatchUpdate(TABLES.payments, updates);
+
+    // זוכרים את ההתאמה לחודש הבא
+    for (const i of valid) {
+      if (!i.key) continue;
+      await prisma.masavPayer.upsert({
+        where: { key: i.key },
+        create: { key: i.key, studentName: norm(i.studentName) },
+        update: { studentName: norm(i.studentName) },
+      });
+    }
+    res.json({ success: true, recorded: todo.length, skipped: valid.length - todo.length, students: added.size, chargesCreated: missing.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה ברישום התשלומים' });
   }
 });
 

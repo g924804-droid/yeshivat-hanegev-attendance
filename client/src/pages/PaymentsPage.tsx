@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, CalendarPlus, FileSpreadsheet, Mail, Settings2, ChevronRight, ChevronLeft, Tags, CheckCheck } from 'lucide-react';
+import { Search, Plus, CalendarPlus, FileSpreadsheet, Mail, Settings2, ChevronRight, ChevronLeft, Tags, CheckCheck, Landmark } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api, FILTER_BLOCKED_MESSAGE } from '../lib/api';
 import { useUrlState } from '../lib/useUrlState';
@@ -17,6 +17,7 @@ import {
 import { PaymentModal } from '../components/payments/PaymentModal';
 import { BillingModal, GenerateMonthModal, NewChargeModal, TrackPricesModal, MarkMonthPaidModal } from '../components/payments/BillingModals';
 import { LettersModal } from '../components/payments/LettersModal';
+import { MasavImportModal } from '../components/payments/MasavImportModal';
 
 const CELL_STYLE: Record<Payment['status'], string> = {
   Paid: 'bg-green-100 text-green-800 hover:bg-green-200',
@@ -42,6 +43,7 @@ export function PaymentsPage() {
   const [letters, setLetters] = useState<{ student?: StudentRow } | null>(null);
   const [showTrackPrices, setShowTrackPrices] = useState(false);
   const [markColumn, setMarkColumn] = useState<MonthColumn | null>(null);
+  const [showMasav, setShowMasav] = useState(false);
 
   async function load() {
     try {
@@ -180,6 +182,9 @@ export function PaymentsPage() {
         <div className="flex flex-wrap gap-2 mr-auto">
           <button className="btn-primary py-2" onClick={() => setShowGenerate(true)}>
             <CalendarPlus size={16} /> פתיחת חודש
+          </button>
+          <button className="btn-primary py-2" onClick={() => setShowMasav(true)}>
+            <Landmark size={16} /> ייבוא קובץ מס"ב
           </button>
           <button className="btn-outline py-2" onClick={() => setShowTrackPrices(true)}>
             <Tags size={16} /> מחירים לפי מגמה
@@ -350,6 +355,17 @@ export function PaymentsPage() {
           onClose={() => setMarkColumn(null)}
           onDone={(message) => {
             setMarkColumn(null);
+            setNotice(message);
+            load();
+          }}
+        />
+      )}
+      {showMasav && (
+        <MasavImportModal
+          students={data.students}
+          onClose={() => setShowMasav(false)}
+          onDone={(message) => {
+            setShowMasav(false);
             setNotice(message);
             load();
           }}
