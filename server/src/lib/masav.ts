@@ -161,8 +161,10 @@ export function matchStudent(customer: string, candidates: MatchCandidate[]): Ma
       const familyHit = (family.length ? family : rest).some((w) => hasWord(parentWords, w));
       const girlHit = girlWords.length > 0 && girlWords.every((w) => hasWord(nw, w));
       const parentHits = [...new Set(parents.flatMap(words))].filter((w) => w.length > 1 && hasWord(parentWords, w)).length;
-      const score = (familyHit ? 4 : 0) + (girlHit ? 4 : 0) + Math.min(parentHits, 2) * 2;
-      return { name, familyHit, girlHit, parentHits, score };
+      // בלי "התלמידה" — לפעמים כתוב בשם הלקוח השם המלא של הבת עצמה ("פינקל שפרה")
+      const fullHit = !girlWords.length && nw.length > 1 && nw.every((w) => hasWord(parentWords, w));
+      const score = (familyHit ? 4 : 0) + (girlHit ? 4 : 0) + (fullHit ? 4 : 0) + Math.min(parentHits, 2) * 2;
+      return { name, familyHit, girlHit: girlHit || fullHit, parentHits, score };
     })
     .filter((x) => x.familyHit || (x.girlHit && x.parentHits))
     .sort((a, b) => b.score - a.score);

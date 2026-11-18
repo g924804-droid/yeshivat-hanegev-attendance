@@ -584,7 +584,7 @@ router.post('/masavPreview', upload.single('file'), async (req, res) => {
     const allNames = [...new Set([...monthPayments.keys(), ...studentsData.tracked.keys()])].sort((a, b) => a.localeCompare(b, 'he'));
     const allCands = allNames.map((name) => ({ name, parents: parentsOf(name) }));
     const savedMap = new Map(saved.map((s) => [s.key, s.studentName]));
-    const importedLines = new Set(imported.map((e) => Number((e.notes || '').split('#')[1])));
+    const importedLines = new Set(imported.map((e) => parseInt((e.notes || '').split('#')[1], 10)));
 
     const items = rows.map((r) => {
       const key = r.payerKey ? `${r.payerKey}|${splitCustomer(r.customer).girlWords.join(' ')}` : '';
@@ -644,7 +644,7 @@ router.post('/masavApply', async (req, res) => {
 
     const done = new Set(
       (await prisma.paymentEntry.findMany({ where: { notes: { startsWith: `מס"ב ${tag} #` } }, select: { notes: true } })).map((e) =>
-        Number((e.notes || '').split('#')[1])
+        parseInt((e.notes || '').split('#')[1], 10)
       )
     );
     const todo = valid.filter((i) => !done.has(i.line));
