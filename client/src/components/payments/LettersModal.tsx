@@ -6,7 +6,7 @@ import { MonthColumn, Payment, StudentRow, shekel, ANNUAL_PLAN_METHODS, ANNUAL_M
 type Who = 'debtors' | 'all' | 'one';
 
 const DEFAULT_OPENING = 'להלן פירוט מצב תשלומי שכר הלימוד של בתכם לתקופה {תקופה}:';
-const DEFAULT_DEBT = 'נודה לכם אם תסדירו את היתרה בהקדם. לבירורים ניתן לפנות למזכירות הישיבה.';
+const DEFAULT_DEBT = 'נודה לכם אם תסדירו את היתרה בהקדם. לבירורים ניתן לפנות למזכירות הסמינר.';
 const DEFAULT_PAID = 'כל התשלומים לתקופה זו הוסדרו — תודה רבה על שיתוף הפעולה!';
 
 function esc(s: string): string {
@@ -58,7 +58,7 @@ export function LettersModal({
   const [opening, setOpening] = useState(DEFAULT_OPENING);
   const [closingDebt, setClosingDebt] = useState(DEFAULT_DEBT);
   const [closingPaid, setClosingPaid] = useState(DEFAULT_PAID);
-  const [signature, setSignature] = useState('בברכה,\nהנהלת הישיבה');
+  const [signature, setSignature] = useState('בברכה,\nהנהלת הסמינר');
   const [busy, setBusy] = useState(false);
 
   const label = (key: number) => {
@@ -72,21 +72,29 @@ export function LettersModal({
       const rows = payments.filter((p) => p.fullName === s.name && inRange(p)).sort((a, b) => a.monthKey - b.monthKey);
       // מגמה עם מחיר שנתי (שנה ג'), ועוד לא נפתח לה החיוב השנתי — מציגים במכתב את שכר הלימוד השנתי
       // כשורה, כדי שגם היא תקבל מכתב (החיוב עצמו נפתח כשהיא משלמת)
+      // בת ששילמה בתשלומים — כל תשלום נרשם כחיוב נפרד, אז מוסיפים רק את החלק שעוד לא חויב,
+      // ותשלום עודף (שולם יותר מהחיוב של אותו חודש) מקטין את היתרה
       const annual = s.annualAmount || 0;
-      if (annual > 0 && !payments.some((p) => p.fullName === s.name && p.amountDue === annual)) {
+      const yearRows = payments.filter(
+        (p) => p.fullName === s.name && p.monthKey >= columns[0].key && p.monthKey <= columns[columns.length - 1].key
+      );
+      const unbilled = Math.round((annual - yearRows.reduce((sum, p) => sum + p.amountDue, 0)) * 100) / 100;
+      const overpaid = yearRows.reduce((sum, p) => sum + Math.max(0, p.amountPaid - p.owed), 0);
+      if (annual > 0 && unbilled > 0) {
+        const left = Math.max(0, unbilled - overpaid);
         rows.unshift({
           id: 'annual-' + s.name,
           fullName: s.name,
-          month: 'שכר לימוד שנתי',
+          month: yearRows.length ? 'יתרת שכר לימוד שנתי' : 'שכר לימוד שנתי',
           year: '',
           monthKey: 0,
-          amountDue: annual,
+          amountDue: unbilled,
           extra: 0,
           scholarship: 0,
-          owed: annual,
-          amountPaid: 0,
-          balance: annual,
-          status: 'Unpaid',
+          owed: unbilled,
+          amountPaid: unbilled - left,
+          balance: left,
+          status: left > 0 ? 'Unpaid' : 'Paid',
           paymentDate: null,
           paymentMethod: null,
           entries: [],
@@ -123,7 +131,7 @@ export function LettersModal({
           .join('');
         const sum = (k: 'amountPaid' | 'scholarship') => rows.reduce((s, p) => s + p[k], 0);
         return `<div class="letter">
-          <div class="head"><h1>ישיבת הנגב</h1>${logo}</div>
+          <div class="head"><h1>סמינר מאיר</h1>${logo}</div>
           <div class="date">${today}</div>
           <div class="to">${esc(toLine)}<br>הורי התלמידה ${esc(student.name)}${address ? `<br>${esc(address)}` : ''}</div>
           <div class="subject">הנדון: מצב תשלומי שכר לימוד</div>

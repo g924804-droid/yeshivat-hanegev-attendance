@@ -404,10 +404,12 @@ router.post('/generateAnnualCharges', async (req, res) => {
       const b = billing.find((x) => x.studentName === name);
       if (b && !b.active) continue;
       const amount = b?.annualAmount || annual;
-      const exists = payments.some(
-        (p) => p.fullName === name && p.amountDue === amount && schoolYearStart(MONTH_INDEX[p.month] || 0, Number(p.year)) === target
-      );
-      if (exists) {
+      // בת ששילמה בתשלומים כבר חויבה בחלק מהסכום — מחייבים רק את מה שנשאר
+      const charged = payments
+        .filter((p) => p.fullName === name && schoolYearStart(MONTH_INDEX[p.month] || 0, Number(p.year)) === target)
+        .reduce((s, p) => s + p.amountDue, 0);
+      const remaining = Math.round((amount - charged) * 100) / 100;
+      if (remaining <= 0) {
         skipped.push(name);
         continue;
       }
@@ -415,10 +417,10 @@ router.post('/generateAnnualCharges', async (req, res) => {
         [F.fullName]: name,
         [F.month]: month,
         [F.year]: String(year),
-        [F.amountDue]: amount,
+        [F.amountDue]: remaining,
         [F.scholarship]: 0,
         [F.amountPaid]: 0,
-        [F.status]: computeStatus(amount, 0),
+        [F.status]: computeStatus(remaining, 0),
       });
     }
     await airtableBatchCreate(TABLES.payments, toCreate);
