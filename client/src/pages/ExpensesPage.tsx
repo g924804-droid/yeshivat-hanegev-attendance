@@ -10,6 +10,7 @@ type Expense = {
   date: string;
   hebrewDate: string | null;
   topic: string | null;
+  expenseType: string | null;
   groupMonth?: string; // החודש שתחתיו השורה מוצגת (מהשרת) — YYYY-MM, או '' בלי תאריך
   payee: string;
   invoiceText: string | null;
@@ -40,6 +41,21 @@ type Overview = { year: string; years: string[]; categories: Category[] };
 
 const PAYMENT_METHODS = ['העברה', 'משכורת', "צ'ק", 'מזומן', 'אשראי'];
 const isTransfer = (method: string | null) => !!method && method.includes('העברה');
+
+/** סוגי הוצאה — לכל הוצאה בוחרים אחד, ואז אפשר לחפש לפי סוג בכל התוכניות */
+const EXPENSE_TYPES = ['אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'דרייברים'];
+const TYPE_COLORS: Record<string, string> = {
+  'אוכל': 'bg-orange-100 text-orange-800',
+  'רבנים/יות': 'bg-indigo-100 text-indigo-800',
+  'הפעלה': 'bg-pink-100 text-pink-800',
+  'הדפסות': 'bg-sky-100 text-sky-800',
+  'אוטובוסים': 'bg-emerald-100 text-emerald-800',
+  'דרייברים': 'bg-violet-100 text-violet-800',
+};
+function TypeBadge({ type }: { type: string | null }) {
+  if (!type) return null;
+  return <span className={`badge ${TYPE_COLORS[type] || 'bg-slate-100 text-slate-700'}`}>{type}</span>;
+}
 
 const shekel = (n: number) => `₪${n.toLocaleString('he-IL', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 const fmtDate = (iso: string) => (iso ? iso.split('-').reverse().join('/') : '');
@@ -72,6 +88,7 @@ export function ExpensesPage() {
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [typeSearch, setTypeSearch] = useState(false);
 
   async function loadOverview(y = year) {
     try {
@@ -109,7 +126,7 @@ export function ExpensesPage() {
     const q = search.trim();
     if (!q || !expenses) return expenses || [];
     return expenses.filter((e) =>
-      [e.topic, e.payee, e.details, e.paymentMethod, e.accountDetails, e.notes, e.invoiceText, e.receiptText, fmtDate(e.date), fmtDate(e.paymentDate || ''), ...e.files.map((f) => f.fileName)]
+      [e.topic, e.expenseType, e.payee, e.details, e.paymentMethod, e.accountDetails, e.notes, e.invoiceText, e.receiptText, fmtDate(e.date), fmtDate(e.paymentDate || ''), ...e.files.map((f) => f.fileName)]
         .some((v) => v && v.includes(q))
     );
   }, [expenses, search]);
@@ -175,6 +192,12 @@ export function ExpensesPage() {
             </option>
           ))}
         </select>
+        <button
+          className={`py-2 ${typeSearch ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => setTypeSearch(!typeSearch)}
+        >
+          <Search size={16} /> {typeSearch ? 'חזרה לפנקס' : 'חיפוש לפי סוג הוצאה בכל הפנקס'}
+        </button>
         <div className="flex-1" />
         <button className="btn-outline py-2" onClick={() => setShowImport(true)}>
           <Upload size={16} /> ייבוא מאקסל
@@ -193,6 +216,10 @@ export function ExpensesPage() {
         </div>
       )}
 
+      {typeSearch ? (
+        <TypeSearch year={year} onChanged={loadOverview} />
+      ) : (
+      <>
       {/* קטגוריות */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         {overview.categories.map((c) => (
@@ -330,7 +357,14 @@ export function ExpensesPage() {
                           <p className="text-xs text-slate-500">{e.date ? heDate(e.date) : e.hebrewDate}</p>
                         </td>
                         <td className="px-2.5 py-2.5 font-medium text-navy min-w-[110px]">{e.payee}</td>
-                        <td className="px-2.5 py-2.5 min-w-[120px]">{e.details}</td>
+                        <td className="px-2.5 py-2.5 min-w-[120px]">
+                          {e.details}
+                          {e.expenseType && (
+                            <p className="mt-1">
+                              <TypeBadge type={e.expenseType} />
+                            </p>
+                          )}
+                        </td>
                         <td className="px-2.5 py-2.5">{e.paymentMethod}</td>
                         <td className="px-2.5 py-2.5 whitespace-nowrap font-semibold">{e.amount !== null ? shekel(e.amount) : ''}</td>
                         <td className="px-2.5 py-2.5">
@@ -365,6 +399,8 @@ export function ExpensesPage() {
             </div>
           </>
         )
+      )}
+      </>
       )}
 
       {editing && category && (
@@ -418,6 +454,7 @@ export function ExpensesPage() {
 
 const EXPORT_COLUMNS = [
   { key: 'topic', title: 'נושא הפעילות' },
+  { key: 'expenseType', title: 'סוג הוצאה' },
   { key: 'date', title: 'תאריך' },
   { key: 'hebrewDate', title: 'תאריך עברי' },
   { key: 'payee', title: 'שם בקבלה / שם הרב' },
@@ -654,6 +691,7 @@ function ExpenseModal({
     date: expense ? expense.date : new Date().toISOString().slice(0, 10),
     hebrewDate: expense?.hebrewDate || '',
     topic: expense?.topic || '',
+    expenseType: expense?.expenseType || '',
     payee: expense?.payee || '',
     invoiceText: expense?.invoiceText || '',
     invoiceUrl: expense?.invoiceUrl || '',
@@ -676,6 +714,7 @@ function ExpenseModal({
   const needsAccount = isTransfer(form.paymentMethod) && !form.accountDetails.trim();
 
   async function save() {
+    if (!form.expenseType) return setError('יש לבחור סוג הוצאה');
     if (!form.date && !form.hebrewDate && !form.topic.trim()) return setError('חסר תאריך');
     if (!form.payee.trim() && !form.details.trim()) return setError('חסר שם בקבלה או פרוט');
     if (needsAccount) return setError('בתשלום בהעברה חובה למלא פרטי חשבון');
@@ -743,6 +782,23 @@ function ExpenseModal({
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-3 max-h-[92vh] overflow-y-auto">
         <h3 className="font-bold text-navy text-lg">{expense ? 'עריכת הוצאה' : 'הוצאה חדשה'}</h3>
+        <div>
+          <label className="label">סוג הוצאה *</label>
+          <div className="flex flex-wrap gap-2">
+            {EXPENSE_TYPES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setForm({ ...form, expenseType: t })}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium border transition-colors ${
+                  form.expenseType === t ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">תאריך *</label>
@@ -995,6 +1051,189 @@ function ImportModal({ year, onClose, onDone }: { year: string; onClose: () => v
 const MONTHS_HE = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 
 /** 2026-10 ← "אוקטובר 2026"; ריק ← "בלי תאריך" */
+type SearchExpense = Expense & { category: { id: string; name: string } };
+
+/** חיפוש בכל הפנקס של השנה לפי סוג הוצאה — למשל כל האוכל מכל התוכניות */
+function TypeSearch({ year, onChanged }: { year: string; onChanged: () => void }) {
+  const [type, setType] = useState(readPref('expenses.type') || EXPENSE_TYPES[0]);
+  const [q, setQ] = useState('');
+  const [data, setData] = useState<{ counts: Record<string, number>; expenses: SearchExpense[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      setData(await api.get('/expenses/search', { year: year || undefined, type: type || undefined }));
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+  useEffect(() => {
+    setData(null);
+    load();
+    writePref('expenses.type', type);
+  }, [year, type]);
+
+  const shown = useMemo(() => {
+    const s = q.trim();
+    if (!data) return [];
+    if (!s) return data.expenses;
+    return data.expenses.filter((e) =>
+      [e.category.name, e.topic, e.payee, e.details, e.paymentMethod, e.notes, fmtDate(e.date)].some((v) => v && v.includes(s))
+    );
+  }, [data, q]);
+  const total = shown.reduce((s, e) => s + (e.amount || 0), 0);
+  const byProgram = useMemo(() => {
+    const m = new Map<string, { count: number; sum: number }>();
+    for (const e of shown) {
+      const cur = m.get(e.category.name) || { count: 0, sum: 0 };
+      cur.count++;
+      cur.sum += e.amount || 0;
+      m.set(e.category.name, cur);
+    }
+    return Array.from(m.entries()).sort((a, b) => b[1].sum - a[1].sum);
+  }, [shown]);
+
+  async function changeType(e: SearchExpense, t: string) {
+    try {
+      await api.put(`/expenses/expenses/${e.id}/type`, { expenseType: t });
+      await load();
+      onChanged();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  const chip = (value: string, label: string) => (
+    <button
+      key={value || 'all'}
+      onClick={() => setType(value)}
+      className={`rounded-full px-4 py-1.5 text-sm font-medium border transition-colors ${
+        type === value ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-slate-300 hover:bg-slate-50'
+      }`}
+    >
+      {label}
+      {data && value && <span className="opacity-60"> ({data.counts[value] || 0})</span>}
+    </button>
+  );
+
+  return (
+    <div>
+      <p className="text-sm text-slate-600 mb-2">כל ההוצאות של שנת {year} מכל התוכניות, לפי סוג הוצאה:</p>
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {EXPENSE_TYPES.map((t) => chip(t, t))}
+        {chip('none', 'בלי סוג')}
+        {chip('', 'הכל')}
+      </div>
+
+      {error && (
+        <div className="mb-3 rounded-xl bg-red-50 text-red-700 px-4 py-2 text-sm flex justify-between">
+          {error}
+          <button onClick={() => setError(null)}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {type === 'none' && (
+        <p className="text-sm text-slate-600 mb-3">
+          אלה הוצאות שעוד לא שויכו לסוג (למשל הוצאות ישנות). אפשר לבחור סוג ישירות בעמודה "סוג הוצאה", וזה נשמר מיד.
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <SummaryCard label={`סה"כ ${type === 'none' ? 'בלי סוג' : type || 'כל ההוצאות'}`} value={shekel(total)} />
+        <SummaryCard label="מספר הוצאות" value={String(shown.length)} />
+      </div>
+      {byProgram.length > 1 && (
+        <div className="flex flex-wrap gap-2 mb-4 text-sm">
+          {byProgram.map(([name, v]) => (
+            <span key={name} className="rounded-lg bg-slate-100 px-3 py-1.5">
+              <b className="text-navy">{name}</b>: {shekel(v.sum)} <span className="text-slate-500">({v.count})</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="relative max-w-xs mb-3">
+        <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input className="input pr-9 py-2" placeholder="חיפוש בתוצאות (שם, תוכנית, פרוט...)" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+
+      <div className="card p-0 overflow-x-auto">
+        <table className="w-full text-[15px] leading-snug">
+          <thead className="bg-navy text-white">
+            <tr>
+              {['תוכנית', 'סוג הוצאה', 'תאריך', 'נושא הפעילות', 'שם בקבלה / שם הרב', 'פרוט', 'סכום', 'חשבונית', 'תאריך תשלום'].map((h) => (
+                <th key={h} className="px-2.5 py-3 text-right font-bold">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {!data ? (
+              <tr>
+                <td colSpan={9} className="px-3 py-6 text-center text-slate-400">
+                  טוען...
+                </td>
+              </tr>
+            ) : !shown.length ? (
+              <tr>
+                <td colSpan={9} className="px-3 py-6 text-center text-slate-400">
+                  לא נמצאו הוצאות
+                </td>
+              </tr>
+            ) : (
+              shown.map((e) => (
+                <tr key={e.id} className="border-t border-slate-100 align-top hover:bg-slate-50/60">
+                  <td className="px-2.5 py-2.5 font-medium text-navy">{e.category.name}</td>
+                  <td className="px-2.5 py-2">
+                    <select
+                      className={`rounded-lg border px-2 py-1 text-sm ${e.expenseType ? TYPE_COLORS[e.expenseType] || '' : 'border-amber-400 bg-amber-50'}`}
+                      value={e.expenseType || ''}
+                      onChange={(ev) => changeType(e, ev.target.value)}
+                    >
+                      <option value="">— בחירה —</option>
+                      {EXPENSE_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-2.5 py-2.5 whitespace-nowrap">
+                    {fmtDate(e.date)}
+                    <p className="text-xs text-slate-500">{e.date ? heDate(e.date) : e.hebrewDate}</p>
+                  </td>
+                  <td className="px-2.5 py-2.5">{e.topic}</td>
+                  <td className="px-2.5 py-2.5 font-medium text-navy">{e.payee}</td>
+                  <td className="px-2.5 py-2.5">{e.details}</td>
+                  <td className="px-2.5 py-2.5 whitespace-nowrap font-semibold">{e.amount !== null ? shekel(e.amount) : ''}</td>
+                  <td className="px-2.5 py-2.5">
+                    <FileLinks files={e.files.filter((f) => f.kind === 'invoice')} text={e.invoiceText} url={e.invoiceUrl} />
+                  </td>
+                  <td className="px-2.5 py-2.5 whitespace-nowrap">
+                    {e.paymentDate ? fmtDate(e.paymentDate) : <span className="text-slate-400 text-xs">טרם שולם</span>}
+                  </td>
+                </tr>
+              ))
+            )}
+            {shown.length > 0 && (
+              <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold">
+                <td colSpan={6} className="px-2.5 py-2.5 text-left">
+                  סה"כ
+                </td>
+                <td className="px-2.5 py-2.5 whitespace-nowrap">{shekel(total)}</td>
+                <td colSpan={2} />
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function monthLabel(month: string): string {
   if (!month) return 'בלי תאריך';
   const [y, m] = month.split('-').map(Number);

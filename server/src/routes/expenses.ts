@@ -57,6 +57,19 @@ function parseDate(v: unknown): string {
 
 const isTransfer = (method: string | null) => !!method && method.includes('העברה');
 
+/** סוגי ההוצאות — כל הוצאה משויכת לאחד, וכך אפשר לראות למשל את כל האוכל מכל התוכניות */
+export const EXPENSE_TYPES = ['אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'דרייברים'];
+
+function expenseType(v: unknown, strict: boolean): string | null {
+  const t = str(v, 50);
+  if (!t) {
+    if (strict) throw new Error('יש לבחור סוג הוצאה');
+    return null;
+  }
+  if (!EXPENSE_TYPES.includes(t)) throw new Error('סוג הוצאה לא מוכר');
+  return t;
+}
+
 const url = (v: unknown) => {
   const s = str(v, 1000);
   return s && (s.toLowerCase().startsWith('http://') || s.toLowerCase().startsWith('https://')) ? s : null;
@@ -79,6 +92,7 @@ function expenseData(body: any, strict = true) {
     date,
     hebrewDate: date ? null : str(body.hebrewDate, 60),
     topic: str(body.topic, 150),
+    expenseType: expenseType(body.expenseType, strict),
     payee,
     details,
     invoiceText: str(body.invoiceText),
@@ -227,6 +241,53 @@ router.get('/list', async (req, res) => {
     res.json({ expenses: orderExpensesByDate(expenses) });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בטעינת ההוצאות' });
+  }
+});
+
+/**
+ * חיפוש בכל הפנקס של השנה — כל התוכניות. type = סוג הוצאה ('none' = בלי סוג), q = טקסט חופשי.
+ */
+router.get('/search', async (req, res) => {
+  try {
+    const year = String(req.query.year || '') || currentSchoolYear();
+    const type = String(req.query.type || '');
+    const q = String(req.query.q || '').trim();
+    const expenses = await prisma.expense.findMany({
+      where: {
+        category: { year },
+        ...(type === 'none' ? { expenseType: null } : type ? { expenseType: type } : {}),
+      },
+      orderBy: [{ date: 'asc' }, { sortOrder: 'asc' }],
+      include: {
+        category: { select: { id: true, name: true } },
+        files: { select: FILE_META, orderBy: { createdAt: 'asc' } },
+      },
+    });
+    const shown = q
+      ? expenses.filter((e) =>
+          [e.topic, e.payee, e.details, e.paymentMethod, e.notes, e.category.name, e.expenseType].some((v) => v && v.includes(q))
+        )
+      : expenses;
+    // ספירה לכל סוג (בלי הסינון) — למספרים על הכפתורים
+    const counts: Record<string, number> = {};
+    const all = await prisma.expense.groupBy({ by: ['expenseType'], where: { category: { year } }, _count: true });
+    for (const g of all) counts[g.expenseType || 'none'] = g._count;
+    res.json({ year, types: EXPENSE_TYPES, counts, expenses: shown });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בחיפוש' });
+  }
+});
+
+// שינוי סוג ההוצאה בלבד (מסך החיפוש — שיוך מהיר של הוצאות ישנות)
+router.put('/expenses/:id/type', async (req, res) => {
+  try {
+    const expense = await prisma.expense.update({
+      where: { id: req.params.id },
+      data: { expenseType: expenseType(req.body.expenseType, false) },
+    });
+    res.json({ success: true, expenseType: expense.expenseType });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'שגיאה בשמירת סוג ההוצאה' });
   }
 });
 
@@ -533,6 +594,7 @@ function sheetName(name: string, used: Set<string>): string {
 
 const EXPORT_COLUMNS = [
   { key: 'topic', title: 'נושא הפעילות', width: 18 },
+  { key: 'expenseType', title: 'סוג הוצאה', width: 12 },
   { key: 'date', title: 'תאריך', width: 12 },
   { key: 'hebrewDate', title: 'תאריך עברי', width: 20 },
   { key: 'payee', title: 'שם בקבלה / שם הרב', width: 22 },
@@ -655,6 +717,7 @@ router.get('/exportExcel', async (req, res) => {
         }
         const values: Record<string, any> = {
           'נושא הפעילות': e.topic && e.topic !== prevTopic ? e.topic : '',
+          'סוג הוצאה': e.expenseType || '',
           'תאריך': e.date ? new Date(`${e.date}T00:00:00Z`) : '',
           'תאריך עברי': e.date ? hebrewDate(e.date) : e.hebrewDate || '',
           'שם בקבלה / שם הרב': e.payee,
