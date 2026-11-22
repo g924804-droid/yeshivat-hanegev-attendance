@@ -7,6 +7,7 @@ import { useAuth } from '../lib/permissions';
 import { currentMonth, safeFixed, formatHours, academicHours, compareByFamilyName, familyName, givenName } from '../lib/utils';
 import { useUrlState } from '../lib/useUrlState';
 import { AccessTab } from '../components/AccessTab';
+import { LateCompletionsPanel } from '../components/LateCompletionsPanel';
 import { printMonthlyReport } from '../lib/printReport';
 import { confirmAndDeleteContract } from '../lib/deleteContract';
 
@@ -35,6 +36,7 @@ type ReportRow = {
   lastAttendanceChange: string | null;
   changedAfterSubmit: boolean;
   changedAfterPayroll: boolean;
+  lateCompletions?: { id: string; forMonth: string; status: string }[];
   employee: {
     id: string;
     name: string;
@@ -395,6 +397,8 @@ function ReportsTab() {
         </div>
       )}
 
+      <LateCompletionsPanel month={month} onChanged={load} />
+
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -474,6 +478,15 @@ function ReportsTab() {
                       {r && r.employee.employmentType === 'נגד קבלה' && (
                         <div className={`text-[11px] mt-0.5 ${bankLine(r.employee) ? 'text-slate-600' : 'text-red-600'}`}>
                           {bankLine(r.employee) || 'לא מילאה פרטי חשבון'}
+                        </div>
+                      )}
+                      {!!r?.lateCompletions?.length && (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {r.lateCompletions.map((c) => (
+                            <span key={c.id} className="badge bg-orange-100 border border-orange-300 text-orange-900 text-[10px]" title="השלמה לחודש קודם — הפרשים, לא בסה״כ">
+                              + השלמה ל-{c.forMonth.split('-').reverse().join('/')} ({c.status === 'אושר' ? 'אושרה' : 'ממתינה'})
+                            </span>
+                          ))}
                         </div>
                       )}
                       {r && (r.isNewEmployee || r.hasNewContract || r.pendingReceipts > 0) && (

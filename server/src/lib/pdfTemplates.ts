@@ -1,6 +1,8 @@
 import { MonthlyReport, User } from '@prisma/client';
 import { DayDetail } from './monthlyReport';
 import { ReportFile, SickNote } from './sickNotes';
+import { LateCompletion } from '@prisma/client';
+import { lateDays, monthLabelHe, LATE_STATUS } from './lateCompletion';
 
 const BASE_STYLE = `
   <style>
@@ -88,6 +90,46 @@ function attachmentImagesHtml(files: ReportFile[]): string {
     .join('');
 }
 
+/**
+ * השלמה לחודש קודם שננעל — בעמוד נפרד אחרי הדוח, עם הימים, החתימה ומי אישרה.
+ * לא נכללת בסה"כ של החודש — משולמת כהפרשים.
+ */
+function lateCompletionsHtml(employee: User, list: LateCompletion[]): string {
+  return list
+    .map((c) => {
+      const days = lateDays(c);
+      const hours = days.reduce((s, d) => s + d.hours, 0);
+      const lessons = days.reduce((s, d) => s + d.lessons, 0);
+      const rows = days
+        .map((d) => `<tr><td>${d.date}</td><td>${DOW_HE[new Date(`${d.date}T00:00:00`).getDay()]}</td><td>${d.clockIn}</td><td>${d.clockOut}</td><td>${d.clockIn2}</td><td>${d.clockOut2}</td><td>${d.hours.toFixed(2)}</td><td>${d.lessons || ''}</td><td>${escapeHtml(d.notes || '')}</td></tr>`)
+        .join('');
+      const status =
+        c.status === LATE_STATUS.approved
+          ? `אושרה ע"י ${escapeHtml(c.reviewedBy || '')}${c.reviewedAt ? ` ב-${c.reviewedAt.toLocaleDateString('he-IL')}` : ''}`
+          : 'ממתינה לאישור';
+      return `<div class="report-page" style="page-break-before: always;">
+        <h1>השלמה לחודש ${monthLabelHe(c.forMonth)} — ${escapeHtml(employee.name)}</h1>
+        <div style="margin:6px 0;padding:6px 10px;border:3px solid #000;background:#fef3c7;font-size:13px;font-weight:bold;">
+          ⚠ לתשלום כהפרשים — לא כלול בסה"כ של חודש ${monthLabelHe(c.inMonth)}
+        </div>
+        <div class="meta">נשלחה ב-${c.createdAt.toLocaleDateString('he-IL')} &nbsp;|&nbsp; סטטוס: ${status}</div>
+        <div class="summary">
+          <div class="stat"><div class="label">ימים</div><div class="value">${days.length}</div></div>
+          <div class="stat"><div class="label">סה"כ שעות</div><div class="value">${hours.toFixed(2)}</div></div>
+          ${isTeacher(employee) ? `<div class="stat"><div class="label">שעות אקדמיות (45 דק')</div><div class="value">${academicHours(hours).toFixed(2)}</div></div>` : ''}
+          <div class="stat"><div class="label">שיעורים</div><div class="value">${lessons}</div></div>
+        </div>
+        <table>
+          <thead><tr><th>תאריך</th><th>יום</th><th>כניסה 1</th><th>יציאה 1</th><th>כניסה 2</th><th>יציאה 2</th><th>שעות</th><th>שיעורים</th><th>הערות</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${c.employeeNote ? `<div class="employee-note"><strong>הערת העובד/ת:</strong>${escapeHtml(c.employeeNote)}</div>` : ''}
+        <div class="signature"><div>חתימת עובד/ת:</div><img src="${c.signature}" /></div>
+      </div>`;
+    })
+    .join('');
+}
+
 /** שעה אקדמית = 45 דקות. מוצג רק למורות — כך רואים כמה שעות לימוד היו בחודש. */
 const isTeacher = (u: { role: string }) => u.role === 'מורה';
 const academicHours = (hours: number) => Math.round(((hours * 60) / 45) * 100) / 100;
@@ -98,7 +140,8 @@ function reportSectionHtml(
   days: DayDetail[],
   signatureDataUrl?: string,
   sickNotes: SickNote[] = [],
-  attachments: ReportFile[] = []
+  attachments: ReportFile[] = [],
+  lateCompletions: LateCompletion[] = []
 ): string {
   const rows = days
     .map((d) => {
@@ -151,11 +194,13 @@ function reportSectionHtml(
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    ${lateCompletions.length ? `<div class="employee-note" style="border-color:#000"><strong>⚠ מצורפת השלמה לחודש קודם (לתשלום כהפרשים, לא כלולה בסה"כ):</strong>${lateCompletions.map((c) => `${monthLabelHe(c.forMonth)} — ${lateDays(c).length} ימים, ${lateDays(c).reduce((s, d) => s + d.hours, 0).toFixed(2)} שעות (${c.status === LATE_STATUS.approved ? 'אושרה' : 'ממתינה לאישור'})`).join('<br>')} — הפירוט בעמוד נפרד</div>` : ''}
     ${employeeNoteHtml(report.employeeNote, attachments)}
     ${signatureDataUrl ? `<div class="signature"><div>חתימת עובד/ת:</div><img src="${signatureDataUrl}" /></div>` : ''}
     </div>
     ${sickNotesHtml(sickNotes)}
     ${attachmentImagesHtml(attachments)}
+    ${lateCompletionsHtml(employee, lateCompletions)}
   `;
 }
 
@@ -165,9 +210,10 @@ export function reportPdfHtml(
   days: DayDetail[],
   signatureDataUrl?: string,
   sickNotes: SickNote[] = [],
-  attachments: ReportFile[] = []
+  attachments: ReportFile[] = [],
+  lateCompletions: LateCompletion[] = []
 ): string {
-  return reportsPdfHtml([{ employee, report, days, signatureDataUrl, sickNotes, attachments }]);
+  return reportsPdfHtml([{ employee, report, days, signatureDataUrl, sickNotes, attachments, lateCompletions }]);
 }
 
 /** כמה דוחות מלאים במסמך HTML אחד — כל דוח מתחיל בעמוד חדש. */
@@ -179,12 +225,13 @@ export function reportsPdfHtml(
     signatureDataUrl?: string;
     sickNotes: SickNote[];
     attachments?: ReportFile[];
+    lateCompletions?: LateCompletion[];
   }[]
 ): string {
   const body = sections
     .map(
       (s, idx) =>
-        `<div${idx > 0 ? ' style="page-break-before: always;"' : ''}>${reportSectionHtml(s.employee, s.report, s.days, s.signatureDataUrl, s.sickNotes, s.attachments)}</div>`
+        `<div${idx > 0 ? ' style="page-break-before: always;"' : ''}>${reportSectionHtml(s.employee, s.report, s.days, s.signatureDataUrl, s.sickNotes, s.attachments, s.lateCompletions)}</div>`
     )
     .join('');
   return `<!doctype html><html><head><meta charset="utf-8">${BASE_STYLE}</head><body>${body}${FIT_ONE_PAGE_SCRIPT}</body></html>`;
@@ -226,7 +273,8 @@ export function summaryPdfHtml(
   month: string,
   reports: (MonthlyReport & { employee: User })[],
   newFlags?: Map<string, { isNewEmployee: boolean; hasNewContract: boolean }>,
-  specialRateDetails?: Map<string, SpecialRateDetail[]>
+  specialRateDetails?: Map<string, SpecialRateDetail[]>,
+  lateMap?: Map<string, LateCompletion[]>
 ): string {
   const byDept = new Map<string, (MonthlyReport & { employee: User })[]>();
   for (const r of reports) {
@@ -240,10 +288,15 @@ export function summaryPdfHtml(
       const rows = list
         .map((r) => {
           const flag = newFlags?.get(r.employeeId);
-          const isFlagged = r.specialRateHours > 0 || flag?.isNewEmployee || flag?.hasNewContract;
+          const late = lateMap?.get(r.employeeId) || [];
+          const isFlagged = r.specialRateHours > 0 || flag?.isNewEmployee || flag?.hasNewContract || late.length > 0;
           const noteBadges = [
             flag?.isNewEmployee ? '<span class="special-badge">★</span> עובד/ת חדשה' : '',
             flag?.hasNewContract ? '<span class="special-badge">★</span> חוזה חדש' : '',
+            ...late.map(
+              (c) =>
+                `<span class="special-badge">+</span> השלמה ל${monthLabelHe(c.forMonth)}: ${lateDays(c).length} ימים, ${formatHours(lateDays(c).reduce((s, d) => s + d.hours, 0))} — הפרשים, לא בסה"כ (${c.status === LATE_STATUS.approved ? 'אושרה' : 'ממתינה לאישור'})`
+            ),
           ]
             .filter(Boolean)
             .join(' · ');

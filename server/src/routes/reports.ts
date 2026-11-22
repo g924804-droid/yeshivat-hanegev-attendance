@@ -14,6 +14,7 @@ import multer from 'multer';
 import { DayDetail } from '../lib/monthlyReport';
 import { MonthlyReport, User } from '@prisma/client';
 import { sendMonthlyReminders, getReminderStatus, sendTestReminder } from '../lib/monthlyReminder';
+import { completionsForReport, completionsByEmployee } from '../lib/lateCompletion';
 
 const router = Router();
 router.use(requireAuth);
@@ -91,7 +92,8 @@ async function buildReportPdf(
 ): Promise<Buffer> {
   const sickNotes = await loadSickNotes(days);
   const attachments = await loadReportAttachments(report.id);
-  const reportPdf = await htmlToPdfBuffer(reportPdfHtml(employee, report, days, signatureDataUrl, sickNotes, attachments));
+  const late = await completionsForReport(employee.id, report.month);
+  const reportPdf = await htmlToPdfBuffer(reportPdfHtml(employee, report, days, signatureDataUrl, sickNotes, attachments, late));
   const attachedPdfs = [...sickNotes, ...attachments].flatMap((n) => (n.kind === 'pdf' ? [n.data] : []));
   return attachedPdfs.length ? mergePdfs([reportPdf, ...attachedPdfs]) : reportPdf;
 }
@@ -115,7 +117,8 @@ async function buildCombinedReportsPdf(
   for (const { employee, report, days } of sections) {
     const sickNotes = await loadSickNotes(days);
     const attachments = await loadReportAttachments(report.id);
-    pending.push({ employee, report, days, signatureDataUrl: report.employeeSignature || undefined, sickNotes, attachments });
+    const lateCompletions = await completionsForReport(employee.id, report.month);
+    pending.push({ employee, report, days, signatureDataUrl: report.employeeSignature || undefined, sickNotes, attachments, lateCompletions });
     const attachedPdfs = [...sickNotes, ...attachments].flatMap((n) => (n.kind === 'pdf' ? [n.data] : []));
     if (attachedPdfs.length) {
       await flush();
@@ -201,7 +204,9 @@ router.get('/getMonthlyReport', async (req, res) => {
       orderBy: { createdAt: 'asc' },
     });
 
+    const late = await completionsForReport(employeeId, month);
     res.json({
+      lateCompletions: late.map(({ signature, ...c }) => c),
       report,
       days,
       missingHours: Math.round(days.reduce((s, d) => s + (d.missingHours || 0), 0) * 100) / 100,
@@ -531,6 +536,7 @@ router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) =
     const pendingReceipts = pendingEmployees.map((e) => ({ id: e.id, name: e.name, count: pendingByEmployee.get(e.id)! }));
 
     const specialRateDetails = await getSpecialRateDetails(month);
+    const lateMap = await completionsByEmployee(month);
 
     // השינוי האחרון בימי הנוכחות של החודש (הוספה / עריכה / מחיקה) — להתראה על שינוי אחרי הגשה / הכנת שכר
     const changes = await prisma.attendanceRecord.groupBy({
@@ -557,6 +563,7 @@ router.get('/getAllReports', requireAdminOrAttendanceManager, async (req, res) =
       ...(flags.get(r.employeeId) || { isNewEmployee: false, hasNewContract: false }),
       pendingReceipts: pendingByEmployee.get(r.employeeId) || 0,
       specialRateDetails: specialRateDetails.get(r.employeeId) || [],
+      lateCompletions: (lateMap.get(r.employeeId) || []).map((c) => ({ id: c.id, forMonth: c.forMonth, status: c.status })),
     }));
 
     const unlocks = await prisma.monthUnlock.findMany({ where: { month } });
@@ -601,7 +608,7 @@ router.get('/exportSummaryPdf', requireAdminOrAttendanceManager, async (req, res
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
     const reports = await prisma.monthlyReport.findMany({ where: { month }, include: { employee: true } });
     const flags = await getNewEmployeeContractFlags(month);
-    const html = summaryPdfHtml(month, reports, flags, await getSpecialRateDetails(month));
+    const html = summaryPdfHtml(month, reports, flags, await getSpecialRateDetails(month), await completionsByEmployee(month));
     const { url, filename } = await renderHtmlToPdf(html, {
       subdir: 'summaries',
       filename: `סיכום-${month}.pdf`,

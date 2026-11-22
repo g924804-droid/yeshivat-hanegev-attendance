@@ -7,6 +7,7 @@ import { useAuth } from '../lib/permissions';
 import { cn, currentMonth, safeFixed, todayStr, DOW_HE, academicHours } from '../lib/utils';
 import { notifyTimerChanged } from '../components/TimerStrip';
 import { useUrlState } from '../lib/useUrlState';
+import { LateCompletionModal } from '../components/LateCompletionModal';
 
 type AttendanceRecord = {
   id: string;
@@ -78,6 +79,7 @@ export function Dashboard() {
   }, [canManageOthers]);
 
   const [monthLocked, setMonthLocked] = useState(false);
+  const [lateFor, setLateFor] = useState<string | null>(null); // השלמת חודש קודם — '' = לבחור חודש
 
   async function load() {
     setLoading(true);
@@ -228,6 +230,11 @@ export function Dashboard() {
               <Plus size={18} /> מחלה/חופשה
             </button>
           </div>
+          {!targetUserId && (
+            <button className="text-sm text-navy underline hover:text-gold-dark sm:self-end" onClick={() => setLateFor('')}>
+              שכחתי למלא חודש קודם — השלמה
+            </button>
+          )}
         </div>
         <button
           onClick={() => navigate(`/report/${month}${targetUserId ? `?userId=${targetUserId}` : ''}`)}
@@ -242,8 +249,16 @@ export function Dashboard() {
       {monthLocked && (
         <div className="mb-4 text-sm bg-red-50 border-2 border-red-300 text-red-800 rounded-xl px-4 py-2 font-semibold">
           🔒 החודש הזה ננעל ב-1 לחודש בשעה 11:00 — לא ניתן עוד להוסיף או לשנות נוכחות, להגיש את הדוח או להעלות קבלות. לפתיחה יש לפנות לפנינה רוזנברג או לעדינה דראי.
+          {!targetUserId && (
+            <div className="mt-2">
+              <button className="btn-primary py-1.5" onClick={() => setLateFor(month)}>
+                השלמת החודש הזה — תצורף לדוח של החודש הנוכחי
+              </button>
+            </div>
+          )}
         </div>
       )}
+      {lateFor !== null && <LateCompletionModal initialMonth={lateFor || undefined} trackLessons={user?.trackLessons !== false} onClose={() => setLateFor(null)} />}
       {notice && <div className="mb-4 text-sm bg-amber-50 text-amber-800 rounded-xl px-4 py-2">{notice}</div>}
       {error && <div className="mb-4 text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
 

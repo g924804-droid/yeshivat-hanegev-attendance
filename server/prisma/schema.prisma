@@ -58,6 +58,7 @@ model User {
   receipts          Receipt[]
   contracts         Contract[]
   sickNoteFiles     SickNoteFile[]
+  lateCompletions LateCompletion[]
 }
 
 model AttendanceRecord {
@@ -461,6 +462,27 @@ model StudentSheetGrade {
   sort       Int     @default(0)
 
   @@index([studentId])
+}
+
+// השלמת חודש שננעל — נשלחת בתוך החודש הנוכחי (inMonth) ומצורפת לדוח שלו; החודש הנעול לא משתנה.
+// לא נכללת בסה"כ של inMonth — משולמת כהפרשים. ראו lib/lateCompletion.ts
+model LateCompletion {
+  id           String    @id @default(cuid())
+  employeeId   String
+  employee     User      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  forMonth     String // YYYY-MM — החודש שמשלימים
+  inMonth      String // YYYY-MM — החודש שאליו ההשלמה מצורפת (מתי נשלחה)
+  days         Json // [{date, clockIn, clockOut, clockIn2, clockOut2, hours, lessons, notes}]
+  employeeNote String?
+  signature    String
+  status       String    @default("ממתין") // ממתין | אושר | נדחה
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime  @default(now())
+
+  @@index([employeeId])
+  @@index([inMonth])
 }
 
 // חודש שננעל (ב-1 לחודש) ונפתח מחדש לעובדת מסוימת ע"י מנהלת — ראו lib/monthLock.ts

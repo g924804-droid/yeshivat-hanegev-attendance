@@ -72,6 +72,7 @@ export function MonthlyReport() {
   const [note, setNote] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [late, setLate] = useState<{ id: string; forMonth: string; status: string; days: { hours: number }[] }[]>([]);
 
   async function load(recalc = false) {
     const data = await api.get<{
@@ -82,6 +83,7 @@ export function MonthlyReport() {
       employmentType?: string | null;
       missingReceipt: boolean;
       attachments: Attachment[];
+      lateCompletions?: { id: string; forMonth: string; status: string; days: { hours: number }[] }[];
     }>(
       '/reports/getMonthlyReport',
       { month, ...(targetUserId ? { userId: targetUserId } : {}), ...(recalc ? { recalc: '1' } : {}) }
@@ -93,6 +95,7 @@ export function MonthlyReport() {
     setByReceipt(data.employmentType === 'נגד קבלה');
     setMissingReceipt(data.missingReceipt);
     setAttachments(data.attachments || []);
+    setLate(data.lateCompletions || []);
     setNote(data.report.employeeNote || '');
   }
 
@@ -186,6 +189,18 @@ export function MonthlyReport() {
         </button>
         <span className={`badge ${STATUS_STYLE[report.status]}`}>{report.status}</span>
       </div>
+      {late.length > 0 && (
+        <div className="mb-4 text-sm bg-amber-50 border-2 border-amber-400 text-amber-900 rounded-xl px-4 py-2">
+          <b>מצורפת לדוח הזה השלמה לחודש קודם</b> — לתשלום כהפרשים, לא כלולה בסה"כ של החודש:
+          {late.map((c) => (
+            <div key={c.id}>
+              {c.forMonth.split('-').reverse().join('/')} — {c.days.length} ימים, {c.days.reduce((s, d) => s + d.hours, 0).toFixed(2)} שעות (
+              {c.status === 'אושר' ? 'אושרה' : 'ממתינה לאישור'})
+            </div>
+          ))}
+          <div className="text-xs mt-1">הפירוט המלא מופיע בעמוד נפרד בקובץ ה-PDF של הדוח.</div>
+        </div>
+      )}
       {targetUserId && byReceipt && (
         <div className="mb-4 bg-violet-50 border-2 border-violet-500 text-violet-900 rounded-xl px-4 py-3 font-bold text-base">
           💳 עובדת נגד קבלה — השכר לפי הקבלות. אין להתייחס לדוח הנוכחות בחישוב השכר.
