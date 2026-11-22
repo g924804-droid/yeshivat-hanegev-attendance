@@ -500,6 +500,75 @@ router.delete('/year/:id', async (req, res) => {
   }
 });
 
+// ---------- מסמכים סרוקים (אישורי תשלום, הודעות סיום, תעודות, גליונות ציונים) ----------
+
+export const DOCUMENT_KINDS = ['אישור תשלום', 'הודעה על סיום', 'תעודה', 'גליון ציונים', 'אחר'];
+const DOC_META = { id: true, kind: true, notes: true, fileName: true, fileMime: true, createdBy: true, createdAt: true } as const;
+
+router.get('/documents/:studentId', async (req, res) => {
+  try {
+    const documents = await prisma.studentDocument.findMany({
+      where: { studentId: req.params.studentId },
+      select: DOC_META,
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ kinds: DOCUMENT_KINDS, documents });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת המסמכים' });
+  }
+});
+
+router.post('/documents', upload.array('files', 10), async (req, res) => {
+  try {
+    const studentId = str(req.body.studentId, 50);
+    const kind = str(req.body.kind, 50);
+    const files = (req.files || []) as Express.Multer.File[];
+    if (!studentId) return res.status(400).json({ error: 'חסרה תלמידה' });
+    if (!DOCUMENT_KINDS.includes(kind)) return res.status(400).json({ error: 'יש לבחור סוג מסמך' });
+    if (!files.length) return res.status(400).json({ error: 'לא נבחר קובץ' });
+    const bad = files.find((f) => !(f.mimetype === 'application/pdf' || f.mimetype.startsWith('image/')));
+    if (bad) return res.status(400).json({ error: 'אפשר להעלות רק PDF או תמונה' });
+    for (const f of files) {
+      await prisma.studentDocument.create({
+        data: {
+          studentId,
+          kind,
+          notes: str(req.body.notes, 500) || null,
+          fileData: f.buffer,
+          fileMime: f.mimetype,
+          // multer מפענח את שם הקובץ כ-latin1 — מחזירים לעברית תקינה
+          fileName: Buffer.from(f.originalname, 'latin1').toString('utf8'),
+          createdBy: req.user!.name,
+        },
+      });
+    }
+    res.json({ success: true, count: files.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בהעלאת המסמך' });
+  }
+});
+
+router.get('/documents/file/:id', async (req, res) => {
+  try {
+    const doc = await prisma.studentDocument.findUnique({ where: { id: req.params.id } });
+    if (!doc) return res.status(404).json({ error: 'המסמך לא נמצא' });
+    res.set('Content-Type', doc.fileMime || 'application/octet-stream');
+    res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(doc.fileName)}`);
+    res.send(doc.fileData);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת המסמך' });
+  }
+});
+
+router.delete('/documents/:id', async (req, res) => {
+  try {
+    await prisma.studentDocument.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה במחיקת המסמך' });
+  }
+});
+
 // ---------- חובות לימודיים ----------
 
 router.post('/debt', async (req, res) => {

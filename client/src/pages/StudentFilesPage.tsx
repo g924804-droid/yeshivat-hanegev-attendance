@@ -1053,6 +1053,8 @@ function StudentFileView({ id }: { id: string }) {
         )}
       </Section>
 
+      <DocumentsSection studentId={id} />
+
       {/* חובות לימודיים */}
       <Section
         title="חובות לימודיים"
@@ -1195,6 +1197,161 @@ function StudentFileView({ id }: { id: string }) {
         <EditDebtModal studentId={id} debt={editDebt} onClose={() => setEditDebt(null)} onSaved={() => { setEditDebt(null); load(); }} />
       )}
     </Layout>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// מסמכים סרוקים — אישורי תשלום, הודעות סיום, תעודות, גליונות ציונים
+// ---------------------------------------------------------------------------
+
+type StudentDoc = { id: string; kind: string; notes: string | null; fileName: string; fileMime: string; createdBy: string | null; createdAt: string };
+const DOC_KINDS = ['אישור תשלום', 'הודעה על סיום', 'תעודה', 'גליון ציונים', 'אחר'];
+
+function DocumentsSection({ studentId }: { studentId: string }) {
+  const [docs, setDocs] = useState<StudentDoc[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = () =>
+    api
+      .get<{ documents: StudentDoc[] }>(`/studentFiles/documents/${studentId}`)
+      .then((r) => setDocs(r.documents))
+      .catch((e) => setError(e.message));
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId]);
+
+  const remove = async (d: StudentDoc) => {
+    if (!window.confirm(`למחוק את המסמך "${d.fileName}"?`)) return;
+    try {
+      await api.delete(`/studentFiles/documents/${d.id}`);
+      load();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const groups = DOC_KINDS.map((k) => ({ kind: k, items: (docs || []).filter((d) => d.kind === k) })).filter((g) => g.items.length);
+
+  return (
+    <Section
+      title="מסמכים סרוקים"
+      action={
+        <button className="btn-outline py-1.5 print:hidden" onClick={() => setAdding(true)}>
+          <Upload size={16} /> העלאת מסמך
+        </button>
+      }
+    >
+      {error && <div className="text-sm text-red-700 mb-2">{error}</div>}
+      {docs === null ? (
+        <div className="text-sm text-gray-500">טוען...</div>
+      ) : !docs.length ? (
+        <div className="text-sm text-gray-500">אין מסמכים. אפשר להעלות אישור תשלום, הודעה על סיום, תעודה או גליון ציונים (PDF או תמונה).</div>
+      ) : (
+        <div className="space-y-3">
+          {groups.map((g) => (
+            <div key={g.kind}>
+              <div className="font-semibold text-navy text-sm mb-1">
+                {g.kind} <span className="text-gray-400 font-normal">({g.items.length})</span>
+              </div>
+              <ul className="space-y-1">
+                {g.items.map((d) => (
+                  <li key={d.id} className="flex items-center gap-2 text-sm">
+                    <a
+                      href={`/api/studentFiles/documents/file/${d.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-700 hover:underline truncate"
+                    >
+                      📎 {d.fileName}
+                    </a>
+                    {d.notes && <span className="text-gray-600">— {d.notes}</span>}
+                    <span className="text-xs text-gray-400 mr-auto whitespace-nowrap">
+                      {new Date(d.createdAt).toLocaleDateString('he-IL')}
+                      {d.createdBy ? ` · ${d.createdBy}` : ''}
+                    </span>
+                    <button className="text-red-600 p-1 print:hidden" title="מחיקה" onClick={() => remove(d)}>
+                      <Trash2 size={15} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+      {adding && (
+        <UploadDocumentModal
+          studentId={studentId}
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            load();
+          }}
+        />
+      )}
+    </Section>
+  );
+}
+
+function UploadDocumentModal({ studentId, onClose, onSaved }: { studentId: string; onClose: () => void; onSaved: () => void }) {
+  const [kind, setKind] = useState('');
+  const [notes, setNotes] = useState('');
+  const [files, setFiles] = useState<FileList | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    if (!kind) return setError('יש לבחור סוג מסמך');
+    if (!files?.length) return setError('יש לבחור קובץ');
+    setSaving(true);
+    setError('');
+    try {
+      const fd = new FormData();
+      fd.append('studentId', studentId);
+      fd.append('kind', kind);
+      fd.append('notes', notes);
+      Array.from(files).forEach((f) => fd.append('files', f));
+      await api.postForm('/studentFiles/documents', fd);
+      onSaved();
+    } catch (e: any) {
+      setError(e.message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="העלאת מסמך לתיק" onClose={onClose}>
+      <div className="space-y-3">
+        <div>
+          <label className="label">סוג המסמך *</label>
+          <div className="flex flex-wrap gap-2">
+            {DOC_KINDS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium border ${
+                  kind === k ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="label">קובץ (PDF או תמונה) *</label>
+          <input type="file" multiple accept="application/pdf,image/*" className="text-sm" onChange={(e) => setFiles(e.target.files)} />
+        </div>
+        <div>
+          <label className="label">הערה (לא חובה)</label>
+          <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder='למשל: תשלום שנה ב׳, תעודה תשפ"ו' />
+        </div>
+        <SaveButtons saving={saving} onSave={save} onClose={onClose} error={error} />
+      </div>
+    </Modal>
   );
 }
 

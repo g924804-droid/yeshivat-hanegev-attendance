@@ -399,6 +399,21 @@ model StudentYear {
   @@index([studentId])
 }
 
+// מסמך סרוק בתיק תלמידה — העתק אישור תשלום, הודעה על סיום, תעודה, גליון ציונים וכו'
+model StudentDocument {
+  id        String   @id @default(cuid())
+  studentId String
+  kind      String // אישור תשלום | הודעה על סיום | תעודה | גליון ציונים | אחר
+  notes     String?
+  fileData  Bytes
+  fileMime  String
+  fileName  String
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([studentId])
+}
+
 // חוב לימודי (מבחן / עבודה / השלמה שחסרים) — נסגר כשהושלם
 model StudentAcademicDebt {
   id          String    @id @default(cuid())
