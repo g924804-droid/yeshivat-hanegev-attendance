@@ -32,9 +32,18 @@ function levenshtein(a: string, b: string): number {
  * זהה אות-באות לשם במערכת. מקבלים התאמה רק אם היא חד-משמעית (בדיוק עובדת אחת קרובה מספיק),
  * כדי לא לנחש בטעות בין שתי עובדות בעלות שמות דומים.
  */
+const sortedWords = (s: string) => s.trim().split(/\s+/).filter(Boolean).sort().join(' ');
+
+/**
+ * גם כשהשם כתוב בסדר הפוך וגם באות שונה — למשל "וינטרוב דבורי" ב-Airtable מול "דבורה וינטרוב" במערכת
+ * (מקרה אמיתי) — משווים גם אחרי מיון המילים, ולוקחים את המרחק הקטן מבין השניים.
+ */
 function findFuzzyNameMatch<T extends { name: string }>(userName: string, users: T[]): T | undefined {
   const candidates = users
-    .map((u) => ({ user: u, distance: levenshtein(u.name.trim(), userName) }))
+    .map((u) => ({
+      user: u,
+      distance: Math.min(levenshtein(u.name.trim(), userName), levenshtein(sortedWords(u.name), sortedWords(userName))),
+    }))
     .filter((c) => c.distance > 0 && c.distance <= 2)
     .sort((a, b) => a.distance - b.distance);
   if (candidates.length === 0) return undefined;
