@@ -79,13 +79,16 @@ function earlyReminderDay(year: number, month: number): number {
   return Math.min(EARLY_REMINDER_DAY, reminderDay(year, month) - 1);
 }
 
+/** התזכורת נשלחת רק למחלקה הזו (לבקשת המשתמשת) — לא לישיבה, לניהול או לסמינר מעלות. */
+const REMINDER_DEPARTMENT = 'סמינר מאיר';
+
 /**
- * מי צריכה לקבל תזכורת: עובדות פעילות שנדרשות בדוח שעות (לא "חודשי"), שלא הוצאו מהתזכורת
- * בהגדרות העובד, ושעוד לא הגישו את הדוח של החודש — מי שכבר הגישה לא צריכה תזכורת.
+ * מי צריכה לקבל תזכורת: עובדות פעילות במחלקת סמינר מאיר שנדרשות בדוח שעות (לא "חודשי"), שלא הוצאו
+ * מהתזכורת בהגדרות העובד, ושעוד לא הגישו את הדוח של החודש — מי שכבר הגישה לא צריכה תזכורת.
  */
 async function reminderRecipients(month: string) {
   const employees = await prisma.user.findMany({
-    where: { isActive: true, employmentType: { not: 'חודשי' }, noMonthlyReminder: false },
+    where: { isActive: true, department: REMINDER_DEPARTMENT, employmentType: { not: 'חודשי' }, noMonthlyReminder: false },
     include: { monthlyReports: { where: { month }, select: { status: true } } },
     orderBy: { name: 'asc' },
   });
