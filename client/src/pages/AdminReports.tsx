@@ -754,7 +754,7 @@ function EmployeesTab() {
   }
 
   async function sendReminders() {
-    if (!confirm('לשלוח עכשיו תזכורת חודשית במייל לעובדות סמינר מאיר שעוד לא הגישו דוח החודש (חוץ מ"חודשי")?')) return;
+    if (!confirm('לשלוח עכשיו תזכורת חודשית במייל לכל עובדות סמינר מאיר שעוד לא הגישו דוח החודש (חוץ ממי שסומנה "לא לקבל תזכורת")?')) return;
     setReminderBusy(true);
     setReminderResult(null);
     try {
