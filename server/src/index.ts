@@ -23,7 +23,7 @@ import syncRoutes from './routes/sync';
 import displayRoutes from './routes/display';
 import announcementsRoutes from './routes/announcements';
 import settingsRoutes from './routes/settings';
-import expensesRoutes from './routes/expenses';
+import expensesRoutes, { migrateExpenseTypes } from './routes/expenses';
 import studentFilesRoutes from './routes/studentFiles';
 import accessRoutes from './routes/access';
 import lateCompletionRoutes from './routes/lateCompletion';
@@ -98,6 +98,7 @@ app.listen(PORT, () => {
   console.log(`שרת מערכת נוכחות ישיבת הנגב פועל על פורט ${PORT}`);
   warmUpBrowser();
   warmAirtableCache(); // מסלולים/תלמידות/מורות/שיעורים מוכנים כבר לכניסה הראשונה
+  migrateExpenseTypes().catch((err) => console.error('שגיאה בעדכון סוגי הוצאות:', err.message));
   // בודקים כל שעה אם היום הוא היום האחרון בחודש — מספיק תדיר כדי לתפוס את זה גם אחרי
   // עליית שרת מחדש, בלי צורך בספריית cron נפרדת עבור בדיקה כל כך פשוטה.
   checkAndSendMonthlyReminder();

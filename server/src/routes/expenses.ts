@@ -58,10 +58,20 @@ function parseDate(v: unknown): string {
 const isTransfer = (method: string | null) => !!method && method.includes('העברה');
 
 /** סוגי ההוצאות — כל הוצאה משויכת לאחד, וכך אפשר לראות למשל את כל האוכל מכל התוכניות */
-export const EXPENSE_TYPES = ['אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'דרייברים'];
+export const EXPENSE_TYPES = ['אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'נסיעות', 'פעילות משרדית', 'אחר'];
+
+/** "דרייברים" שונה ל"נסיעות" (בקשת המשתמשת) — ההוצאות הקיימות מועברות בעליית השרת */
+const RENAMED_TYPES: Record<string, string> = { 'דרייברים': 'נסיעות' };
+export async function migrateExpenseTypes() {
+  for (const [from, to] of Object.entries(RENAMED_TYPES)) {
+    const r = await prisma.expense.updateMany({ where: { expenseType: from }, data: { expenseType: to } });
+    if (r.count) console.log(`סוג הוצאה "${from}" ← "${to}": ${r.count} הוצאות`);
+  }
+}
 
 function expenseType(v: unknown, strict: boolean): string | null {
-  const t = str(v, 50);
+  const raw = str(v, 50);
+  const t = raw && (RENAMED_TYPES[raw] || raw);
   if (!t) {
     if (strict) throw new Error('יש לבחור סוג הוצאה');
     return null;
@@ -608,6 +618,13 @@ const EXPORT_COLUMNS = [
   { key: 'notes', title: 'הערות', width: 30 },
 ] as const;
 
+/** עמודה לכל סוג הוצאה — הסכום של כל שורה נכנס לעמודה של הסוג שלה, ולכל עמודה סה"כ (בקשת המשתמשת) */
+const BY_TYPE_KEY = 'byType';
+const NO_TYPE = 'בלי סוג';
+const typeOf = (e: { expenseType: string | null }) => e.expenseType || NO_TYPE;
+const typesIn = (expenses: { expenseType: string | null }[]) =>
+  [...EXPENSE_TYPES, NO_TYPE].filter((t) => expenses.some((e) => typeOf(e) === t));
+
 /** קטגוריות השנה עם ההוצאות, מסוננות לפי categoryIds / expenseIds מה-query (ריק = הכל) */
 async function loadForExport(query: any, withFileData = false) {
   const year = String(query.year || '') || currentSchoolYear();
@@ -676,6 +693,16 @@ router.get('/exportExcel', async (req, res) => {
       }).font = { bold: true };
       summary.getRow(1).font = { bold: true };
       ['budget', 'used', 'left'].forEach((k) => (summary.getColumn(k).numFmt = '₪#,##0.00'));
+      if (!wanted.length || wanted.includes(BY_TYPE_KEY)) {
+        const rows = selected.flatMap((c) => c.expenses);
+        summary.addRow([]);
+        const h = summary.addRow(['סוג הוצאה', filteredRows ? 'סה"כ בשורות שנבחרו' : 'סה"כ']);
+        h.font = { bold: true };
+        for (const t of typesIn(rows)) {
+          const r = summary.addRow([t, rows.filter((e) => typeOf(e) === t).reduce((s, e) => s + (e.amount || 0), 0)]);
+          r.getCell(2).numFmt = '₪#,##0.00';
+        }
+      }
     }
 
     for (const sel of selected) {
@@ -688,21 +715,36 @@ router.get('/exportExcel', async (req, res) => {
       const columns = EXPORT_COLUMNS.filter(
         (x) => (!wanted.length || wanted.includes(x.key)) && (x.key !== 'topic' || withTopic)
       );
-      const header = ws.addRow(columns.map((x) => x.title));
+      const typeCols = !wanted.length || wanted.includes(BY_TYPE_KEY) ? typesIn(sel.expenses) : [];
+      const typeAt = (t: string) => columns.length + 1 + typeCols.indexOf(t);
+      const header = ws.addRow([...columns.map((x) => x.title), ...typeCols]);
       header.font = { bold: true, color: { argb: 'FFF1C40F' } };
       header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
       columns.forEach((x, i) => (ws.getColumn(i + 1).width = x.width));
+      typeCols.forEach((t) => (ws.getColumn(typeAt(t)).width = 13));
+      // סכומים לפי סוג בשורת סיכום (חודש / סה"כ)
+      const fillTypeTotals = (r: ExcelJS.Row, list: typeof sel.expenses) => {
+        for (const t of typeCols) {
+          r.getCell(typeAt(t)).value = list.filter((x) => typeOf(x) === t).reduce((s, x) => s + (x.amount || 0), 0);
+          r.getCell(typeAt(t)).numFmt = '₪#,##0.00';
+        }
+      };
+      const labelCol = (amountAt: number) => Math.max(1, (amountAt || (typeCols.length ? typeAt(typeCols[0]) : 2)) - 1);
       const at = (title: string) => columns.findIndex((x) => x.title === title) + 1;
       const fmt = (title: string, numFmt: string, row: ExcelJS.Row) => at(title) && (row.getCell(at(title)).numFmt = numFmt);
 
       // שורת סיכום לחודש שהסתיים, ושורת כותרת לחודש שמתחיל
       const amountCol = at('סכום לתשלום');
       const monthTotalRow = (month: string) => {
-        if (!amountCol) return;
+        if (!amountCol && !typeCols.length) return;
         const r = ws.addRow([]);
-        r.getCell(Math.max(1, amountCol - 1)).value = `סה"כ ${expenseMonthLabel(month)}`;
-        r.getCell(amountCol).value = sel.expenses.filter((x) => x.groupMonth === month).reduce((s, x) => s + (x.amount || 0), 0);
-        r.getCell(amountCol).numFmt = '₪#,##0.00';
+        const inMonth = sel.expenses.filter((x) => x.groupMonth === month);
+        r.getCell(labelCol(amountCol)).value = `סה"כ ${expenseMonthLabel(month)}`;
+        if (amountCol) {
+          r.getCell(amountCol).value = inMonth.reduce((s, x) => s + (x.amount || 0), 0);
+          r.getCell(amountCol).numFmt = '₪#,##0.00';
+        }
+        fillTypeTotals(r, inMonth);
         r.font = { bold: true, color: { argb: 'FF475569' } };
       };
       let prevMonth: string | null = null;
@@ -730,7 +772,8 @@ router.get('/exportExcel', async (req, res) => {
           'הערות': e.notes || '',
         };
         prevTopic = e.topic;
-        const row = ws.addRow(columns.map((x) => values[x.title] ?? ''));
+        const row = ws.addRow([...columns.map((x) => values[x.title] ?? ''), ...typeCols.map((t) => (typeOf(e) === t ? e.amount ?? '' : ''))]);
+        typeCols.forEach((t) => (row.getCell(typeAt(t)).numFmt = '₪#,##0.00'));
         fmt('תאריך', 'dd/mm/yyyy', row);
         fmt('תאריך תשלום', 'dd/mm/yyyy', row);
         fmt('סכום לתשלום', '₪#,##0.00', row);
@@ -754,11 +797,14 @@ router.get('/exportExcel', async (req, res) => {
       }
       if (prevMonth !== null) monthTotalRow(prevMonth);
       // שורת סה"כ של השורות שיוצאו
-      if (at('סכום לתשלום')) {
+      if (at('סכום לתשלום') || typeCols.length) {
         const totalRow = ws.addRow([]);
-        totalRow.getCell(Math.max(1, at('סכום לתשלום') - 1)).value = filteredRows ? 'סה"כ השורות שנבחרו' : 'סה"כ';
-        totalRow.getCell(at('סכום לתשלום')).value = sel.expenses.reduce((s, e) => s + (e.amount || 0), 0);
-        totalRow.getCell(at('סכום לתשלום')).numFmt = '₪#,##0.00';
+        totalRow.getCell(labelCol(at('סכום לתשלום'))).value = filteredRows ? 'סה"כ השורות שנבחרו' : 'סה"כ';
+        if (at('סכום לתשלום')) {
+          totalRow.getCell(at('סכום לתשלום')).value = sel.expenses.reduce((s, e) => s + (e.amount || 0), 0);
+          totalRow.getCell(at('סכום לתשלום')).numFmt = '₪#,##0.00';
+        }
+        fillTypeTotals(totalRow, sel.expenses);
         totalRow.font = { bold: true };
       }
     }

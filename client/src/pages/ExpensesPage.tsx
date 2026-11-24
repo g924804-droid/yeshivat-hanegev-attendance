@@ -43,14 +43,16 @@ const PAYMENT_METHODS = ['העברה', 'משכורת', "צ'ק", 'מזומן', '�
 const isTransfer = (method: string | null) => !!method && method.includes('העברה');
 
 /** סוגי הוצאה — לכל הוצאה בוחרים אחד, ואז אפשר לחפש לפי סוג בכל התוכניות */
-const EXPENSE_TYPES = ['אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'דרייברים'];
+const EXPENSE_TYPES = ['אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'נסיעות', 'פעילות משרדית', 'אחר'];
 const TYPE_COLORS: Record<string, string> = {
   'אוכל': 'bg-orange-100 text-orange-800',
   'רבנים/יות': 'bg-indigo-100 text-indigo-800',
   'הפעלה': 'bg-pink-100 text-pink-800',
   'הדפסות': 'bg-sky-100 text-sky-800',
   'אוטובוסים': 'bg-emerald-100 text-emerald-800',
-  'דרייברים': 'bg-violet-100 text-violet-800',
+  'נסיעות': 'bg-violet-100 text-violet-800',
+  'פעילות משרדית': 'bg-teal-100 text-teal-800',
+  'אחר': 'bg-slate-200 text-slate-800',
 };
 function TypeBadge({ type }: { type: string | null }) {
   if (!type) return null;
@@ -466,6 +468,7 @@ const EXPORT_COLUMNS = [
   { key: 'paymentDate', title: 'תאריך תשלום' },
   { key: 'receipt', title: 'קבלה' },
   { key: 'notes', title: 'הערות' },
+  { key: 'byType', title: 'עמודה לכל סוג הוצאה (אוכל, נסיעות...)' },
 ];
 
 async function download(path: string, fallbackName: string): Promise<Response> {
@@ -1055,7 +1058,11 @@ type SearchExpense = Expense & { category: { id: string; name: string } };
 
 /** חיפוש בכל הפנקס של השנה לפי סוג הוצאה — למשל כל האוכל מכל התוכניות */
 function TypeSearch({ year, onChanged }: { year: string; onChanged: () => void }) {
-  const [type, setType] = useState(readPref('expenses.type') || EXPENSE_TYPES[0]);
+  const [type, setType] = useState(() => {
+    const saved = readPref('expenses.type');
+    // סוג ששמור מפעם קודם ובינתיים שונה (למשל "דרייברים") — חוזרים לברירת המחדל
+    return saved && (saved === 'none' || EXPENSE_TYPES.includes(saved)) ? saved : EXPENSE_TYPES[0];
+  });
   const [q, setQ] = useState('');
   const [data, setData] = useState<{ counts: Record<string, number>; expenses: SearchExpense[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
