@@ -614,7 +614,8 @@ async function loadForExport(query: any, withFileData = false) {
   const categoryIds = listParam(query.categoryIds);
   const expenseIds = listParam(query.expenseIds);
   const all = await prisma.expenseCategory.findMany({
-    where: { year },
+    // עם תוכן הקבצים — טוענים רק את הקטגוריות שנבחרו, לא את כל השנה
+    where: { year, ...(withFileData && categoryIds.length ? { id: { in: categoryIds } } : {}) },
     orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     include: {
       expenses: {
@@ -782,7 +783,7 @@ async function fetchLinkedFile(link: string): Promise<{ data: Buffer; mime: stri
   const id = driveFileId(link);
   if (!id) return null;
   try {
-    const r = await axios.get(`https://drive.google.com/uc?export=download&id=${id}`, { responseType: 'arraybuffer', timeout: 20000, maxContentLength: 25 * 1024 * 1024 });
+    const r = await axios.get(`https://drive.google.com/uc?export=download&id=${id}`, { responseType: 'arraybuffer', timeout: 10000, maxContentLength: 25 * 1024 * 1024 });
     const data = Buffer.from(r.data);
     const mime = String(r.headers['content-type'] || '').split(';')[0].trim();
     if (data.subarray(0, 4).toString() === '%PDF') return { data, mime: 'application/pdf' };
@@ -827,6 +828,27 @@ router.get('/printFiles', async (req, res) => {
     const { year, selected } = await loadForExport(req.query, true);
     const kinds = listParam(req.query.kinds).filter((k) => k === 'invoice' || k === 'receipt');
     if (!kinds.length) kinds.push('invoice');
+    // קישורי דרייב מורידים מראש במקביל (5 בכל פעם) — אחד-אחד זה לקח יותר מדקה, והחיבור נפל
+    // באמצע עם "Failed to fetch" (בשרת של Render החיבור נסגר אחרי ~100 שניות)
+    const links = [
+      ...new Set(
+        selected.flatMap((c) =>
+          c.expenses.flatMap((e) =>
+            kinds.flatMap((kind) => {
+              const link = kind === 'invoice' ? e.invoiceUrl : e.receiptUrl;
+              return link && !e.files.some((f) => f.kind === kind) ? [link] : [];
+            })
+          )
+        )
+      ),
+    ];
+    const prefetched = new Map<string, Awaited<ReturnType<typeof fetchLinkedFile>>>();
+    for (let i = 0; i < links.length; i += 5) {
+      const batch = links.slice(i, i + 5);
+      const got = await Promise.all(batch.map(fetchLinkedFile));
+      batch.forEach((l, j) => prefetched.set(l, got[j]));
+    }
+
     const doc = await PDFDocument.create();
     let included = 0;
     let missing = 0;
@@ -838,7 +860,7 @@ router.get('/printFiles', async (req, res) => {
           let ok = false;
           for (const f of files) if (await appendToPdf(doc, Buffer.from(f.fileData as any), f.fileMime)) ok = true;
           if (!ok && link) {
-            const fetched = await fetchLinkedFile(link);
+            const fetched = prefetched.has(link) ? prefetched.get(link)! : await fetchLinkedFile(link);
             if (fetched && (await appendToPdf(doc, fetched.data, fetched.mime))) ok = true;
           }
           if (ok) included++;
