@@ -738,9 +738,20 @@ function ExpenseModal({
   const [split, setSplit] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(expense?.typeAmounts || {}).map(([k, v]) => [k, String(v)]))
   );
-  const pickedTypes = splitTypes(form.expenseType);
+  // סדר הבחירה: הסוג שנבחר ראשון ("העיקרי") מקבל את היתרה, כך שהוספת סוג לא מוחקת את הסכום —
+  // ממלאים רק כמה שייך לסוגים שנוספו
+  const [order, setOrder] = useState<string[]>(() => splitTypes(expense?.expenseType));
+  const pickedTypes = order;
   const multi = pickedTypes.length > 1;
-  const splitTotal = pickedTypes.reduce((s, t) => s + (Number(split[t]) || 0), 0);
+  const mainType = pickedTypes[0];
+  const total = Number(String(form.amount).replace(/[₪,\s]/g, '')) || 0;
+  const othersSum = pickedTypes.slice(1).reduce((s, t) => s + (Number(split[t]) || 0), 0);
+  const mainShare = Math.round((total - othersSum) * 100) / 100;
+  function toggleType(t: string) {
+    const next = order.includes(t) ? order.filter((x) => x !== t) : [...order, t];
+    setOrder(next);
+    setForm({ ...form, expenseType: EXPENSE_TYPES.filter((x) => next.includes(x)).join(', ') });
+  }
   const [files, setFiles] = useState<ExpenseFile[]>(expense?.files || []);
   const [invoice, setInvoice] = useState<FileList | null>(null);
   const [receipt, setReceipt] = useState<FileList | null>(null);
@@ -753,8 +764,8 @@ function ExpenseModal({
   async function save() {
     if (!form.expenseType) return setError('יש לבחור סוג הוצאה');
     if (multi) {
-      const missing = pickedTypes.find((t) => !String(split[t] ?? '').trim() || !Number.isFinite(Number(split[t])));
-      if (missing) return setError(`יש למלא סכום עבור "${missing}"`);
+      if (!total) return setError('יש למלא סכום לתשלום');
+      if (mainShare < 0) return setError(`הסכומים של הסוגים שנוספו גדולים מהסכום לתשלום (${total})`);
     }
     if (!form.date && !form.hebrewDate && !form.topic.trim()) return setError('חסר תאריך');
     if (!form.payee.trim() && !form.details.trim()) return setError('חסר שם בקבלה או פרוט');
@@ -763,8 +774,12 @@ function ExpenseModal({
     setError(null);
     try {
       const fd = new FormData();
-      Object.entries(form).forEach(([k, v]) => fd.append(k, k === 'amount' && multi ? String(splitTotal) : v));
-      if (multi) fd.append('typeAmounts', JSON.stringify(Object.fromEntries(pickedTypes.map((t) => [t, Number(split[t])]))));
+      Object.entries(form).forEach(([k, v]) => fd.append(k, v));
+      if (multi)
+        fd.append(
+          'typeAmounts',
+          JSON.stringify(Object.fromEntries(pickedTypes.map((t) => [t, t === mainType ? mainShare : Number(split[t]) || 0])))
+        );
       fd.append('categoryId', categoryId);
       Array.from(invoice || []).forEach((f) => fd.append('invoice', f));
       Array.from(receipt || []).forEach((f) => fd.append('receipt', f));
@@ -828,14 +843,12 @@ function ExpenseModal({
           <label className="label">סוג הוצאה * <span className="font-normal text-slate-500 text-xs">(אפשר לבחור יותר מאחד)</span></label>
           <div className="flex flex-wrap gap-2">
             {EXPENSE_TYPES.map((t) => {
-              const picked = splitTypes(form.expenseType);
-              const on = picked.includes(t);
-              const next = on ? picked.filter((x) => x !== t) : [...picked, t];
+              const on = order.includes(t);
               return (
                 <button
                   key={t}
                   type="button"
-                  onClick={() => setForm({ ...form, expenseType: EXPENSE_TYPES.filter((x) => next.includes(x)).join(', ') })}
+                  onClick={() => toggleType(t)}
                   className={`rounded-full px-3.5 py-1.5 text-sm font-medium border transition-colors ${
                     on ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-slate-300 hover:bg-slate-50'
                   }`}
@@ -848,19 +861,28 @@ function ExpenseModal({
           </div>
           {multi && (
             <div className="mt-2 rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2">
-              <p className="text-sm text-slate-600">כמה מהסכום שייך לכל סוג? (באקסל כל סכום ייכנס לעמודה שלו)</p>
+              <p className="text-sm text-slate-600">
+                כמה מהסכום שייך לסוגים שנוספו? היתרה נשארת ב"{mainType}". (באקסל כל סכום ייכנס לעמודה שלו)
+              </p>
               <div className="grid grid-cols-2 gap-2">
-                {pickedTypes.map((t) => (
-                  <label key={t} className="text-sm">
-                    {t} (₪)
-                    <input
-                      className="input mt-1"
-                      inputMode="decimal"
-                      value={split[t] ?? ''}
-                      onChange={(e) => setSplit({ ...split, [t]: e.target.value.replace(/[^\d.]/g, '') })}
-                    />
-                  </label>
-                ))}
+                {pickedTypes.map((t) =>
+                  t === mainType ? (
+                    <label key={t} className="text-sm">
+                      {t} (₪) — היתרה
+                      <input className={`input mt-1 bg-slate-100 ${mainShare < 0 ? 'text-red-700' : ''}`} readOnly value={total ? String(mainShare) : ''} />
+                    </label>
+                  ) : (
+                    <label key={t} className="text-sm">
+                      {t} (₪)
+                      <input
+                        className="input mt-1"
+                        inputMode="decimal"
+                        value={split[t] ?? ''}
+                        onChange={(e) => setSplit({ ...split, [t]: e.target.value.replace(/[^\d.]/g, '') })}
+                      />
+                    </label>
+                  )
+                )}
               </div>
             </div>
           )}
@@ -873,11 +895,8 @@ function ExpenseModal({
           </div>
           <div>
             <label className="label">סכום לתשלום (₪)</label>
-            {multi ? (
-              <input className="input bg-slate-100" readOnly value={splitTotal ? String(Math.round(splitTotal * 100) / 100) : ''} title="מחושב מהסכומים לפי סוג" />
-            ) : (
-              <input className="input" inputMode="decimal" value={form.amount} onChange={set('amount')} />
-            )}
+            <input className="input" inputMode="decimal" value={form.amount} onChange={set('amount')} />
+            {multi && <p className="text-xs text-slate-400 mt-1">הסכום הכולל — מתחלק לפי הסוגים למעלה</p>}
           </div>
         </div>
         <div>
