@@ -44,12 +44,10 @@ export async function isEvaluationRequired(employee: { id: string; role: string 
 }
 
 /**
- * מי מנהלת את ההערכה (הפעלה, מייל, מעקב, קריאת ההערכות) — רק מיכל פיינהנדלר, רכזת לימודי התמחות
- * (בקשת המשתמשת: "רק אני רוצה לראות את זה"). לא לפי הרשאות כלליות — יש מנהלות ומורות עם
- * "כל המסלולים" שלא אמורות לראות את זה.
+ * מי מנהלת את ההערכה (הפעלה, מייל, מעקב, קריאת ההערכות) — רק תפקיד "מנהל" (בקשת המשתמשת: "לא פתוח לכל אחד").
+ * לא לפי "כל המסלולים" — יש מורות ורכזות עם ההרשאה הזו שלא אמורות לראות את ההערכות של כולן.
  */
-const EVALUATION_ADMIN_IDS = ['cmtg9k8ep00038fuyud5kc70v'];
-export const isEvaluationAdmin = (user: { id: string }) => EVALUATION_ADMIN_IDS.includes(user.id);
+export const isEvaluationAdmin = (user: { role: string }) => user.role === 'מנהל';
 
 export type EvalStudent = { id: string; name: string; tracks: string[] };
 
