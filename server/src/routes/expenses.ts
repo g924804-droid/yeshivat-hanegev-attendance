@@ -57,7 +57,7 @@ function parseDate(v: unknown): string {
 
 const isTransfer = (method: string | null) => !!method && method.includes('העברה');
 
-/** סוגי ההוצאות — כל הוצאה משויכת לאחד, וכך אפשר לראות למשל את כל האוכל מכל התוכניות */
+/** סוגי ההוצאות — כל הוצאה משויכת לאחד או יותר, וכך אפשר לראות למשל את כל האוכל מכל התוכניות */
 export const EXPENSE_TYPES = ['אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'נסיעות', 'פעילות משרדית', 'אחר'];
 
 /** "דרייברים" שונה ל"נסיעות" (בקשת המשתמשת) — ההוצאות הקיימות מועברות בעליית השרת */
@@ -69,15 +69,21 @@ export async function migrateExpenseTypes() {
   }
 }
 
+/**
+ * להוצאה אפשר לבחור כמה סוגים (למשל אוכל + פעילות משרדית). נשמרים באותו שדה, מופרדים בפסיק,
+ * תמיד לפי סדר הרשימה — כך "אוכל, פעילות משרדית" זהה לכל סדר בחירה.
+ */
+export const splitTypes = (v: string | null | undefined): string[] =>
+  v ? v.split(',').map((t) => t.trim()).filter(Boolean) : [];
+
 function expenseType(v: unknown, strict: boolean): string | null {
-  const raw = str(v, 50);
-  const t = raw && (RENAMED_TYPES[raw] || raw);
-  if (!t) {
+  const list = (Array.isArray(v) ? v.map(String) : splitTypes(str(v, 300))).map((t) => RENAMED_TYPES[t.trim()] || t.trim()).filter(Boolean);
+  if (!list.length) {
     if (strict) throw new Error('יש לבחור סוג הוצאה');
     return null;
   }
-  if (!EXPENSE_TYPES.includes(t)) throw new Error('סוג הוצאה לא מוכר');
-  return t;
+  for (const t of list) if (!EXPENSE_TYPES.includes(t)) throw new Error(`סוג הוצאה לא מוכר: ${t}`);
+  return EXPENSE_TYPES.filter((t) => list.includes(t)).join(', ');
 }
 
 const url = (v: unknown) => {
@@ -265,7 +271,7 @@ router.get('/search', async (req, res) => {
     const expenses = await prisma.expense.findMany({
       where: {
         category: { year },
-        ...(type === 'none' ? { expenseType: null } : type ? { expenseType: type } : {}),
+        ...(type === 'none' ? { expenseType: null } : {}),
       },
       orderBy: [{ date: 'asc' }, { sortOrder: 'asc' }],
       include: {
@@ -273,15 +279,21 @@ router.get('/search', async (req, res) => {
         files: { select: FILE_META, orderBy: { createdAt: 'asc' } },
       },
     });
+    // הוצאה עם כמה סוגים מופיעה תחת כל אחד מהם
+    const ofType = type && type !== 'none' ? expenses.filter((e) => splitTypes(e.expenseType).includes(type)) : expenses;
     const shown = q
-      ? expenses.filter((e) =>
+      ? ofType.filter((e) =>
           [e.topic, e.payee, e.details, e.paymentMethod, e.notes, e.category.name, e.expenseType].some((v) => v && v.includes(q))
         )
-      : expenses;
+      : ofType;
     // ספירה לכל סוג (בלי הסינון) — למספרים על הכפתורים
     const counts: Record<string, number> = {};
     const all = await prisma.expense.groupBy({ by: ['expenseType'], where: { category: { year } }, _count: true });
-    for (const g of all) counts[g.expenseType || 'none'] = g._count;
+    for (const g of all) {
+      const types = splitTypes(g.expenseType);
+      if (!types.length) counts.none = (counts.none || 0) + g._count;
+      for (const t of types) counts[t] = (counts[t] || 0) + g._count;
+    }
     res.json({ year, types: EXPENSE_TYPES, counts, expenses: shown });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בחיפוש' });
@@ -621,9 +633,13 @@ const EXPORT_COLUMNS = [
 /** עמודה לכל סוג הוצאה — הסכום של כל שורה נכנס לעמודה של הסוג שלה, ולכל עמודה סה"כ (בקשת המשתמשת) */
 const BY_TYPE_KEY = 'byType';
 const NO_TYPE = 'בלי סוג';
-const typeOf = (e: { expenseType: string | null }) => e.expenseType || NO_TYPE;
-const typesIn = (expenses: { expenseType: string | null }[]) =>
-  [...EXPENSE_TYPES, NO_TYPE].filter((t) => expenses.some((e) => typeOf(e) === t));
+// הוצאה עם כמה סוגים נכנסת לעמודה משותפת ("אוכל + פעילות משרדית") — כדי שהסכום לא ייספר פעמיים
+const typeOf = (e: { expenseType: string | null }) => splitTypes(e.expenseType).join(' + ') || NO_TYPE;
+const typesIn = (expenses: { expenseType: string | null }[]) => {
+  const present = new Set(expenses.map(typeOf));
+  const combos = [...present].filter((t) => t.includes(' + ')).sort();
+  return [...EXPENSE_TYPES.filter((t) => present.has(t)), ...combos, ...(present.has(NO_TYPE) ? [NO_TYPE] : [])];
+};
 
 /** קטגוריות השנה עם ההוצאות, מסוננות לפי categoryIds / expenseIds מה-query (ריק = הכל) */
 async function loadForExport(query: any, withFileData = false) {
