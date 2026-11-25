@@ -13,6 +13,17 @@ export async function getEvaluationMonth(): Promise<string | null> {
   return s?.evaluationMonth || null;
 }
 
+/** מורות שהוצאו מרשימת המייל — פטורות מההערכה */
+export async function getEvaluationExempt(): Promise<Set<string>> {
+  const s = await prisma.siteSettings.findUnique({ where: { id: 'singleton' }, select: { evaluationExempt: true } });
+  try {
+    const ids = JSON.parse(s?.evaluationExempt || '[]');
+    return new Set(Array.isArray(ids) ? ids.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
 export type EvalStudent = { id: string; name: string; tracks: string[] };
 
 /** התלמידות של המורה, ממוינות לפי מסלול ושם */
@@ -36,6 +47,7 @@ export async function teacherStudents(teacherName: string): Promise<EvalStudent[
  */
 export async function missingEvaluationsCount(employee: { id: string; name: string }, month: string): Promise<number> {
   if ((await getEvaluationMonth()) !== month) return 0;
+  if ((await getEvaluationExempt()).has(employee.id)) return 0;
   const ids = await getTeacherStudentIds(employee.name);
   if (!ids.size) return 0;
   const done = await prisma.studentEvaluation.findMany({

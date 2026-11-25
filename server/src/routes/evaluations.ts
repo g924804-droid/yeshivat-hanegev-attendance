@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { canSeeAllStudentTracks, teacherStudentResolver } from '../lib/teacherScope';
-import { getEvaluationMonth, teacherStudents } from '../lib/evaluations';
+import { getEvaluationMonth, getEvaluationExempt, teacherStudents } from '../lib/evaluations';
 import { sendEmail, isEmailConfigured } from '../lib/email';
 import {
   buildEvaluationEmailHtml,
@@ -80,6 +80,7 @@ router.get('/admin', async (req, res) => {
     const current = await getEvaluationMonth();
     const month = MONTH_RE.test(String(req.query.month || '')) ? String(req.query.month) : current;
     if (!month) return res.json({ month: null, current, teachers: [], evaluations: [] });
+    const exempt = await getEvaluationExempt();
     const [teachers, evaluations, resolve] = await Promise.all([
       prisma.user.findMany({ where: { isActive: true, role: 'מורה' }, select: { id: true, name: true, department: true }, orderBy: { name: 'asc' } }),
       prisma.studentEvaluation.findMany({ where: { month }, orderBy: [{ studentName: 'asc' }] }),
@@ -91,7 +92,7 @@ router.get('/admin', async (req, res) => {
         const done = evaluations.filter((e) => e.teacherId === t.id && ids.has(e.studentId)).length;
         return { id: t.id, name: t.name, department: t.department, total: ids.size, done };
       })
-      .filter((t) => t.total > 0);
+      .filter((t) => t.total > 0 && !exempt.has(t.id));
     res.json({
       month,
       current,
@@ -137,7 +138,7 @@ router.get('/email', async (req, res) => {
     res.json({
       subject: EVALUATION_EMAIL_SUBJECT,
       html: buildEvaluationEmailHtml(),
-      recipients: recipients.map((r) => ({ name: r.name, hasEmail: !!r.email })),
+      recipients: recipients.map((r) => ({ id: r.id, name: r.name, hasEmail: !!r.email })),
       sentThisMonth: settings?.evaluationEmailMonth === israelMonth(),
       month: israelMonth(),
       emailConfigured: isEmailConfigured(),
@@ -165,7 +166,8 @@ router.post('/email/test', async (req, res) => {
 router.post('/email/send', async (req, res) => {
   try {
     if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
-    res.json(await sendEvaluationEmail());
+    const excludeIds = Array.isArray(req.body?.excludeIds) ? req.body.excludeIds.map(String) : [];
+    res.json(await sendEvaluationEmail(excludeIds));
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'שגיאה בשליחה' });
   }

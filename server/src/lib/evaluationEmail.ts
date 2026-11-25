@@ -60,17 +60,20 @@ export function israelMonth(): string {
  * שליחה לכל המורות + הפעלת חובת ההערכה לחודש הנוכחי. פעם אחת בחודש (evaluationEmailMonth) —
  * כדי שלחיצה כפולה לא תשלח פעמיים.
  */
-export async function sendEvaluationEmail(): Promise<{ sent: number; errors: string[]; month: string }> {
+export async function sendEvaluationEmail(excludeIds: string[] = []): Promise<{ sent: number; errors: string[]; month: string }> {
   if (!isEmailConfigured()) throw new Error('שליחת מייל לא מוגדרת בשרת');
   const month = israelMonth();
   const settings = await prisma.siteSettings.findUnique({ where: { id: 'singleton' }, select: { evaluationEmailMonth: true } });
   if (settings?.evaluationEmailMonth === month) throw new Error('המייל כבר נשלח החודש');
-  const recipients = await evaluationEmailRecipients();
+  const exclude = new Set(excludeIds.map(String));
+  const recipients = (await evaluationEmailRecipients()).filter((t) => !exclude.has(t.id));
+  // מי שהוצאה מהמייל — פטורה מההערכה (לא חוסמים לה את הדוח בלי שקיבלה הסבר)
+  const evaluationExempt = JSON.stringify([...exclude]);
   // מסמנים ומפעילים לפני השליחה — שלחיצה כפולה לא תשלח פעמיים
   await prisma.siteSettings.upsert({
     where: { id: 'singleton' },
-    create: { id: 'singleton', evaluationMonth: month, evaluationEmailMonth: month },
-    update: { evaluationMonth: month, evaluationEmailMonth: month },
+    create: { id: 'singleton', evaluationMonth: month, evaluationEmailMonth: month, evaluationExempt },
+    update: { evaluationMonth: month, evaluationEmailMonth: month, evaluationExempt },
   });
   const html = buildEvaluationEmailHtml();
   let sent = 0;

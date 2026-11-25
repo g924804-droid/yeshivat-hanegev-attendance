@@ -259,6 +259,8 @@ model SiteSettings {
   evaluationMonth String?
   // YYYY-MM שבו נשלח מייל ההערכה למורות — מונע שליחה כפולה
   evaluationEmailMonth String?
+  // מזהי מורות (JSON) שהוצאו מהמייל — לא מקבלות אותו וגם לא חייבות בהערכה
+  evaluationExempt String?
 }
 
 // תשלום בפועל על חודש של תלמידה (רשומה בטבלת התשלומים ב-Airtable). כמה תשלומים לאותו חודש =
