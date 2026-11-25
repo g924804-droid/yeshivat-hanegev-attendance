@@ -44,8 +44,9 @@ const PAYMENT_METHODS = ['העברה', 'משכורת', "צ'ק", 'מזומן', '�
 const isTransfer = (method: string | null) => !!method && method.includes('העברה');
 
 /** סוגי הוצאה — לכל הוצאה בוחרים אחד או יותר (נשמרים מופרדים בפסיק), ואז אפשר לחפש לפי סוג בכל התוכניות */
-const EXPENSE_TYPES = ['אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'נסיעות', 'פעילות משרדית', 'אחר'];
+const EXPENSE_TYPES = ['פעילות חברתית', 'אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'נסיעות', 'פעילות משרדית', 'אחר'];
 const TYPE_COLORS: Record<string, string> = {
+  'פעילות חברתית': 'bg-rose-100 text-rose-800',
   'אוכל': 'bg-orange-100 text-orange-800',
   'רבנים/יות': 'bg-indigo-100 text-indigo-800',
   'הפעלה': 'bg-pink-100 text-pink-800',
