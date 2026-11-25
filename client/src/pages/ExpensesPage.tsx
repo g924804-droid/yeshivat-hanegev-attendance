@@ -302,6 +302,25 @@ export function ExpensesPage() {
               </div>
             </div>
 
+            {/* חודשים שיש בהם הוצאות ק"ק אבל אין בהם הוצאות בקטגוריה עצמה — לא מופיעה להם כותרת חודש בטבלה */}
+            {(() => {
+              const months = new Set((expenses || []).map((e) => e.groupMonth || ''));
+              const orphan = (category?.childByMonth || []).filter((c) => !months.has(c.month));
+              if (!orphan.length || search) return null;
+              return (
+                <div className="mb-2 rounded-xl bg-sky-50 border border-sky-200 px-4 py-2 text-sm space-y-0.5">
+                  {orphan.map((c) => (
+                    <p key={`${c.month}-${c.name}`}>
+                      <span className="font-semibold text-sky-900">
+                        ירד מ{c.name} ב{monthLabel(c.month)}: {shekel(c.amount)}
+                      </span>
+                      <span className="text-slate-500 mr-2">({c.count} הוצאות — אין החודש הוצאות אחרות בלשונית הזו)</span>
+                    </p>
+                  ))}
+                </div>
+              );
+            })()}
+
             {selected.size > 0 && (
               <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl bg-gold/15 px-4 py-2 text-[15px]">
                 <span className="font-semibold text-navy">סומנו {selected.size} שורות</span>
