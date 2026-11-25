@@ -186,9 +186,22 @@ router.get('/overview', async (req, res) => {
       prisma.expenseCategory.findMany({
         where: { year },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        include: { expenses: { select: { amount: true } } },
+        include: { expenses: { select: { amount: true, date: true } } },
       }),
     ]);
+    // לכל קטגוריה שיש לה קטגוריות שיורדות ממנה (ק"ק פעילות ← פעילות חברתית): כמה ירד מכל אחת בכל חודש
+    const monthlyOf = (c: (typeof categories)[number]) => {
+      const m = new Map<string, { amount: number; count: number }>();
+      for (const e of c.expenses) {
+        const month = (e.date || '').slice(0, 7);
+        if (!month) continue;
+        const cur = m.get(month) || { amount: 0, count: 0 };
+        cur.amount += e.amount || 0;
+        cur.count++;
+        m.set(month, cur);
+      }
+      return m;
+    };
     const years = Array.from(new Set([currentSchoolYear(), year, ...yearsRows.map((y) => y.year)])).sort();
     const own = new Map(categories.map((c) => [c.id, c.expenses.reduce((s, e) => s + (e.amount || 0), 0)]));
     res.json({
@@ -202,6 +215,9 @@ router.get('/overview', async (req, res) => {
           ownUsed: own.get(c.id)!,
           childUsed,
           childNames: children.map((ch) => ch.name),
+          childByMonth: children.flatMap((ch) =>
+            [...monthlyOf(ch).entries()].map(([month, v]) => ({ month, name: ch.name, amount: Math.round(v.amount * 100) / 100, count: v.count }))
+          ),
           used: own.get(c.id)! + childUsed,
           count: expenses.length,
         };

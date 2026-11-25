@@ -35,6 +35,8 @@ type Category = {
   ownUsed: number;
   childUsed: number;
   childNames: string[];
+  // כמה ירד בכל חודש מכל קטגוריה שיורדת מהקטגוריה הזו (למשל ק"ק פעילות בתוך פעילות חברתית)
+  childByMonth?: { month: string; name: string; amount: number; count: number }[];
   parentId: string | null;
   count: number;
 };
@@ -356,6 +358,21 @@ export function ExpensesPage() {
                           </td>
                         </tr>
                       )}
+                      {firstOfMonth &&
+                        (category?.childByMonth || [])
+                          .filter((c) => c.month === month)
+                          .map((c) => (
+                            <tr key={`${month}-${c.name}`} className="bg-sky-50 border-t border-sky-200">
+                              <td colSpan={withTopic ? 12 : 11} className="px-3 py-2 text-sm">
+                                <span className="font-semibold text-sky-900">
+                                  ירד מ{c.name} ב{monthLabel(month)}: {shekel(c.amount)}
+                                </span>
+                                <span className="text-slate-500 mr-2">
+                                  ({c.count} הוצאות — הפירוט בלשונית "{c.name}")
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
                       <tr
                         className={`border-t align-top ${isSel ? 'bg-gold/10' : 'hover:bg-slate-50/60'} ${firstOfTopic && i > 0 ? 'border-slate-300' : 'border-slate-100'}`}
                       >
