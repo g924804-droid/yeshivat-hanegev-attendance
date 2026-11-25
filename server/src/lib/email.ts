@@ -98,7 +98,16 @@ async function sendViaSmtp(to: string, subject: string, html: string): Promise<v
   }
 }
 
+/**
+ * כתובת שהודבקה מטקסט בעברית מגיעה לפעמים עם תווי כיוון נסתרים (למשל U+200F בסוף) או רווחים —
+ * לא רואים אותם, אבל Google דוחה את הכתובת ("Invalid To header"). מנקים לפני כל שליחה ובשמירת עובדת.
+ */
+export function cleanEmail(email: string): string {
+  return email.replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff\s]/g, '');
+}
+
 export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+  to = cleanEmail(to);
   if (process.env.EMAIL_SCRIPT_URL) return sendViaScript(to, subject, html);
   return sendViaSmtp(to, subject, html);
 }

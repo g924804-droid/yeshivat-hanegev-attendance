@@ -2,6 +2,11 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { airtableFetch, TABLES } from '../lib/airtable';
 import { requireAuth, requireAdmin, requireAdminOrAttendanceManager } from '../middleware/auth';
+import { cleanEmail } from '../lib/email';
+
+/** ניקוי תווים נסתרים מכתובת המייל בשמירה (ראו cleanEmail) */
+const withCleanEmail = <T extends Record<string, any>>(data: T): T =>
+  typeof data.email === 'string' ? { ...data, email: cleanEmail(data.email) || null } : data;
 
 const router = Router();
 router.use(requireAuth);
@@ -31,7 +36,7 @@ router.get('/getEmployeeNames', requireAdminOrAttendanceManager, async (req, res
 
 router.post('/addEmployee', requireAdmin, async (req, res) => {
   try {
-    const employee = await prisma.user.create({ data: req.body });
+    const employee = await prisma.user.create({ data: withCleanEmail(req.body) });
     res.json({ success: true, employee });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בהוספת עובד' });
@@ -41,7 +46,7 @@ router.post('/addEmployee', requireAdmin, async (req, res) => {
 router.put('/updateEmployee', requireAdmin, async (req, res) => {
   try {
     const { id, ...data } = req.body;
-    const employee = await prisma.user.update({ where: { id }, data });
+    const employee = await prisma.user.update({ where: { id }, data: withCleanEmail(data) });
     res.json({ success: true, employee });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בעדכון עובד' });

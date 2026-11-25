@@ -247,6 +247,21 @@ function AdminView() {
   }
 
   const [downloading, setDownloading] = useState(false);
+  const [resending, setResending] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  async function resend(userId: string, name: string) {
+    if (!confirm(`לשלוח שוב את המייל ל${name}?`)) return;
+    setResending(userId);
+    setNotice(null);
+    try {
+      await api.post('/evaluations/email/resend', { userId });
+      setNotice(`המייל נשלח שוב ל${name}`);
+    } catch (e: any) {
+      setError(`${name}: ${e.message}`);
+    } finally {
+      setResending(null);
+    }
+  }
   async function downloadExcel() {
     if (!data?.month) return;
     setDownloading(true);
@@ -274,6 +289,7 @@ function AdminView() {
   return (
     <div className="space-y-4">
       {error && <div className="text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{error}</div>}
+      {notice && <div className="text-sm bg-green-50 text-green-800 rounded-xl px-4 py-2">{notice}</div>}
       <div className="card space-y-2">
         <p className="font-bold text-navy">חובת הערכה כללית</p>
         {data?.current ? (
@@ -347,6 +363,11 @@ function AdminView() {
                       {t.done > 0 && (
                         <button className="text-blue-700 text-xs hover:underline" onClick={() => setTeacher(t.name)}>
                           הצגת ההערכות
+                        </button>
+                      )}
+                      {!t.ackAt && (
+                        <button className="text-blue-700 text-xs hover:underline mr-3" disabled={resending === t.id} onClick={() => resend(t.id, t.name)}>
+                          {resending === t.id ? 'שולח...' : 'שליחת המייל שוב'}
                         </button>
                       )}
                     </td>

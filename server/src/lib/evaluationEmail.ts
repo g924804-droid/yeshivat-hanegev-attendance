@@ -123,6 +123,18 @@ export async function sendEvaluationEmail(selectedIds: string[]): Promise<{ sent
   return { sent, errors, month };
 }
 
+/** שליחה חוזרת למורה אחת מתוך מי שנבחרו (למשל כשהמייל נכשל) */
+export async function resendEvaluationEmail(userId: string): Promise<string> {
+  const month = israelMonth();
+  const settings = await prisma.siteSettings.findUnique({ where: { id: 'singleton' }, select: { evaluationRequired: true } });
+  const required: string[] = JSON.parse(settings?.evaluationRequired || '[]');
+  if (!required.includes(userId)) throw new Error('המורה לא ברשימה שנבחרה במייל');
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+  if (!user?.email) throw new Error('אין למורה כתובת מייל');
+  await sendEmail(user.email, EVALUATION_EMAIL_SUBJECT, buildEvaluationEmailHtml(ackUrl(userId, month)));
+  return user.name;
+}
+
 const page = (title: string, body: string) => `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>
 <body style="font-family: Arial, sans-serif; background: #f8fafc; margin: 0; padding: 40px 16px; color: #1e293b;">

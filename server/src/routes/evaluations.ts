@@ -19,6 +19,7 @@ import {
   EVALUATION_EMAIL_SUBJECT,
   evaluationEmailRecipients,
   israelMonth,
+  resendEvaluationEmail,
   sendEvaluationEmail,
 } from '../lib/evaluationEmail';
 
@@ -307,6 +308,17 @@ router.post('/email/send', async (req, res) => {
     if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
     res.json(await sendEvaluationEmail(ids));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'שגיאה בשליחה' });
+  }
+});
+
+/** ניהול: שליחה חוזרת של המייל למורה אחת */
+router.post('/email/resend', async (req, res) => {
+  try {
+    if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    const name = await resendEvaluationEmail(String(req.body.userId || ''));
+    res.json({ success: true, name });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'שגיאה בשליחה' });
   }
