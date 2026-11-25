@@ -77,6 +77,14 @@ export async function migrateExpenseTypes() {
 export const splitTypes = (v: string | null | undefined): string[] =>
   v ? v.split(',').map((t) => t.trim()).filter(Boolean) : [];
 
+/**
+ * "אוכל" הוא תגית לחיפוש בלבד (בקשת המשתמשת): כשהוא מסומן יחד עם סוג אחר, הסכום כולו שייך לסוג האחר
+ * ולא לאוכל. רק הוצאה שמסומנת אוכל בלבד נספרת כאוכל.
+ */
+const SEARCH_ONLY_TYPE = 'אוכל';
+export const amountTypes = (types: string[]): string[] =>
+  types.length > 1 ? types.filter((t) => t !== SEARCH_ONLY_TYPE) : types;
+
 function expenseType(v: unknown, strict: boolean): string | null {
   const list = (Array.isArray(v) ? v.map(String) : splitTypes(str(v, 300))).map((t) => RENAMED_TYPES[t.trim()] || t.trim()).filter(Boolean);
   if (!list.length) {
@@ -89,7 +97,7 @@ function expenseType(v: unknown, strict: boolean): string | null {
 
 /** כשנבחרו כמה סוגים — סכום לכל סוג (חובה בשמירה מהטופס). סוג אחד = null (כל הסכום שלו). */
 function typeAmounts(v: unknown, types: string | null, strict: boolean): Record<string, number> | null {
-  const list = splitTypes(types);
+  const list = amountTypes(splitTypes(types));
   if (list.length < 2) return null;
   let obj: any = v;
   if (typeof v === 'string') {
@@ -662,7 +670,7 @@ const NO_TYPE = 'בלי סוג';
 type Typed = { expenseType: string | null; typeAmounts: Prisma.JsonValue | null; amount: number | null };
 /** כמה מהסכום של ההוצאה שייך לכל סוג. כמה סוגים — לפי הסכומים שהוזנו (בלי פירוט — הכל לסוג הראשון). */
 function typeSplit(e: Typed): Record<string, number> {
-  const types = splitTypes(e.expenseType);
+  const types = amountTypes(splitTypes(e.expenseType));
   const amount = e.amount || 0;
   if (!types.length) return { [NO_TYPE]: amount };
   const given =
@@ -670,6 +678,9 @@ function typeSplit(e: Typed): Record<string, number> {
   if (types.length > 1 && given) {
     const out: Record<string, number> = {};
     for (const t of types) out[t] = Number(given[t]) || 0;
+    // מה שלא חולק (למשל חלק ששויך פעם לאוכל) — לסוג הראשון, כדי שהסה"כ יתאים לסכום ההוצאה
+    const rest = Math.round((amount - Object.values(out).reduce((s, n) => s + n, 0)) * 100) / 100;
+    if (rest) out[types[0]] += rest;
     return out;
   }
   return { [types[0]]: amount };

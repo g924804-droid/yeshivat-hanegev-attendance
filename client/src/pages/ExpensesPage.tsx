@@ -60,6 +60,9 @@ const TYPE_COLORS: Record<string, string> = {
   'אחר': 'bg-slate-200 text-slate-800',
 };
 const splitTypes = (v: string | null | undefined) => (v ? v.split(',').map((t) => t.trim()).filter(Boolean) : []);
+/** "אוכל" — תגית לחיפוש בלבד: יחד עם סוג אחר, הסכום כולו הולך לסוג האחר (כמו בשרת) */
+const SEARCH_ONLY_TYPE = 'אוכל';
+const amountTypes = (types: string[]) => (types.length > 1 ? types.filter((t) => t !== SEARCH_ONLY_TYPE) : types);
 function TypeBadge({ type }: { type: string | null }) {
   const types = splitTypes(type);
   if (!types.length) return null;
@@ -744,7 +747,8 @@ function ExpenseModal({
   // סדר הבחירה: הסוג שנבחר ראשון ("העיקרי") מקבל את היתרה, כך שהוספת סוג לא מוחקת את הסכום —
   // ממלאים רק כמה שייך לסוגים שנוספו
   const [order, setOrder] = useState<string[]>(() => splitTypes(expense?.expenseType));
-  const pickedTypes = order;
+  const pickedTypes = amountTypes(order);
+  const foodTagOnly = order.length > 1 && order.includes(SEARCH_ONLY_TYPE);
   const multi = pickedTypes.length > 1;
   const mainType = pickedTypes[0];
   const total = Number(String(form.amount).replace(/[₪,\s]/g, '')) || 0;
@@ -862,11 +866,17 @@ function ExpenseModal({
               );
             })}
           </div>
+          {foodTagOnly && !multi && (
+            <p className="mt-2 text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
+              "אוכל" מסומן לחיפוש בלבד — כל הסכום נכנס ל"{pickedTypes[0]}" (גם באקסל).
+            </p>
+          )}
           {multi && (
             <div className="mt-2 rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2">
               <p className="text-sm text-slate-600">
                 כמה מהסכום שייך לסוגים שנוספו? היתרה נשארת ב"{mainType}". (באקסל כל סכום ייכנס לעמודה שלו)
               </p>
+              {foodTagOnly && <p className="text-xs text-slate-500">"אוכל" מסומן לחיפוש בלבד — לא מקבל חלק מהסכום.</p>}
               <div className="grid grid-cols-2 gap-2">
                 {pickedTypes.map((t) =>
                   t === mainType ? (
