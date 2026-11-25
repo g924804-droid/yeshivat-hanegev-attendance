@@ -14,6 +14,7 @@ import {
 } from '../lib/evaluations';
 import { sendEmail, isEmailConfigured } from '../lib/email';
 import {
+  ackUrl,
   buildEvaluationEmailHtml,
   EVALUATION_EMAIL_SUBJECT,
   evaluationEmailRecipients,
@@ -115,8 +116,9 @@ router.put('/mine', async (req, res) => {
 /** נתוני הניהול: מי חייבת, כמה מילאה, אישור קריאה, וכל ההערכות (עם השיעורים של כל תלמידה אצל המורה) */
 async function adminData(month: string) {
   const [exempt, required] = await Promise.all([getEvaluationExempt(), getEvaluationRequired()]);
-  const acks = await prisma.evaluationAck.findMany({ where: { month }, select: { userId: true, ackAt: true } });
+  const acks = await prisma.evaluationAck.findMany({ where: { month }, select: { userId: true, ackAt: true, via: true } });
   const ackAt = new Map(acks.map((a) => [a.userId, a.ackAt]));
+  const ackVia = new Map(acks.map((a) => [a.userId, a.via]));
   const [teachers, evaluations, resolve] = await Promise.all([
     prisma.user.findMany({
       where: { isActive: true, ...(required ? { id: { in: [...required] } } : { role: 'מורה' }) },
@@ -133,7 +135,7 @@ async function adminData(month: string) {
       groupsOf.set(t.id, groups);
       const ids = uniqueStudents(groups);
       const done = evaluations.filter((e) => e.teacherId === t.id && ids.has(e.studentId)).length;
-      return { id: t.id, name: t.name, department: t.department, total: ids.size, done, ackAt: ackAt.get(t.id) || null };
+      return { id: t.id, name: t.name, department: t.department, total: ids.size, done, ackAt: ackAt.get(t.id) || null, ackVia: ackVia.get(t.id) || null };
     })
     .filter((t) => t.total > 0 && !exempt.has(t.id));
   // באילו שיעורים של המורה התלמידה נמצאת — לאקסל ולתצוגה
@@ -220,6 +222,7 @@ router.get('/admin/excel', async (req, res) => {
       { header: 'חסרות', key: 'missing', width: 10 },
       { header: 'סטטוס', key: 'status', width: 14 },
       { header: 'אישרה קריאה', key: 'ack', width: 16 },
+      { header: 'איפה אישרה', key: 'via', width: 12 },
     ];
     for (const t of rows) {
       const r = st.addRow({
@@ -230,6 +233,7 @@ router.get('/admin/excel', async (req, res) => {
         missing: t.total - t.done,
         status: t.done >= t.total ? 'הושלם' : t.done ? 'בתהליך' : 'לא התחילה',
         ack: t.ackAt || 'עוד לא',
+        via: t.ackVia === 'email' ? 'במייל' : t.ackVia ? 'באתר' : '',
       });
       if (t.ackAt) r.getCell('ack').numFmt = 'dd/mm/yyyy hh:mm';
       r.getCell('status').font = { color: { argb: t.done >= t.total ? 'FF15803D' : t.done ? 'FFB45309' : 'FFDC2626' } };
@@ -271,7 +275,7 @@ router.get('/email', async (req, res) => {
     ]);
     res.json({
       subject: EVALUATION_EMAIL_SUBJECT,
-      html: buildEvaluationEmailHtml(),
+      html: buildEvaluationEmailHtml('#'),
       recipients: recipients.map((r) => ({ id: r.id, name: r.name, hasEmail: !!r.email, isTeacher: r.isTeacher })),
       sentThisMonth: settings?.evaluationEmailMonth === israelMonth(),
       month: israelMonth(),
@@ -289,7 +293,8 @@ router.post('/email/test', async (req, res) => {
     if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
     const to = String(req.body.to || '').trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: 'כתובת מייל לא תקינה' });
-    await sendEmail(to, `[בדיקה] ${EVALUATION_EMAIL_SUBJECT}`, buildEvaluationEmailHtml());
+    // בבדיקה הכפתור מאשר בשם מי ששלחה את הבדיקה — כדי לראות שהוא עובד
+    await sendEmail(to, `[בדיקה] ${EVALUATION_EMAIL_SUBJECT}`, buildEvaluationEmailHtml(ackUrl(req.user!.id, israelMonth())));
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בשליחה' });

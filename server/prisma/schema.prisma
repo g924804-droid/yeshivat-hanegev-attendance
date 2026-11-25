@@ -572,6 +572,7 @@ model EvaluationAck {
   userId   String
   userName String
   ackAt    DateTime @default(now())
+  via      String   @default("site") // "email" = לחצה על הכפתור במייל, "site" = בחלון באתר
 
   @@unique([month, userId])
 }

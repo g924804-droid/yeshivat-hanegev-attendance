@@ -12,7 +12,7 @@ type Group = { key: string; subject: string; trackName: string; students: { id: 
 type AdminData = {
   month: string | null;
   current: string | null;
-  teachers: { id: string; name: string; department: string | null; total: number; done: number; ackAt: string | null }[];
+  teachers: { id: string; name: string; department: string | null; total: number; done: number; ackAt: string | null; ackVia: string | null }[];
   evaluations: { id: string; teacherName: string; studentName: string; lessons: string; tracks: string; text: string; updatedAt: string }[];
 };
 
@@ -307,6 +307,7 @@ function AdminView() {
                       {t.ackAt ? (
                         <span className="text-green-700">
                           ✓ {new Date(t.ackAt).toLocaleString('he-IL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          <span className="text-slate-400 text-xs"> ({t.ackVia === 'email' ? 'במייל' : 'באתר'})</span>
                         </span>
                       ) : (
                         <span className="text-red-600">עוד לא</span>
