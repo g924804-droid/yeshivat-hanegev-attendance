@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { canSeeAllStudentTracks, teacherStudentResolver } from '../lib/teacherScope';
-import { getEvaluationMonth, getEvaluationExempt, teacherStudents } from '../lib/evaluations';
+import { getEvaluationMonth, getEvaluationExempt, getEvaluationRequired, isEvaluationRequired, teacherStudents } from '../lib/evaluations';
 import { sendEmail, isEmailConfigured } from '../lib/email';
 import {
   buildEvaluationEmailHtml,
@@ -20,9 +20,11 @@ const MONTH_RE = /^\d{4}-\d{2}$/;
 const MAX_TEXT = 3000;
 
 /** החודש שבו נדרשת הערכה (לכפתור בדף הבית) */
-router.get('/status', async (_req, res) => {
+router.get('/status', async (req, res) => {
   try {
-    res.json({ month: await getEvaluationMonth() });
+    const month = await getEvaluationMonth();
+    // required — האם המשתמשת המחוברת חייבת (גם עובדת שמלמדת ונבחרה במייל, לא רק תפקיד "מורה")
+    res.json({ month, required: !!month && (await isEvaluationRequired(req.user!)) });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה' });
   }
@@ -80,9 +82,9 @@ router.get('/admin', async (req, res) => {
     const current = await getEvaluationMonth();
     const month = MONTH_RE.test(String(req.query.month || '')) ? String(req.query.month) : current;
     if (!month) return res.json({ month: null, current, teachers: [], evaluations: [] });
-    const exempt = await getEvaluationExempt();
+    const [exempt, required] = await Promise.all([getEvaluationExempt(), getEvaluationRequired()]);
     const [teachers, evaluations, resolve] = await Promise.all([
-      prisma.user.findMany({ where: { isActive: true, role: 'מורה' }, select: { id: true, name: true, department: true }, orderBy: { name: 'asc' } }),
+      prisma.user.findMany({ where: { isActive: true, ...(required ? { id: { in: [...required] } } : { role: 'מורה' }) }, select: { id: true, name: true, department: true }, orderBy: { name: 'asc' } }),
       prisma.studentEvaluation.findMany({ where: { month }, orderBy: [{ studentName: 'asc' }] }),
       teacherStudentResolver(),
     ]);
@@ -138,7 +140,7 @@ router.get('/email', async (req, res) => {
     res.json({
       subject: EVALUATION_EMAIL_SUBJECT,
       html: buildEvaluationEmailHtml(),
-      recipients: recipients.map((r) => ({ id: r.id, name: r.name, hasEmail: !!r.email })),
+      recipients: recipients.map((r) => ({ id: r.id, name: r.name, hasEmail: !!r.email, isTeacher: r.isTeacher })),
       sentThisMonth: settings?.evaluationEmailMonth === israelMonth(),
       month: israelMonth(),
       emailConfigured: isEmailConfigured(),
@@ -166,8 +168,8 @@ router.post('/email/test', async (req, res) => {
 router.post('/email/send', async (req, res) => {
   try {
     if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
-    const excludeIds = Array.isArray(req.body?.excludeIds) ? req.body.excludeIds.map(String) : [];
-    res.json(await sendEvaluationEmail(excludeIds));
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+    res.json(await sendEvaluationEmail(ids));
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'שגיאה בשליחה' });
   }

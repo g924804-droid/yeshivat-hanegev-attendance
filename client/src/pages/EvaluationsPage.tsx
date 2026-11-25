@@ -307,7 +307,7 @@ function AdminView() {
 type EmailInfo = {
   subject: string;
   html: string;
-  recipients: { id: string; name: string; hasEmail: boolean }[];
+  recipients: { id: string; name: string; hasEmail: boolean; isTeacher: boolean }[];
   sentThisMonth: boolean;
   month: string;
   emailConfigured: boolean;
@@ -321,10 +321,10 @@ function EmailPanel({ onSent }: { onSent: () => void }) {
   const [testTo, setTestTo] = useState('');
   const [busy, setBusy] = useState<'test' | 'send' | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  // מורות שהורדו מהרשימה — לא יקבלו את המייל וגם לא יחויבו בהערכה
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  // מי שמסומנת — מקבלת את המייל וחייבת בהערכה. ברירת מחדל: כל מי שתפקידה "מורה"
+  const [selected, setSelected] = useState<Set<string> | null>(null);
   const toggle = (id: string) =>
-    setExcluded((prev) => {
+    setSelected((prev) => {
       const n = new Set(prev);
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
@@ -335,6 +335,7 @@ function EmailPanel({ onSent }: { onSent: () => void }) {
       .get<EmailInfo>('/evaluations/email')
       .then((r) => {
         setInfo(r);
+        setSelected((s) => s || new Set(r.recipients.filter((x) => x.isTeacher).map((x) => x.id)));
         setTestTo((t) => t || r.myEmail);
       })
       .catch((e) => setMsg({ ok: false, text: e.message }));
@@ -356,13 +357,12 @@ function EmailPanel({ onSent }: { onSent: () => void }) {
 
   async function send() {
     if (!info) return;
-    const withEmail = info.recipients.filter((r) => r.hasEmail && !excluded.has(r.id)).length;
-    const skip = excluded.size ? ` (${excluded.size} מורות הורדו מהרשימה — לא יקבלו ולא יחויבו)` : '';
-    if (!confirm(`לשלוח את המייל ל-${withEmail} מורות ולהפעיל את חובת ההערכה ל${monthLabel(info.month)}?${skip}`)) return;
+    const withEmail = info.recipients.filter((r) => r.hasEmail && isOn(r.id)).length;
+    if (!confirm(`לשלוח את המייל ל-${withEmail} מורות ולהפעיל את חובת ההערכה ל${monthLabel(info.month)}? רק מי שמסומנת תחויב במילוי.`)) return;
     setBusy('send');
     setMsg(null);
     try {
-      const r = await api.post<{ sent: number; errors: string[] }>('/evaluations/email/send', { excludeIds: [...excluded] });
+      const r = await api.post<{ sent: number; errors: string[] }>('/evaluations/email/send', { ids: info.recipients.filter((r) => isOn(r.id)).map((r) => r.id) });
       setMsg({ ok: r.sent > 0, text: `נשלחו ${r.sent} מיילים. החובה הופעלה.${r.errors.length ? ` לא נשלח ל: ${r.errors.join('; ')}` : ''}` });
       load();
       onSent();
@@ -373,9 +373,20 @@ function EmailPanel({ onSent }: { onSent: () => void }) {
     }
   }
 
+  const isOn = (id: string) => !!selected?.has(id);
   if (!info) return msg ? <div className="text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{msg.text}</div> : null;
-  const chosen = info.recipients.filter((r) => !excluded.has(r.id));
+  const chosen = info.recipients.filter((r) => isOn(r.id));
   const noEmail = chosen.filter((r) => !r.hasEmail);
+  const teachers = info.recipients.filter((r) => r.isTeacher);
+  const others = info.recipients.filter((r) => !r.isTeacher);
+  const offTeachers = teachers.filter((r) => !isOn(r.id)).length;
+  const row = (r: EmailInfo['recipients'][number]) => (
+    <label key={r.id} className="flex items-center gap-2 text-sm cursor-pointer">
+      <input type="checkbox" className="h-4 w-4 accent-navy" checked={isOn(r.id)} onChange={() => toggle(r.id)} disabled={info.sentThisMonth} />
+      <span className={isOn(r.id) ? '' : 'line-through text-slate-400'}>{r.name}</span>
+      {!r.hasEmail && <span className="text-xs text-amber-700">(אין מייל)</span>}
+    </label>
+  );
   return (
     <div className="card space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -384,7 +395,7 @@ function EmailPanel({ onSent }: { onSent: () => void }) {
       </div>
       <p className="text-sm">
         יישלח ל-<b>{chosen.length - noEmail.length}</b> מורות של סמינר מאיר שיש להן תלמידות.
-        {excluded.size > 0 && <span className="text-slate-500"> ({excluded.size} הורדו מהרשימה)</span>}
+        {offTeachers > 0 && <span className="text-slate-500"> ({offTeachers} הורדו מהרשימה)</span>}
         {noEmail.length > 0 && <span className="text-amber-700"> בלי כתובת מייל (לא יקבלו): {noEmail.map((r) => r.name).join(', ')}</span>}
       </p>
       <button className="text-sm text-blue-700 hover:underline" onClick={() => setOpen(!open)}>
@@ -398,15 +409,15 @@ function EmailPanel({ onSent }: { onSent: () => void }) {
           <div className="border rounded-xl p-4 bg-white max-h-[60vh] overflow-y-auto" dangerouslySetInnerHTML={{ __html: info.html }} />
           <div className="border rounded-xl p-3">
             <p className="text-sm font-semibold text-navy mb-1">למי לשלוח? מורה בלי וי לא תקבל את המייל ולא תחויב במילוי ההערכה.</p>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-1">
-              {info.recipients.map((r) => (
-                <label key={r.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input type="checkbox" className="h-4 w-4 accent-navy" checked={!excluded.has(r.id)} onChange={() => toggle(r.id)} disabled={info.sentThisMonth} />
-                  <span className={excluded.has(r.id) ? 'line-through text-slate-400' : ''}>{r.name}</span>
-                  {!r.hasEmail && <span className="text-xs text-amber-700">(אין מייל)</span>}
-                </label>
-              ))}
-            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-1">{teachers.map(row)}</div>
+            {others.length > 0 && (
+              <>
+                <p className="text-sm font-semibold text-navy mt-3 mb-1">
+                  עובדות נוספות שמלמדות (מוגדרות "עובד" ולא "מורה") — מסמנים רק את מי שצריכה לקבל:
+                </p>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-1">{others.map(row)}</div>
+              </>
+            )}
           </div>
         </div>
       )}

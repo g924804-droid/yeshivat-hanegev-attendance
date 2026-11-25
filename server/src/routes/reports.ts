@@ -278,7 +278,7 @@ router.post('/submitMonthlyReport', async (req, res) => {
     }
 
     // הערכה כללית לכל התלמידות — רק בחודש שההנהלה קבעה (lib/evaluations.ts)
-    if (employee.role === 'מורה') {
+    {
       let missing = 0;
       try {
         missing = await missingEvaluationsCount(employee, report.month);

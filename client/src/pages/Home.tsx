@@ -25,7 +25,7 @@ export function Home() {
   const navigate = useNavigate();
   const [pendingContracts, setPendingContracts] = useState(0);
   // חודש שבו נדרשת הערכה כללית לתלמידות (ריק = לא נדרש)
-  const [evaluationMonth, setEvaluationMonth] = useState<string | null>(null);
+  const [evaluationRequired, setEvaluationRequired] = useState(false);
 
   useEffect(() => {
     api
@@ -33,8 +33,8 @@ export function Home() {
       .then((r) => setPendingContracts(r.contracts.filter((c) => c.status === 'ממתין לחתימה').length))
       .catch(() => {});
     api
-      .get<{ month: string | null }>('/evaluations/status')
-      .then((r) => setEvaluationMonth(r.month))
+      .get<{ month: string | null; required: boolean }>('/evaluations/status')
+      .then((r) => setEvaluationRequired(r.required))
       .catch(() => {});
   }, []);
 
@@ -49,7 +49,7 @@ export function Home() {
       icon: PenLine,
       label: 'הערכה כללית',
       // למורות — כשההנהלה הפעילה את החובה לחודש; להנהלה — תמיד (שם מפעילים ורואים מי מילאה)
-      show: (user.role === 'מורה' && !!evaluationMonth) || canSeeAllTracks,
+      show: evaluationRequired || canSeeAllTracks,
     },
     {
       to: '/attendance',

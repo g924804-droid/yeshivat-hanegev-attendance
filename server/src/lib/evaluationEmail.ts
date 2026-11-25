@@ -39,17 +39,20 @@ export function buildEvaluationEmailHtml(): string {
   `;
 }
 
-/** המורות הפעילות בסמינר מאיר שיש להן תלמידות (בקשת המשתמשת) */
+/**
+ * כל העובדות הפעילות בסמינר מאיר שמלמדות (יש להן תלמידות). ברירת המחדל במייל — מי שתפקידה "מורה";
+ * עובדות אחרות שמלמדות (למשל אוריה יששכרוב) מופיעות בנפרד ונבחרות ידנית.
+ */
 export async function evaluationEmailRecipients() {
-  const [teachers, resolve] = await Promise.all([
+  const [staff, resolve] = await Promise.all([
     prisma.user.findMany({
-      where: { isActive: true, role: 'מורה', department: DEPARTMENT },
-      select: { id: true, name: true, email: true },
+      where: { isActive: true, department: DEPARTMENT },
+      select: { id: true, name: true, email: true, role: true },
       orderBy: { name: 'asc' },
     }),
     teacherStudentResolver(),
   ]);
-  return teachers.filter((t) => resolve(t.name).size > 0);
+  return staff.filter((t) => resolve(t.name).size > 0).map((t) => ({ ...t, isTeacher: t.role === 'מורה' }));
 }
 
 export function israelMonth(): string {
@@ -60,20 +63,23 @@ export function israelMonth(): string {
  * שליחה לכל המורות + הפעלת חובת ההערכה לחודש הנוכחי. פעם אחת בחודש (evaluationEmailMonth) —
  * כדי שלחיצה כפולה לא תשלח פעמיים.
  */
-export async function sendEvaluationEmail(excludeIds: string[] = []): Promise<{ sent: number; errors: string[]; month: string }> {
+export async function sendEvaluationEmail(selectedIds: string[]): Promise<{ sent: number; errors: string[]; month: string }> {
   if (!isEmailConfigured()) throw new Error('שליחת מייל לא מוגדרת בשרת');
   const month = israelMonth();
   const settings = await prisma.siteSettings.findUnique({ where: { id: 'singleton' }, select: { evaluationEmailMonth: true } });
   if (settings?.evaluationEmailMonth === month) throw new Error('המייל כבר נשלח החודש');
-  const exclude = new Set(excludeIds.map(String));
-  const recipients = (await evaluationEmailRecipients()).filter((t) => !exclude.has(t.id));
-  // מי שהוצאה מהמייל — פטורה מההערכה (לא חוסמים לה את הדוח בלי שקיבלה הסבר)
-  const evaluationExempt = JSON.stringify([...exclude]);
+  const selected = new Set(selectedIds.map(String));
+  const all = await evaluationEmailRecipients();
+  const recipients = all.filter((t) => selected.has(t.id));
+  if (!recipients.length) throw new Error('לא נבחרה אף מורה');
+  // רק מי שנבחרה חייבת בהערכה (מי שהורדה מהרשימה — לא חוסמים לה את הדוח בלי שקיבלה הסבר)
+  const evaluationRequired = JSON.stringify(recipients.map((t) => t.id));
+  const evaluationExempt = JSON.stringify(all.filter((t) => !selected.has(t.id)).map((t) => t.id));
   // מסמנים ומפעילים לפני השליחה — שלחיצה כפולה לא תשלח פעמיים
   await prisma.siteSettings.upsert({
     where: { id: 'singleton' },
-    create: { id: 'singleton', evaluationMonth: month, evaluationEmailMonth: month, evaluationExempt },
-    update: { evaluationMonth: month, evaluationEmailMonth: month, evaluationExempt },
+    create: { id: 'singleton', evaluationMonth: month, evaluationEmailMonth: month, evaluationExempt, evaluationRequired },
+    update: { evaluationMonth: month, evaluationEmailMonth: month, evaluationExempt, evaluationRequired },
   });
   const html = buildEvaluationEmailHtml();
   let sent = 0;

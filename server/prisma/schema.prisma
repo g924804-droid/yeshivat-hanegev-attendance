@@ -261,6 +261,8 @@ model SiteSettings {
   evaluationEmailMonth String?
   // מזהי מורות (JSON) שהוצאו מהמייל — לא מקבלות אותו וגם לא חייבות בהערכה
   evaluationExempt String?
+  // מזהי העובדות (JSON) שנבחרו במייל — רק הן חייבות בהערכה. ריק = כל מי שתפקידה "מורה" ויש לה תלמידות
+  evaluationRequired String?
 }
 
 // תשלום בפועל על חודש של תלמידה (רשומה בטבלת התשלומים ב-Airtable). כמה תשלומים לאותו חודש =

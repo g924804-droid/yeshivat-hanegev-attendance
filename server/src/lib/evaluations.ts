@@ -24,6 +24,25 @@ export async function getEvaluationExempt(): Promise<Set<string>> {
   }
 }
 
+/** מי שנבחרו ברשימת המייל (כולל עובדות שמלמדות) — רק הן חייבות. null = עוד לא נשלח מייל */
+export async function getEvaluationRequired(): Promise<Set<string> | null> {
+  const s = await prisma.siteSettings.findUnique({ where: { id: 'singleton' }, select: { evaluationRequired: true } });
+  if (!s?.evaluationRequired) return null;
+  try {
+    const ids = JSON.parse(s.evaluationRequired);
+    return Array.isArray(ids) ? new Set(ids.map(String)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** האם העובדת חייבת בהערכה: לפי רשימת המייל, ובלעדיה — כל מי שתפקידה "מורה" ולא הוצאה */
+export async function isEvaluationRequired(employee: { id: string; role: string }): Promise<boolean> {
+  const required = await getEvaluationRequired();
+  if (required) return required.has(employee.id);
+  return employee.role === 'מורה' && !(await getEvaluationExempt()).has(employee.id);
+}
+
 export type EvalStudent = { id: string; name: string; tracks: string[] };
 
 /** התלמידות של המורה, ממוינות לפי מסלול ושם */
@@ -45,9 +64,9 @@ export async function teacherStudents(teacherName: string): Promise<EvalStudent[
 /**
  * כמה תלמידות חסרה להן הערכה — לחסימת הגשת הדוח. 0 כשההערכה לא נדרשת בחודש הזה או שאין למורה תלמידות.
  */
-export async function missingEvaluationsCount(employee: { id: string; name: string }, month: string): Promise<number> {
+export async function missingEvaluationsCount(employee: { id: string; name: string; role: string }, month: string): Promise<number> {
   if ((await getEvaluationMonth()) !== month) return 0;
-  if ((await getEvaluationExempt()).has(employee.id)) return 0;
+  if (!(await isEvaluationRequired(employee))) return 0;
   const ids = await getTeacherStudentIds(employee.name);
   if (!ids.size) return 0;
   const done = await prisma.studentEvaluation.findMany({
