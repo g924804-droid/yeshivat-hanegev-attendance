@@ -3,6 +3,14 @@ import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { canSeeAllStudentTracks, teacherStudentResolver } from '../lib/teacherScope';
 import { getEvaluationMonth, teacherStudents } from '../lib/evaluations';
+import { sendEmail, isEmailConfigured } from '../lib/email';
+import {
+  buildEvaluationEmailHtml,
+  EVALUATION_EMAIL_SUBJECT,
+  evaluationEmailRecipients,
+  israelMonth,
+  sendEvaluationEmail,
+} from '../lib/evaluationEmail';
 
 /** הערכה כללית לתלמידות — ראו lib/evaluations.ts */
 const router = Router();
@@ -115,6 +123,51 @@ router.put('/month', async (req, res) => {
     res.json({ success: true, month });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בשמירה' });
+  }
+});
+
+/** ניהול: תצוגה מקדימה של המייל למורות + למי יישלח */
+router.get('/email', async (req, res) => {
+  try {
+    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    const [recipients, settings] = await Promise.all([
+      evaluationEmailRecipients(),
+      prisma.siteSettings.findUnique({ where: { id: 'singleton' }, select: { evaluationEmailMonth: true } }),
+    ]);
+    res.json({
+      subject: EVALUATION_EMAIL_SUBJECT,
+      html: buildEvaluationEmailHtml(),
+      recipients: recipients.map((r) => ({ name: r.name, hasEmail: !!r.email })),
+      sentThisMonth: settings?.evaluationEmailMonth === israelMonth(),
+      month: israelMonth(),
+      emailConfigured: isEmailConfigured(),
+      myEmail: req.user!.email || '',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה' });
+  }
+});
+
+/** ניהול: מייל בדיקה לכתובת אחת */
+router.post('/email/test', async (req, res) => {
+  try {
+    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    const to = String(req.body.to || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: 'כתובת מייל לא תקינה' });
+    await sendEmail(to, `[בדיקה] ${EVALUATION_EMAIL_SUBJECT}`, buildEvaluationEmailHtml());
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשליחה' });
+  }
+});
+
+/** ניהול: שליחה לכל המורות + הפעלת חובת ההערכה לחודש הנוכחי */
+router.post('/email/send', async (req, res) => {
+  try {
+    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    res.json(await sendEvaluationEmail());
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'שגיאה בשליחה' });
   }
 });
 

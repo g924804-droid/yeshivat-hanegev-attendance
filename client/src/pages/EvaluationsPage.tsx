@@ -223,6 +223,8 @@ function AdminView() {
         )}
       </div>
 
+      <EmailPanel onSent={load} />
+
       {!data ? (
         <p className="text-slate-400 text-center py-10 animate-pulse">טוען...</p>
       ) : !data.month ? null : (
@@ -298,6 +300,107 @@ function AdminView() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+type EmailInfo = {
+  subject: string;
+  html: string;
+  recipients: { name: string; hasEmail: boolean }[];
+  sentThisMonth: boolean;
+  month: string;
+  emailConfigured: boolean;
+  myEmail: string;
+};
+
+/** מייל למורות: תצוגה מקדימה, מייל בדיקה, ושליחה לכולן (שמפעילה גם את החובה לחודש הנוכחי) */
+function EmailPanel({ onSent }: { onSent: () => void }) {
+  const [info, setInfo] = useState<EmailInfo | null>(null);
+  const [open, setOpen] = useState(false);
+  const [testTo, setTestTo] = useState('');
+  const [busy, setBusy] = useState<'test' | 'send' | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  function load() {
+    api
+      .get<EmailInfo>('/evaluations/email')
+      .then((r) => {
+        setInfo(r);
+        setTestTo((t) => t || r.myEmail);
+      })
+      .catch((e) => setMsg({ ok: false, text: e.message }));
+  }
+  useEffect(load, []);
+
+  async function test() {
+    setBusy('test');
+    setMsg(null);
+    try {
+      await api.post('/evaluations/email/test', { to: testTo });
+      setMsg({ ok: true, text: `מייל בדיקה נשלח ל-${testTo}` });
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function send() {
+    if (!info) return;
+    const withEmail = info.recipients.filter((r) => r.hasEmail).length;
+    if (!confirm(`לשלוח את המייל ל-${withEmail} מורות ולהפעיל את חובת ההערכה ל${monthLabel(info.month)}?`)) return;
+    setBusy('send');
+    setMsg(null);
+    try {
+      const r = await api.post<{ sent: number; errors: string[] }>('/evaluations/email/send');
+      setMsg({ ok: r.sent > 0, text: `נשלחו ${r.sent} מיילים. החובה הופעלה.${r.errors.length ? ` לא נשלח ל: ${r.errors.join('; ')}` : ''}` });
+      load();
+      onSent();
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!info) return msg ? <div className="text-sm bg-red-50 text-red-700 rounded-xl px-4 py-2">{msg.text}</div> : null;
+  const noEmail = info.recipients.filter((r) => !r.hasEmail);
+  return (
+    <div className="card space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-bold text-navy">מייל למורות — משוב לקראת חנוכה</p>
+        {info.sentThisMonth && <span className="badge bg-green-100 text-green-800">נשלח החודש ✓</span>}
+      </div>
+      <p className="text-sm">
+        יישלח ל-<b>{info.recipients.length - noEmail.length}</b> מורות של סמינר מאיר שיש להן תלמידות.
+        {noEmail.length > 0 && <span className="text-amber-700"> בלי כתובת מייל (לא יקבלו): {noEmail.map((r) => r.name).join(', ')}</span>}
+      </p>
+      <button className="text-sm text-blue-700 hover:underline" onClick={() => setOpen(!open)}>
+        {open ? 'הסתרת' : 'הצגת'} המייל ורשימת המורות
+      </button>
+      {open && (
+        <div className="space-y-2">
+          <p className="text-sm">
+            <b>נושא:</b> {info.subject}
+          </p>
+          <div className="border rounded-xl p-4 bg-white max-h-[60vh] overflow-y-auto" dangerouslySetInnerHTML={{ __html: info.html }} />
+          <p className="text-xs text-slate-500">{info.recipients.map((r) => r.name).join(' · ')}</p>
+        </div>
+      )}
+      {!info.emailConfigured && <p className="text-sm text-red-700">שליחת מייל לא מוגדרת בשרת.</p>}
+      <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+        <input className="input w-64" dir="ltr" placeholder="כתובת למייל בדיקה" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
+        <button className="btn-outline text-sm py-1.5" disabled={!!busy || !testTo} onClick={test}>
+          {busy === 'test' ? 'שולח...' : 'שליחת מייל בדיקה'}
+        </button>
+      </div>
+      {!info.sentThisMonth && (
+        <button className="btn-primary w-full" disabled={!!busy || !info.emailConfigured} onClick={send}>
+          {busy === 'send' ? 'שולח...' : `שליחה לכל המורות והפעלת החובה ל${monthLabel(info.month)}`}
+        </button>
+      )}
+      {msg && <p className={`text-sm rounded-lg px-3 py-2 ${msg.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>{msg.text}</p>}
     </div>
   );
 }

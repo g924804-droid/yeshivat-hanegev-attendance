@@ -257,6 +257,8 @@ model SiteSettings {
   lastAttendanceDigest       String?
   // חודש (YYYY-MM) שבו כל מורה חייבת למלא הערכה כללית לכל תלמידה שלה לפני הגשת דוח הנוכחות. ריק = לא נדרש
   evaluationMonth String?
+  // YYYY-MM שבו נשלח מייל ההערכה למורות — מונע שליחה כפולה
+  evaluationEmailMonth String?
 }
 
 // תשלום בפועל על חודש של תלמידה (רשומה בטבלת התשלומים ב-Airtable). כמה תשלומים לאותו חודש =
