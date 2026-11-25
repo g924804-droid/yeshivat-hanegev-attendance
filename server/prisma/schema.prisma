@@ -72,7 +72,7 @@ model AttendanceRecord {
   clockOut2      String?
   totalHours     Float    @default(0)
   overtimeHours  Float    @default(0)
-  lessonsCount   Int      @default(0)
+  lessonsCount   Float    @default(0) // אפשר חצאים — למשל 2.5 שיעורים
   type           String   @default("רגיל") // רגיל | מחלה | חופשה שנתית | חופשה אישית | חג | חצי יום
   notes          String?
   sickNoteUrl    String?
@@ -107,7 +107,7 @@ model MonthlyReport {
   totalOvertime     Float    @default(0)
   sickDays          Int      @default(0)
   vacationDays      Int      @default(0)
-  totalLessons      Int      @default(0)
+  totalLessons      Float    @default(0)
   status            String   @default("טיוטה") // טיוטה | הוגש | אושר
   reminderSent      Boolean  @default(false)
   employeeSignature String?

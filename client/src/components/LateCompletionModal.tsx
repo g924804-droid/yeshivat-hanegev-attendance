@@ -226,7 +226,7 @@ export function LateCompletionModal({ initialMonth, trackLessons, onClose }: { i
                                   {t('clockOut2')}
                                   {trackLessons !== false && (
                                     <td className="px-1 py-1">
-                                      <input className="input py-1 px-1.5 w-14" inputMode="numeric" value={r.lessons} onChange={(e) => set(d.date, 'lessons', e.target.value.replace(/\D/g, ''))} />
+                                      <input className="input py-1 px-1.5 w-14" inputMode="decimal" value={r.lessons} onChange={(e) => set(d.date, 'lessons', e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'))} />
                                     </td>
                                   )}
                                   <td className="px-1 py-1">

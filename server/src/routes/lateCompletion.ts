@@ -35,7 +35,7 @@ async function allowedMonths(employeeId: string): Promise<string[]> {
 
 const summary = (c: { days: unknown }) => {
   const days = (Array.isArray(c.days) ? c.days : []) as LateDay[];
-  return { workDays: days.length, hours: Math.round(days.reduce((s, d) => s + d.hours, 0) * 100) / 100, lessons: days.reduce((s, d) => s + d.lessons, 0) };
+  return { workDays: days.length, hours: Math.round(days.reduce((s, d) => s + d.hours, 0) * 100) / 100, lessons: Math.round(days.reduce((s, d) => s + d.lessons, 0) * 100) / 100 };
 };
 
 /** הטופס: החודשים שאפשר להשלים, וימי החודש שנבחר (מה כבר רשום, שבתות וחגים) */
@@ -99,7 +99,7 @@ router.post('/', async (req, res) => {
         clockOut: time(raw.clockOut),
         clockIn2: time(raw.clockIn2),
         clockOut2: time(raw.clockOut2),
-        lessons: Math.max(0, Math.min(30, Math.floor(Number(raw.lessons) || 0))),
+        lessons: Math.round(Math.max(0, Math.min(30, Number(raw.lessons) || 0)) * 100) / 100, // גם חצאים (2.5)
         notes: String(raw.notes || '').trim().slice(0, 300),
         hours: 0,
       };

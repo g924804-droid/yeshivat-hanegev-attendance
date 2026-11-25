@@ -483,8 +483,10 @@ function LessonsCountPrompt({
         <input
           type="number"
           min={0}
+          step={0.5}
+          inputMode="decimal"
           className="input"
-          placeholder="מספר שיעורים"
+          placeholder="מספר שיעורים (אפשר גם 2.5)"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           autoFocus
@@ -522,7 +524,7 @@ function EditRow({
   const [error, setError] = useState<string | null>(null);
   const isWorkDay = form.type === 'רגיל' || form.type === 'חצי יום';
   const hasTimes = !!(form.clockIn || form.clockOut || form.clockIn2 || form.clockOut2);
-  const lessonsMissing = !!requireLessons && isWorkDay && hasTimes && !(Number(form.lessonsCount) >= 1);
+  const lessonsMissing = !!requireLessons && isWorkDay && hasTimes && !(Number(form.lessonsCount) > 0);
 
   async function save() {
     setError(null);
@@ -572,6 +574,8 @@ function EditRow({
           <input
             type="number"
             min={0}
+            step={0.5}
+            inputMode="decimal"
             className={`input py-1 text-xs w-16 ${lessonsMissing ? 'border-2 border-red-500 bg-red-50' : ''}`}
             value={form.lessonsCount || ''}
             placeholder={requireLessons ? 'חובה' : ''}

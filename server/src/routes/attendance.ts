@@ -40,7 +40,15 @@ function missingLessons(
   if (!employee.trackLessons || req.user.id !== employee.id) return false;
   const workDay = !day.type || day.type === 'רגיל' || day.type === 'חצי יום';
   const hasTimes = !!(day.clockIn || day.clockOut || day.clockIn2 || day.clockOut2);
-  return workDay && hasTimes && !(Number(day.lessonsCount) >= 1);
+  return workDay && hasTimes && !(Number(day.lessonsCount) > 0);
+}
+
+/** כמות שיעורים — גם חצאים (2.5), עד 2 ספרות אחרי הנקודה. undefined/null/לא מספר → undefined */
+function lessonsNum(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.round(Math.min(30, Math.max(0, n)) * 100) / 100;
 }
 
 function targetUserId(req: any): string {
@@ -120,7 +128,8 @@ router.post('/clockIn', async (req, res) => {
 
 router.post('/clockOut', async (req, res) => {
   try {
-    const { recordId, clockOut, lessonsCount } = req.body as { recordId: string; clockOut: string; lessonsCount?: number };
+    const { recordId, clockOut } = req.body as { recordId: string; clockOut: string };
+    const lessonsCount = lessonsNum(req.body.lessonsCount);
     if (!recordId || !clockOut) return res.status(400).json({ error: 'חסר מזהה רשומה או שעת יציאה' });
 
     const record = await prisma.attendanceRecord.findUnique({ where: { id: recordId } });
@@ -134,14 +143,14 @@ router.post('/clockOut', async (req, res) => {
 
     const employee = await prisma.user.findUniqueOrThrow({ where: { id: record.employeeId } });
     // מורה שמסומנת "מעקב שיעורים" — חובה למלא כמות שיעורים בכל יציאה, לא ניתן לדלג.
-    if (employee.trackLessons && (lessonsCount === undefined || lessonsCount === null || Number.isNaN(lessonsCount))) {
+    if (employee.trackLessons && lessonsCount === undefined) {
       return res.status(400).json({ error: 'יש להזין כמות שיעורים לפני היציאה' });
     }
 
     const shift: 1 | 2 = record.clockIn2 && !record.clockOut2 ? 2 : 1;
 
     const data: Record<string, any> = shift === 2 ? { clockOut2: clockOut } : { clockOut };
-    if (lessonsCount !== undefined && lessonsCount !== null && !Number.isNaN(lessonsCount)) {
+    if (lessonsCount !== undefined) {
       data.lessonsCount = lessonsCount;
     }
     const totalHours = calcTotalHours(
@@ -304,8 +313,8 @@ router.get('/getMyAttendance', async (req, res) => {
 
 router.put('/updateAttendance', async (req, res) => {
   try {
-    const { recordId, date, clockIn, clockOut, clockIn2, clockOut2, lessonsCount, type, notes, sickNoteUrl, hasSpecialRate } =
-      req.body;
+    const { recordId, date, clockIn, clockOut, clockIn2, clockOut2, type, notes, sickNoteUrl, hasSpecialRate } = req.body;
+    const lessonsCount = lessonsNum(req.body.lessonsCount);
 
     // אין recordId — זה יום בלי רשומה קיימת (למשל נלחץ העט על יום ריק בטבלה החודשית) — יוצרים חדשה במקום לעדכן.
     if (!recordId) {

@@ -90,7 +90,7 @@ export async function buildMonthDetail(
         totals.totalWorkDays += 1;
         totals.totalHours += record.totalHours;
         totals.totalOvertime += record.overtimeHours;
-        totals.totalLessons += record.lessonsCount;
+        totals.totalLessons = Math.round((totals.totalLessons + record.lessonsCount) * 100) / 100; // גם חצאי שיעורים
         if (record.hasSpecialRate) totals.specialRateHours += record.totalHours;
         const required = holiday?.type === 'half' || record.type === 'חצי יום' ? requiredHours * 0.5 : requiredHours;
         missing = Math.max(0, required - record.totalHours);

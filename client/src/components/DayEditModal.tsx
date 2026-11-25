@@ -139,6 +139,8 @@ export function DayEditModal({
           <input
             type="number"
             min={0}
+            step={0.5}
+            inputMode="decimal"
             className="input mt-1 w-28"
             value={form.lessonsCount}
             onChange={(e) => setForm({ ...form, lessonsCount: Number(e.target.value) })}

@@ -99,7 +99,7 @@ function lateCompletionsHtml(employee: User, list: LateCompletion[]): string {
     .map((c) => {
       const days = lateDays(c);
       const hours = days.reduce((s, d) => s + d.hours, 0);
-      const lessons = days.reduce((s, d) => s + d.lessons, 0);
+      const lessons = Math.round(days.reduce((s, d) => s + d.lessons, 0) * 100) / 100;
       const rows = days
         .map((d) => `<tr><td>${d.date}</td><td>${DOW_HE[new Date(`${d.date}T00:00:00`).getDay()]}</td><td>${d.clockIn}</td><td>${d.clockOut}</td><td>${d.clockIn2}</td><td>${d.clockOut2}</td><td>${d.hours.toFixed(2)}</td><td>${d.lessons || ''}</td><td>${escapeHtml(d.notes || '')}</td></tr>`)
         .join('');
