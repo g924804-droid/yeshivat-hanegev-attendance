@@ -58,16 +58,53 @@ function parseDate(v: unknown): string {
 
 const isTransfer = (method: string | null) => !!method && method.includes('העברה');
 
-/** סוגי ההוצאות — כל הוצאה משויכת לאחד או יותר, וכך אפשר לראות למשל את כל האוכל מכל התוכניות */
-export const EXPENSE_TYPES = ['פעילות חברתית', 'אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'נסיעות', 'פעילות משרדית', "שנה ג'", 'ספרים', 'גיוס תלמידים', 'אחר'];
+/**
+ * סוגי ההוצאות (הרשימה של המשתמשת, 26/11/2026) — כל הוצאה משויכת לאחד או יותר, וכך אפשר לראות סוג
+ * מכל התוכניות. "אוכל" בסוף — תגית לחיפוש בלבד (ראו SEARCH_ONLY_TYPE).
+ */
+export const EXPENSE_TYPES = ['פעילות חברתית', 'לימודי שוטף', 'מסלולים', 'אחזקה', 'משרדיות', 'מתנות', 'נסיעות', 'הרצאות', 'דפוס', 'גיוס תלמידים', "שנה ג'", 'אוכל'];
+/** סוגים ישנים שלא הועברו (לא נבחר להם יעד) — נשארים על ההוצאות הקיימות, אבל לא מוצעים להוצאה חדשה */
+const LEGACY_TYPES = ['ספרים', 'אחר'];
+const ALL_TYPES = [...EXPENSE_TYPES, ...LEGACY_TYPES];
 
-/** "דרייברים" שונה ל"נסיעות" (בקשת המשתמשת) — ההוצאות הקיימות מועברות בעליית השרת */
-const RENAMED_TYPES: Record<string, string> = { 'דרייברים': 'נסיעות' };
+/** שינויי שם/איחוד של סוגים (בקשת המשתמשת) — ההוצאות הקיימות מועברות בעליית השרת */
+const RENAMED_TYPES: Record<string, string> = {
+  'דרייברים': 'נסיעות',
+  'פעילות משרדית': 'משרדיות',
+  'הדפסות': 'דפוס',
+  'אוטובוסים': 'נסיעות',
+  'רבנים/יות': 'הרצאות',
+  'הפעלה': 'פעילות חברתית',
+};
+/** מעביר סוגים ששונו — גם בהוצאות עם כמה סוגים ("אוכל, פעילות משרדית"), וגם בסכומים לפי סוג */
 export async function migrateExpenseTypes() {
-  for (const [from, to] of Object.entries(RENAMED_TYPES)) {
-    const r = await prisma.expense.updateMany({ where: { expenseType: from }, data: { expenseType: to } });
-    if (r.count) console.log(`סוג הוצאה "${from}" ← "${to}": ${r.count} הוצאות`);
+  const olds = Object.keys(RENAMED_TYPES);
+  const rows = await prisma.expense.findMany({
+    where: { OR: olds.map((t) => ({ expenseType: { contains: t } })) },
+    select: { id: true, expenseType: true, typeAmounts: true },
+  });
+  let changed = 0;
+  for (const e of rows) {
+    const types = splitTypes(e.expenseType);
+    const mapped = types.map((t) => RENAMED_TYPES[t] || t);
+    const next = ALL_TYPES.filter((t) => mapped.includes(t)).concat(mapped.filter((t) => !ALL_TYPES.includes(t)));
+    const nextStr = [...new Set(next)].join(', ');
+    if (nextStr === e.expenseType) continue;
+    let amounts: Record<string, number> | null = null;
+    if (e.typeAmounts && typeof e.typeAmounts === 'object' && !Array.isArray(e.typeAmounts)) {
+      amounts = {};
+      for (const [k, v] of Object.entries(e.typeAmounts as Record<string, unknown>)) {
+        const key = RENAMED_TYPES[k] || k;
+        amounts[key] = (amounts[key] || 0) + (Number(v) || 0);
+      }
+    }
+    await prisma.expense.update({
+      where: { id: e.id },
+      data: { expenseType: nextStr, ...(amounts ? { typeAmounts: amounts } : {}) },
+    });
+    changed++;
   }
+  if (changed) console.log(`סוגי הוצאה הועברו לשמות החדשים: ${changed} הוצאות`);
 }
 
 /**
@@ -91,8 +128,8 @@ function expenseType(v: unknown, strict: boolean): string | null {
     if (strict) throw new Error('יש לבחור סוג הוצאה');
     return null;
   }
-  for (const t of list) if (!EXPENSE_TYPES.includes(t)) throw new Error(`סוג הוצאה לא מוכר: ${t}`);
-  return EXPENSE_TYPES.filter((t) => list.includes(t)).join(', ');
+  for (const t of list) if (!ALL_TYPES.includes(t)) throw new Error(`סוג הוצאה לא מוכר: ${t}`);
+  return ALL_TYPES.filter((t) => list.includes(t)).join(', ');
 }
 
 /** כשנבחרו כמה סוגים — סכום לכל סוג (חובה בשמירה מהטופס). סוג אחד = null (כל הסכום שלו). */
@@ -704,7 +741,7 @@ function typeSplit(e: Typed): Record<string, number> {
 const typeSum = (list: Typed[], t: string) => list.reduce((s, e) => s + (typeSplit(e)[t] || 0), 0);
 const typesIn = (expenses: Typed[]) => {
   const present = new Set(expenses.flatMap((e) => Object.keys(typeSplit(e))));
-  return [...EXPENSE_TYPES, NO_TYPE].filter((t) => present.has(t));
+  return [...ALL_TYPES, NO_TYPE].filter((t) => present.has(t));
 };
 
 /** קטגוריות השנה עם ההוצאות, מסוננות לפי categoryIds / expenseIds מה-query (ריק = הכל) */

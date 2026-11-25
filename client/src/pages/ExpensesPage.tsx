@@ -45,20 +45,28 @@ type Overview = { year: string; years: string[]; categories: Category[] };
 const PAYMENT_METHODS = ['העברה', 'משכורת', "צ'ק", 'מזומן', 'אשראי'];
 const isTransfer = (method: string | null) => !!method && method.includes('העברה');
 
-/** סוגי הוצאה — לכל הוצאה בוחרים אחד או יותר (נשמרים מופרדים בפסיק), ואז אפשר לחפש לפי סוג בכל התוכניות */
-const EXPENSE_TYPES = ['פעילות חברתית', 'אוכל', 'רבנים/יות', 'הפעלה', 'הדפסות', 'אוטובוסים', 'נסיעות', 'פעילות משרדית', "שנה ג'", 'ספרים', 'גיוס תלמידים', 'אחר'];
+/**
+ * סוגי הוצאה (הרשימה של המשתמשת, 26/11/2026) — לכל הוצאה בוחרים אחד או יותר (נשמרים מופרדים בפסיק),
+ * ואז אפשר לחפש לפי סוג בכל התוכניות. "אוכל" בסוף — תגית לחיפוש בלבד.
+ */
+const EXPENSE_TYPES = ['פעילות חברתית', 'לימודי שוטף', 'מסלולים', 'אחזקה', 'משרדיות', 'מתנות', 'נסיעות', 'הרצאות', 'דפוס', 'גיוס תלמידים', "שנה ג'", 'אוכל'];
+/** סוגים ישנים שלא הועברו — מוצגים על הוצאות קיימות, לא מוצעים להוצאה חדשה */
+const LEGACY_TYPES = ['ספרים', 'אחר'];
+const ALL_TYPES = [...EXPENSE_TYPES, ...LEGACY_TYPES];
 const TYPE_COLORS: Record<string, string> = {
   'פעילות חברתית': 'bg-rose-100 text-rose-800',
-  'אוכל': 'bg-orange-100 text-orange-800',
-  'רבנים/יות': 'bg-indigo-100 text-indigo-800',
-  'הפעלה': 'bg-pink-100 text-pink-800',
-  'הדפסות': 'bg-sky-100 text-sky-800',
-  'אוטובוסים': 'bg-emerald-100 text-emerald-800',
+  'לימודי שוטף': 'bg-indigo-100 text-indigo-800',
+  'מסלולים': 'bg-fuchsia-100 text-fuchsia-800',
+  'אחזקה': 'bg-stone-200 text-stone-800',
+  'משרדיות': 'bg-teal-100 text-teal-800',
+  'מתנות': 'bg-pink-100 text-pink-800',
   'נסיעות': 'bg-violet-100 text-violet-800',
-  'פעילות משרדית': 'bg-teal-100 text-teal-800',
-  "שנה ג'": 'bg-amber-100 text-amber-800',
-  'ספרים': 'bg-lime-100 text-lime-800',
+  'הרצאות': 'bg-blue-100 text-blue-800',
+  'דפוס': 'bg-sky-100 text-sky-800',
   'גיוס תלמידים': 'bg-cyan-100 text-cyan-800',
+  "שנה ג'": 'bg-amber-100 text-amber-800',
+  'אוכל': 'bg-orange-100 text-orange-800',
+  'ספרים': 'bg-lime-100 text-lime-800',
   'אחר': 'bg-slate-200 text-slate-800',
 };
 const splitTypes = (v: string | null | undefined) => (v ? v.split(',').map((t) => t.trim()).filter(Boolean) : []);
@@ -793,7 +801,7 @@ function ExpenseModal({
   function toggleType(t: string) {
     const next = order.includes(t) ? order.filter((x) => x !== t) : [...order, t];
     setOrder(next);
-    setForm({ ...form, expenseType: EXPENSE_TYPES.filter((x) => next.includes(x)).join(', ') });
+    setForm({ ...form, expenseType: ALL_TYPES.filter((x) => next.includes(x)).join(', ') });
   }
   const [files, setFiles] = useState<ExpenseFile[]>(expense?.files || []);
   const [invoice, setInvoice] = useState<FileList | null>(null);
@@ -885,7 +893,7 @@ function ExpenseModal({
         <div>
           <label className="label">סוג הוצאה * <span className="font-normal text-slate-500 text-xs">(אפשר לבחור יותר מאחד)</span></label>
           <div className="flex flex-wrap gap-2">
-            {EXPENSE_TYPES.map((t) => {
+            {[...EXPENSE_TYPES, ...LEGACY_TYPES.filter((t) => order.includes(t))].map((t) => {
               const on = order.includes(t);
               return (
                 <button
@@ -897,7 +905,7 @@ function ExpenseModal({
                   }`}
                 >
                   {on && '✓ '}
-                  {t}
+                  {t === 'אוכל' ? 'אוכל (לחיפוש)' : t}
                 </button>
               );
             })}
@@ -1196,7 +1204,7 @@ function TypeSearch({ year, onChanged }: { year: string; onChanged: () => void }
   const [type, setType] = useState(() => {
     const saved = readPref('expenses.type');
     // סוג ששמור מפעם קודם ובינתיים שונה (למשל "דרייברים") — חוזרים לברירת המחדל
-    return saved && (saved === 'none' || EXPENSE_TYPES.includes(saved)) ? saved : EXPENSE_TYPES[0];
+    return saved && (saved === 'none' || ALL_TYPES.includes(saved)) ? saved : EXPENSE_TYPES[0];
   });
   const [q, setQ] = useState('');
   const [data, setData] = useState<{ counts: Record<string, number>; expenses: SearchExpense[] } | null>(null);
@@ -1262,7 +1270,8 @@ function TypeSearch({ year, onChanged }: { year: string; onChanged: () => void }
     <div>
       <p className="text-sm text-slate-600 mb-2">כל ההוצאות של שנת {year} מכל התוכניות, לפי סוג הוצאה:</p>
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        {EXPENSE_TYPES.map((t) => chip(t, t))}
+        {EXPENSE_TYPES.map((t) => chip(t, t === 'אוכל' ? 'אוכל (חיפוש)' : t))}
+        {data && LEGACY_TYPES.filter((t) => data.counts[t]).map((t) => chip(t, `${t} (סוג ישן)`))}
         {chip('none', 'בלי סוג')}
         {chip('', 'הכל')}
       </div>
@@ -1339,7 +1348,7 @@ function TypeSearch({ year, onChanged }: { year: string; onChanged: () => void }
                       onChange={(ev) => changeType(e, ev.target.value)}
                     >
                       <option value="">— בחירה —</option>
-                      {EXPENSE_TYPES.map((t) => (
+                      {[...EXPENSE_TYPES, ...LEGACY_TYPES.filter((t) => t === e.expenseType)].map((t) => (
                         <option key={t} value={t}>
                           {t}
                         </option>
