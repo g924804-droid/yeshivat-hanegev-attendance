@@ -100,6 +100,16 @@ function TeacherView() {
   }
 
   const allIds = useMemo(() => [...new Set(groups.flatMap((g) => g.students.map((s) => s.id)))], [groups]);
+  // באילו שיעורים כל תלמידה — כדי להראות שזו הערכה אחת על כל המקצועות
+  const lessonsOf = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const g of groups) for (const s of g.students) m.set(s.id, [...(m.get(s.id) || []), g.key]);
+    return m;
+  }, [groups]);
+  const groupLabel = (key: string) => {
+    const g = groups.find((x) => x.key === key);
+    return g ? `${g.subject}${g.trackName ? ` — ${g.trackName}` : ''}` : '';
+  };
   const isDone = (id: string) => !!(saved[id] || '').trim();
   const done = allIds.filter(isDone).length;
   const search = q.trim();
@@ -113,7 +123,8 @@ function TeacherView() {
       <div className="card mb-4 space-y-2">
         <p>
           כתבי הערכה כללית במילים לכל תלמידה, לחודש <b>{monthLabel(month)}</b>. לוחצים על שיעור כדי לראות את התלמידות שלו. ההערכה
-          נשמרת אוטומטית כשיוצאים מהתיבה. תלמידה שלומדת אצלך בכמה שיעורים — כותבים עליה פעם אחת.
+          נשמרת אוטומטית כשיוצאים מהתיבה. <b>הערכה אחת לכל תלמידה על כל המקצועות שאת מלמדת אותה</b> — תלמידה שלומדת
+          אצלך בכמה שיעורים מופיעה בכל אחד מהם, אבל זו אותה הערכה.
         </p>
         <p className="text-sm text-amber-800 bg-amber-50 rounded-lg px-3 py-2">
           אי אפשר להגיש את דוח הנוכחות של {monthLabel(month)} לפני שממלאים הערכה לכל התלמידות.
@@ -163,7 +174,14 @@ function TeacherView() {
                     return (
                       <div key={s.id} className={`rounded-xl border p-3 ${isDone(s.id) ? 'border-r-4 border-r-green-500' : 'border-r-4 border-r-amber-400'}`}>
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="font-semibold text-navy">{s.name}</span>
+                          <span className="font-semibold text-navy">
+                            {s.name}
+                            {(lessonsOf.get(s.id) || []).length > 1 && (
+                              <span className="block text-xs font-normal text-slate-500">
+                                הערכה אחת גם ל: {(lessonsOf.get(s.id) || []).filter((k) => k !== g.key).map(groupLabel).join(', ')}
+                              </span>
+                            )}
+                          </span>
                           <span className="text-xs">
                             {st === 'saving' ? (
                               <span className="text-slate-400">שומר...</span>
@@ -181,7 +199,7 @@ function TeacherView() {
                         <textarea
                           className="input"
                           rows={2}
-                          placeholder="הערכה כללית על התלמידה..."
+                          placeholder="הערכה כללית על התלמידה, על כל המקצועות שאת מלמדת אותה..."
                           value={drafts[s.id] ?? ''}
                           onChange={(e) => setDrafts((p) => ({ ...p, [s.id]: e.target.value }))}
                           onBlur={() => save(s.id, s.name)}
