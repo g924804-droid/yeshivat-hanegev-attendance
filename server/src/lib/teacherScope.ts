@@ -116,3 +116,46 @@ export async function getTeacherStudentIds(teacherName: string): Promise<Set<str
   }
   return studentIds;
 }
+
+/**
+ * אותו חישוב כמו getTeacherStudentIds, אבל לכמה מורות בבת אחת: הטבלאות נטענות פעם אחת
+ * (למסך הניהול של ההערכה הכללית — אחרת זה 3 קריאות Airtable לכל מורה).
+ */
+export async function teacherStudentResolver(): Promise<(userName: string) => Set<string>> {
+  const [allTeachers, lessons, allStudents, links] = await Promise.all([
+    airtableFetch(TABLES.teachers),
+    airtableFetch(TABLES.lessons),
+    airtableFetch(TABLES.students),
+    prisma.teacherLink.findMany({ select: { teacherId: true, userId: true } }).catch(() => []),
+  ]);
+  const users = links.length
+    ? await prisma.user.findMany({ where: { id: { in: [...new Set(links.map((l) => l.userId))] } }, select: { id: true, name: true } })
+    : [];
+  return (userName: string) => {
+    const target = normalizeTeacherName(userName);
+    if (!target) return new Set();
+    const linkedUserIds = new Set(users.filter((u) => u.name.trim() === userName.trim()).map((u) => u.id));
+    const teacherIds = new Set([
+      ...allTeachers
+        .filter((t) => {
+          const raw = normalizeTeacherName(t.fields[FIELDS.teachers.name] || '');
+          if (raw.length < 3) return false;
+          return raw === target || raw.includes(target) || target.includes(raw) || wordsSubset(raw, target);
+        })
+        .map((t) => t.id),
+      ...links.filter((l) => linkedUserIds.has(l.userId)).map((l) => l.teacherId),
+    ]);
+    const trackIds = new Set<string>();
+    for (const lesson of lessons) {
+      if (((lesson.fields[FIELDS.lessons.teacher] || []) as string[]).some((id) => teacherIds.has(id))) {
+        ((lesson.fields[FIELDS.lessons.track] || []) as string[]).forEach((t) => trackIds.add(t));
+      }
+    }
+    const studentIds = new Set<string>();
+    if (!trackIds.size) return studentIds;
+    for (const s of allStudents) {
+      if (((s.fields[FIELDS.students.track] || []) as string[]).some((t) => trackIds.has(t))) studentIds.add(s.id);
+    }
+    return studentIds;
+  };
+}

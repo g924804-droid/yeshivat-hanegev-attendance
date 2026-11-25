@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileBarChart, GraduationCap } from 'lucide-react';
+import { FileBarChart, GraduationCap, PenLine } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/permissions';
@@ -17,6 +17,14 @@ export function GradeTracks() {
   // דוחות הציונים מכסים את כל התלמידות — רק למי שרואה את כל המסלולים (כמו בשרת)
   const canSeeReports = !!user && (user.role === 'מנהל' || user.isAttendanceManager || user.canManageAllStudentTracks);
 
+  const [evaluationMonth, setEvaluationMonth] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .get<{ month: string | null }>('/evaluations/status')
+      .then((r) => setEvaluationMonth(r.month))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     api
       .get<{ tracks: Track[] }>('/grades/getTracks')
@@ -27,6 +35,17 @@ export function GradeTracks() {
 
   return (
     <Layout title="ציונים — מסלולים">
+      {(evaluationMonth || canSeeReports) && (
+        <button
+          onClick={() => navigate('/evaluations')}
+          className="w-full mb-4 card flex items-center justify-between bg-gold/10 border-gold hover:shadow-md transition-all"
+        >
+          <span className="flex items-center gap-2 font-bold text-navy">
+            <PenLine size={20} /> הערכה כללית לתלמידות
+          </span>
+          <span className="text-sm text-slate-600">{evaluationMonth ? 'חובה למלא לפני הגשת דוח הנוכחות ←' : 'הפעלה ומעקב ←'}</span>
+        </button>
+      )}
       {canSeeReports && (
         <div className="flex justify-end mb-4">
           <button onClick={() => navigate('/grades/report')} className="btn-primary text-sm py-2">

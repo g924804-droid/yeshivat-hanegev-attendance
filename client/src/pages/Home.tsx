@@ -12,6 +12,7 @@ import {
   LogOut,
   FolderSearch,
   BarChart3,
+  PenLine,
 } from 'lucide-react';
 import { useAuth } from '../lib/permissions';
 import { api } from '../lib/api';
@@ -23,11 +24,17 @@ export function Home() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [pendingContracts, setPendingContracts] = useState(0);
+  // חודש שבו נדרשת הערכה כללית לתלמידות (ריק = לא נדרש)
+  const [evaluationMonth, setEvaluationMonth] = useState<string | null>(null);
 
   useEffect(() => {
     api
       .get<{ contracts: ContractRow[] }>('/contracts/getContracts')
       .then((r) => setPendingContracts(r.contracts.filter((c) => c.status === 'ממתין לחתימה').length))
+      .catch(() => {});
+    api
+      .get<{ month: string | null }>('/evaluations/status')
+      .then((r) => setEvaluationMonth(r.month))
       .catch(() => {});
   }, []);
 
@@ -35,7 +42,15 @@ export function Home() {
   const isAdmin = user.role === 'מנהל';
   const canSeeAdminButton = isAdmin || user.isAttendanceManager;
 
+  const canSeeAllTracks = isAdmin || user.isAttendanceManager || user.canManageAllStudentTracks;
   const modules = [
+    {
+      to: '/evaluations',
+      icon: PenLine,
+      label: 'הערכה כללית',
+      // למורות — כשההנהלה הפעילה את החובה לחודש; להנהלה — תמיד (שם מפעילים ורואים מי מילאה)
+      show: (user.role === 'מורה' && !!evaluationMonth) || canSeeAllTracks,
+    },
     {
       to: '/attendance',
       icon: Clock,

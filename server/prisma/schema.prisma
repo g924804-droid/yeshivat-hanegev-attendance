@@ -255,6 +255,8 @@ model SiteSettings {
   // מייל שבועי "תמונת מצב נוכחות תלמידות": מזהי העובדות שמקבלות (JSON), ותאריך השליחה האחרונה
   attendanceDigestRecipients String?
   lastAttendanceDigest       String?
+  // חודש (YYYY-MM) שבו כל מורה חייבת למלא הערכה כללית לכל תלמידה שלה לפני הגשת דוח הנוכחות. ריק = לא נדרש
+  evaluationMonth String?
 }
 
 // תשלום בפועל על חודש של תלמידה (רשומה בטבלת התשלומים ב-Airtable). כמה תשלומים לאותו חודש =
@@ -538,4 +540,21 @@ model TrackDayNote {
   updatedAt DateTime @updatedAt
 
   @@unique([trackId, date])
+}
+
+// הערכה כללית במילים שמורה כותבת על תלמידה (במסך הציונים). נדרשת בחודש שנקבע ב-SiteSettings.evaluationMonth —
+// בלי הערכה לכל התלמידות שלה, המורה לא יכולה להגיש את דוח הנוכחות של אותו חודש.
+model StudentEvaluation {
+  id          String   @id @default(cuid())
+  month       String // YYYY-MM
+  teacherId   String // User.id של המורה
+  teacherName String
+  studentId   String // מזהה התלמידה ב-Airtable
+  studentName String
+  text        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([month, teacherId, studentId])
+  @@index([month])
 }

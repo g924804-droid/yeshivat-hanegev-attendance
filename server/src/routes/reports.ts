@@ -7,6 +7,7 @@ import { requireAuth, requireAdmin, requireAdminOrAttendanceManager, requireSnap
 import { buildMonthDetail } from '../lib/monthlyReport';
 import { hasPendingContracts } from '../lib/contracts';
 import { getMissingStudentAttendanceDates } from '../lib/teacherAttendanceCheck';
+import { missingEvaluationsCount } from '../lib/evaluations';
 import { renderHtmlToPdf, htmlToPdfBuffer, mergePdfs, savePdf } from '../lib/pdf';
 import { reportPdfHtml, reportsPdfHtml, summaryPdfHtml, SpecialRateDetail } from '../lib/pdfTemplates';
 import { loadSickNotes, loadReportAttachments } from '../lib/sickNotes';
@@ -273,6 +274,21 @@ router.post('/submitMonthlyReport', async (req, res) => {
         }
       } catch {
         /* אם Airtable לא מוגדר/נכשל — לא חוסמים, כדי לא לנעול משתמשים כשהאינטגרציה לא זמינה */
+      }
+    }
+
+    // הערכה כללית לכל התלמידות — רק בחודש שההנהלה קבעה (lib/evaluations.ts)
+    if (employee.role === 'מורה') {
+      let missing = 0;
+      try {
+        missing = await missingEvaluationsCount(employee, report.month);
+      } catch {
+        /* תקלה ב-Airtable — לא חוסמים, כמו בבדיקת נוכחות התלמידות */
+      }
+      if (missing > 0) {
+        return res.status(400).json({
+          error: `יש למלא הערכה כללית לכל התלמידות לפני הגשת הדוח (חסרות ${missing}). נכנסים מדף הבית ← "הערכה כללית".`,
+        });
       }
     }
 

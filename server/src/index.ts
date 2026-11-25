@@ -27,6 +27,7 @@ import expensesRoutes, { migrateExpenseTypes } from './routes/expenses';
 import studentFilesRoutes from './routes/studentFiles';
 import accessRoutes from './routes/access';
 import lateCompletionRoutes from './routes/lateCompletion';
+import evaluationsRoutes from './routes/evaluations';
 import { warmAirtableCache } from './lib/airtable';
 
 const app = express();
@@ -57,6 +58,7 @@ app.use('/api/expenses', expensesRoutes);
 app.use('/api/studentFiles', studentFilesRoutes);
 app.use('/api/access', accessRoutes);
 app.use('/api/lateCompletion', lateCompletionRoutes);
+app.use('/api/evaluations', evaluationsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
