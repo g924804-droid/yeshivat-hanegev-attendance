@@ -2,12 +2,13 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import ExcelJS from 'exceljs';
 import { requireAuth } from '../middleware/auth';
-import { LessonGroup, teacherLessonGroupsResolver } from '../lib/teacherScope';
+import { LessonGroup } from '../lib/teacherScope';
 import {
   getEvaluationMonth,
   getEvaluationExempt,
   getEvaluationRequired,
   isEvaluationAdmin,
+  evaluationGroupsResolver,
   isEvaluationRequired,
   teacherLessonGroups,
   uniqueStudents,
@@ -19,6 +20,7 @@ import {
   EVALUATION_EMAIL_SUBJECT,
   evaluationEmailRecipients,
   israelMonth,
+  addToEvaluationEmail,
   resendEvaluationEmail,
   sendEvaluationEmail,
 } from '../lib/evaluationEmail';
@@ -127,7 +129,7 @@ async function adminData(month: string) {
       orderBy: { name: 'asc' },
     }),
     prisma.studentEvaluation.findMany({ where: { month }, orderBy: [{ teacherName: 'asc' }, { studentName: 'asc' }] }),
-    teacherLessonGroupsResolver(),
+    evaluationGroupsResolver(month),
   ]);
   const groupsOf = new Map<string, LessonGroup[]>();
   const rows = teachers
@@ -272,12 +274,13 @@ router.get('/email', async (req, res) => {
     if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
     const [recipients, settings] = await Promise.all([
       evaluationEmailRecipients(),
-      prisma.siteSettings.findUnique({ where: { id: 'singleton' }, select: { evaluationEmailMonth: true } }),
+      prisma.siteSettings.findUnique({ where: { id: 'singleton' }, select: { evaluationEmailMonth: true, evaluationRequired: true } }),
     ]);
+    const chosen = new Set<string>(JSON.parse(settings?.evaluationRequired || '[]'));
     res.json({
       subject: EVALUATION_EMAIL_SUBJECT,
       html: buildEvaluationEmailHtml('#'),
-      recipients: recipients.map((r) => ({ id: r.id, name: r.name, hasEmail: !!r.email, isTeacher: r.isTeacher })),
+      recipients: recipients.map((r) => ({ id: r.id, name: r.name, hasEmail: !!r.email, isTeacher: r.isTeacher, chosen: chosen.has(r.id) })),
       sentThisMonth: settings?.evaluationEmailMonth === israelMonth(),
       month: israelMonth(),
       emailConfigured: isEmailConfigured(),
@@ -308,6 +311,16 @@ router.post('/email/send', async (req, res) => {
     if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
     res.json(await sendEvaluationEmail(ids));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'שגיאה בשליחה' });
+  }
+});
+
+/** ניהול: הוספת מורה לרשימה אחרי השליחה + שליחת המייל אליה */
+router.post('/email/add', async (req, res) => {
+  try {
+    if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    res.json({ success: true, message: await addToEvaluationEmail(String(req.body.userId || '')) });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'שגיאה בשליחה' });
   }

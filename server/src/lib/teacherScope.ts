@@ -173,7 +173,7 @@ export type LessonGroup = {
  * להערכה הכללית: המורה רואה את השיעורים שלה ומעריכה כל תלמידה בכל שיעור (בקשת המשתמשת).
  * הטבלאות נטענות פעם אחת, והפונקציה שחוזרת מחשבת לכל מורה.
  */
-export async function teacherLessonGroupsResolver(): Promise<(userName: string) => LessonGroup[]> {
+export async function teacherLessonGroupsResolver(activeFrom?: string): Promise<(userName: string) => LessonGroup[]> {
   const { getFullSchedule } = await import('./scheduleData');
   const [allTeachers, schedule, allStudents, links] = await Promise.all([
     airtableFetch(TABLES.teachers),
@@ -208,7 +208,10 @@ export async function teacherLessonGroupsResolver(): Promise<(userName: string) 
     ]);
     const groups = new Map<string, LessonGroup>();
     for (const lesson of schedule.lessons) {
-      if (lesson.ended || !(lesson.teacher || []).some((id) => teacherIds.has(id))) continue;
+      // שיעור שנסגר נחשב אם הוא התקיים בתקופה (עד-תאריך מתחילת החודש של ההערכה ואילך) — למשל
+      // סטודיו אדריכלות של משואה לנדאו ושרה הילה נעים, שנסגר ב-21/11 ועדיין שייך להערכה של נובמבר
+      const stillRelevant = !lesson.ended || (!!activeFrom && !!lesson.toDate && lesson.toDate >= activeFrom);
+      if (!stillRelevant || !(lesson.teacher || []).some((id) => teacherIds.has(id))) continue;
       const subject = String(lesson.subject || lesson.className || 'שיעור').trim();
       for (const trackId of lesson.track || []) {
         const key = `${trackId}|${subject}`;

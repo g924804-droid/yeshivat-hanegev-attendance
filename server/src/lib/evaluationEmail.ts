@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import { prisma } from './prisma';
 import { sendEmail, isEmailConfigured } from './email';
-import { teacherLessonGroupsResolver } from './teacherScope';
+import { evaluationGroupsResolver } from './evaluations';
 
 /**
  * מייל "משוב לקראת חנוכה" למורות — הנוסח של המשתמשת (מיכל פיינהנדלר) מילה במילה, חוץ מתיקון
@@ -70,7 +70,7 @@ export async function evaluationEmailRecipients() {
       select: { id: true, name: true, email: true, role: true },
       orderBy: { name: 'asc' },
     }),
-    teacherLessonGroupsResolver(),
+    evaluationGroupsResolver(israelMonth()),
   ]);
   return staff.filter((t) => resolve(t.name).length > 0).map((t) => ({ ...t, isTeacher: t.role === 'מורה' }));
 }
@@ -121,6 +121,32 @@ export async function sendEvaluationEmail(selectedIds: string[]): Promise<{ sent
   }
   console.log(`מייל הערכה כללית ${month}: נשלחו ${sent}${errors.length ? `, שגיאות: ${errors.join('; ')}` : ''}`);
   return { sent, errors, month };
+}
+
+/**
+ * הוספת מורה לרשימה אחרי שהמייל כבר נשלח (למשל מורה שלא הופיעה ברשימה) — נעשית חייבת בהערכה
+ * ומקבלת את המייל.
+ */
+export async function addToEvaluationEmail(userId: string): Promise<string> {
+  const month = israelMonth();
+  const settings = await prisma.siteSettings.findUnique({
+    where: { id: 'singleton' },
+    select: { evaluationRequired: true, evaluationExempt: true },
+  });
+  const required: string[] = JSON.parse(settings?.evaluationRequired || '[]');
+  const exempt: string[] = JSON.parse(settings?.evaluationExempt || '[]');
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+  if (!user) throw new Error('העובדת לא נמצאה');
+  await prisma.siteSettings.update({
+    where: { id: 'singleton' },
+    data: {
+      evaluationRequired: JSON.stringify([...new Set([...required, userId])]),
+      evaluationExempt: JSON.stringify(exempt.filter((id) => id !== userId)),
+    },
+  });
+  if (!user.email) return `${user.name} נוספה לרשימה (אין לה כתובת מייל — תראה את ההודעה בכניסה לאתר)`;
+  await sendEmail(user.email, EVALUATION_EMAIL_SUBJECT, buildEvaluationEmailHtml(ackUrl(userId, month)));
+  return `${user.name} נוספה לרשימה והמייל נשלח אליה`;
 }
 
 /** שליחה חוזרת למורה אחת מתוך מי שנבחרו (למשל כשהמייל נכשל) */

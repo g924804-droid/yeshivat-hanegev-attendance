@@ -61,7 +61,13 @@ export function uniqueStudents(groups: LessonGroup[]): Map<string, string> {
 
 /** השיעורים של מורה אחת והתלמידות בהם */
 export async function teacherLessonGroups(teacherName: string): Promise<LessonGroup[]> {
-  return (await teacherLessonGroupsResolver())(teacherName);
+  return (await evaluationGroupsResolver())(teacherName);
+}
+
+/** השיעורים לפי חודש ההערכה — כולל שיעורים שנסגרו במהלך החודש */
+export async function evaluationGroupsResolver(month?: string | null) {
+  const m = month || (await getEvaluationMonth());
+  return teacherLessonGroupsResolver(m ? `${m}-01` : undefined);
 }
 
 /**

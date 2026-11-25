@@ -415,7 +415,7 @@ function AdminView() {
 type EmailInfo = {
   subject: string;
   html: string;
-  recipients: { id: string; name: string; hasEmail: boolean; isTeacher: boolean }[];
+  recipients: { id: string; name: string; hasEmail: boolean; isTeacher: boolean; chosen: boolean }[];
   sentThisMonth: boolean;
   month: string;
   emailConfigured: boolean;
@@ -460,6 +460,23 @@ function EmailPanel({ onSent }: { onSent: () => void }) {
       setMsg({ ok: false, text: e.message });
     } finally {
       setBusy(null);
+    }
+  }
+
+  const [adding, setAdding] = useState<string | null>(null);
+  async function addTeacher(id: string, name: string) {
+    if (!confirm(`להוסיף את ${name} לרשימה ולשלוח לה את המייל? היא תחויב במילוי ההערכה.`)) return;
+    setAdding(id);
+    setMsg(null);
+    try {
+      const r = await api.post<{ message: string }>('/evaluations/email/add', { userId: id });
+      setMsg({ ok: true, text: r.message });
+      load();
+      onSent();
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message });
+    } finally {
+      setAdding(null);
     }
   }
 
@@ -527,6 +544,22 @@ function EmailPanel({ onSent }: { onSent: () => void }) {
               </>
             )}
           </div>
+        </div>
+      )}
+      {info.sentThisMonth && info.recipients.some((r) => !r.chosen) && (
+        <div className="border rounded-xl p-3 space-y-1.5">
+          <p className="text-sm font-semibold text-navy">מורות שמלמדות ולא נכללו ברשימה — אפשר להוסיף ולשלוח להן עכשיו:</p>
+          {info.recipients
+            .filter((r) => !r.chosen)
+            .map((r) => (
+              <div key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <span>{r.name}</span>
+                {!r.hasEmail && <span className="text-xs text-amber-700">(אין מייל — תראה את ההודעה באתר)</span>}
+                <button className="text-blue-700 hover:underline text-xs" disabled={adding === r.id} onClick={() => addTeacher(r.id, r.name)}>
+                  {adding === r.id ? 'שולח...' : 'הוספה ושליחת המייל'}
+                </button>
+              </div>
+            ))}
         </div>
       )}
       {!info.emailConfigured && <p className="text-sm text-red-700">שליחת מייל לא מוגדרת בשרת.</p>}
