@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, Search } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
-import { useAuth } from '../lib/permissions';
 
 /**
  * הערכה כללית לתלמידות. מורה: כותבת במילים הערכה לכל תלמידה שלה (נשמר אוטומטית כשיוצאים מהתיבה).
@@ -13,7 +12,7 @@ type Student = { id: string; name: string; tracks: string[]; text: string; updat
 type AdminData = {
   month: string | null;
   current: string | null;
-  teachers: { id: string; name: string; department: string | null; total: number; done: number }[];
+  teachers: { id: string; name: string; department: string | null; total: number; done: number; ackAt: string | null }[];
   evaluations: { id: string; teacherName: string; studentName: string; text: string; updatedAt: string }[];
 };
 
@@ -22,10 +21,19 @@ const monthLabel = (m: string) => `${MONTHS_HE[Number(m.slice(5, 7)) - 1]} ${m.s
 const thisMonth = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }).slice(0, 7);
 
 export function EvaluationsPage() {
-  const { user } = useAuth();
-  const isManager = !!user && (user.role === 'מנהל' || user.isAttendanceManager || user.canManageAllStudentTracks);
-  const isTeacher = user?.role === 'מורה';
-  const [tab, setTab] = useState<'mine' | 'admin'>(isTeacher ? 'mine' : 'admin');
+  // ניהול ההערכה — רק למי שהשרת מאשר (מיכל פיינהנדלר); כל השאר רואות רק את ההערכות שלהן
+  const [status, setStatus] = useState<{ required: boolean; isAdmin: boolean } | null>(null);
+  useEffect(() => {
+    api
+      .get<{ required: boolean; isAdmin: boolean }>('/evaluations/status')
+      .then(setStatus)
+      .catch(() => setStatus({ required: false, isAdmin: false }));
+  }, []);
+  const isManager = !!status?.isAdmin;
+  const isTeacher = !!status?.required;
+  const [tab, setTab] = useState<'mine' | 'admin' | null>(null);
+  const shownTab = tab || (isManager && !isTeacher ? 'admin' : 'mine');
+  if (!status) return <Layout title="הערכה כללית לתלמידות"><p className="text-slate-400 text-center py-10 animate-pulse">טוען...</p></Layout>;
 
   return (
     <Layout title="הערכה כללית לתלמידות">
@@ -35,14 +43,14 @@ export function EvaluationsPage() {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium border ${tab === t ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-slate-300'}`}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium border ${shownTab === t ? 'bg-navy text-white border-navy' : 'bg-white text-navy border-slate-300'}`}
             >
               {t === 'mine' ? 'ההערכות שלי' : 'ניהול — מי מילאה'}
             </button>
           ))}
         </div>
       )}
-      {tab === 'admin' && isManager ? <AdminView /> : <TeacherView />}
+      {shownTab === 'admin' && isManager ? <AdminView /> : <TeacherView />}
     </Layout>
   );
 }
@@ -231,12 +239,12 @@ function AdminView() {
         <>
           <div className="card p-0 overflow-x-auto">
             <div className="px-4 py-3 font-bold text-navy">
-              מי מילאה — {complete} מתוך {sorted.length} מורות סיימו
+              מי מילאה — {complete} מתוך {sorted.length} מורות סיימו · {sorted.filter((t) => t.ackAt).length} אישרו שקראו את ההודעה
             </div>
             <table className="w-full text-sm">
               <thead className="bg-navy text-white">
                 <tr>
-                  {['מורה', 'מחלקה', 'מולאו', 'סטטוס', ''].map((h) => (
+                  {['מורה', 'מחלקה', 'אישרה קריאה', 'מולאו', 'סטטוס', ''].map((h) => (
                     <th key={h} className="px-3 py-2 text-right font-bold">
                       {h}
                     </th>
@@ -248,6 +256,15 @@ function AdminView() {
                   <tr key={t.id} className="border-t">
                     <td className="px-3 py-2 font-medium text-navy">{t.name}</td>
                     <td className="px-3 py-2 text-slate-500">{t.department}</td>
+                    <td className="px-3 py-2">
+                      {t.ackAt ? (
+                        <span className="text-green-700">
+                          ✓ {new Date(t.ackAt).toLocaleString('he-IL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      ) : (
+                        <span className="text-red-600">עוד לא</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       {t.done} / {t.total}
                     </td>

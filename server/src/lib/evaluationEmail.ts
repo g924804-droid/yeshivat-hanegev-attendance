@@ -23,7 +23,7 @@ export function buildEvaluationEmailHtml(): string {
       <div style="background: #f1f5f9; border-radius: 8px; padding: 12px 16px; margin: 0 0 16px;">
         <strong>איך ממלאים:</strong>
         <ol style="margin: 6px 0 0; padding-right: 20px;">
-          <li>נכנסים למערכת (בכפתור למטה) עם הסיסמה הרגילה.</li>
+          <li>נכנסים למערכת (בכפתור למטה) עם הסיסמה הרגילה — תיפתח ההודעה הזו, ויש ללחוץ <strong>"קראתי ואני מאשרת"</strong>.</li>
           <li>בדף הבית לוחצים על <strong>"הערכה כללית"</strong> (או בתוך <strong>"ציונים"</strong> — הפס הצהוב למעלה).</li>
           <li>מופיעה רשימת התלמידות שלך לפי מסלול — כותבים ליד כל תלמידה את המשוב. נשמר אוטומטית.</li>
         </ol>

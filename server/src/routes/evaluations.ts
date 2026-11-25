@@ -1,8 +1,15 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
-import { canSeeAllStudentTracks, teacherStudentResolver } from '../lib/teacherScope';
-import { getEvaluationMonth, getEvaluationExempt, getEvaluationRequired, isEvaluationRequired, teacherStudents } from '../lib/evaluations';
+import { teacherStudentResolver } from '../lib/teacherScope';
+import {
+  getEvaluationMonth,
+  getEvaluationExempt,
+  getEvaluationRequired,
+  isEvaluationAdmin,
+  isEvaluationRequired,
+  teacherStudents,
+} from '../lib/evaluations';
 import { sendEmail, isEmailConfigured } from '../lib/email';
 import {
   buildEvaluationEmailHtml,
@@ -24,9 +31,33 @@ router.get('/status', async (req, res) => {
   try {
     const month = await getEvaluationMonth();
     // required — האם המשתמשת המחוברת חייבת (גם עובדת שמלמדת ונבחרה במייל, לא רק תפקיד "מורה")
-    res.json({ month, required: !!month && (await isEvaluationRequired(req.user!)) });
+    const required = !!month && (await isEvaluationRequired(req.user!));
+    // needsAck — עוד לא אישרה שקראה את ההודעה (נפתח לה חלון בדף הבית)
+    const acked = required ? await prisma.evaluationAck.findUnique({ where: { month_userId: { month: month!, userId: req.user!.id } } }) : null;
+    res.json({ month, required, needsAck: required && !acked, isAdmin: isEvaluationAdmin(req.user!) });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה' });
+  }
+});
+
+/** ההודעה (נוסח המייל) — לחלון אישור הקריאה */
+router.get('/notice', async (_req, res) => {
+  res.json({ subject: EVALUATION_EMAIL_SUBJECT, html: buildEvaluationEmailHtml() });
+});
+
+/** "קראתי ואני מאשרת" */
+router.post('/ack', async (req, res) => {
+  try {
+    const month = await getEvaluationMonth();
+    if (!month) return res.status(400).json({ error: 'כרגע לא נדרשת הערכה כללית' });
+    await prisma.evaluationAck.upsert({
+      where: { month_userId: { month, userId: req.user!.id } },
+      create: { month, userId: req.user!.id, userName: req.user!.name },
+      update: {},
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירה' });
   }
 });
 
@@ -78,11 +109,13 @@ router.put('/mine', async (req, res) => {
 /** ניהול: מי מילאה וכמה, וכל ההערכות של החודש */
 router.get('/admin', async (req, res) => {
   try {
-    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
     const current = await getEvaluationMonth();
     const month = MONTH_RE.test(String(req.query.month || '')) ? String(req.query.month) : current;
     if (!month) return res.json({ month: null, current, teachers: [], evaluations: [] });
     const [exempt, required] = await Promise.all([getEvaluationExempt(), getEvaluationRequired()]);
+    const acks = await prisma.evaluationAck.findMany({ where: { month }, select: { userId: true, ackAt: true } });
+    const ackAt = new Map(acks.map((a) => [a.userId, a.ackAt]));
     const [teachers, evaluations, resolve] = await Promise.all([
       prisma.user.findMany({ where: { isActive: true, ...(required ? { id: { in: [...required] } } : { role: 'מורה' }) }, select: { id: true, name: true, department: true }, orderBy: { name: 'asc' } }),
       prisma.studentEvaluation.findMany({ where: { month }, orderBy: [{ studentName: 'asc' }] }),
@@ -92,7 +125,7 @@ router.get('/admin', async (req, res) => {
       .map((t) => {
         const ids = resolve(t.name);
         const done = evaluations.filter((e) => e.teacherId === t.id && ids.has(e.studentId)).length;
-        return { id: t.id, name: t.name, department: t.department, total: ids.size, done };
+        return { id: t.id, name: t.name, department: t.department, total: ids.size, done, ackAt: ackAt.get(t.id) || null };
       })
       .filter((t) => t.total > 0 && !exempt.has(t.id));
     res.json({
@@ -115,7 +148,7 @@ router.get('/admin', async (req, res) => {
 /** ניהול: קביעת החודש שבו ההערכה חובה (ריק = ביטול) */
 router.put('/month', async (req, res) => {
   try {
-    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
     const month = req.body.month ? String(req.body.month) : null;
     if (month && !MONTH_RE.test(month)) return res.status(400).json({ error: 'חודש לא תקין' });
     await prisma.siteSettings.upsert({
@@ -132,7 +165,7 @@ router.put('/month', async (req, res) => {
 /** ניהול: תצוגה מקדימה של המייל למורות + למי יישלח */
 router.get('/email', async (req, res) => {
   try {
-    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
     const [recipients, settings] = await Promise.all([
       evaluationEmailRecipients(),
       prisma.siteSettings.findUnique({ where: { id: 'singleton' }, select: { evaluationEmailMonth: true } }),
@@ -154,7 +187,7 @@ router.get('/email', async (req, res) => {
 /** ניהול: מייל בדיקה לכתובת אחת */
 router.post('/email/test', async (req, res) => {
   try {
-    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
     const to = String(req.body.to || '').trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ error: 'כתובת מייל לא תקינה' });
     await sendEmail(to, `[בדיקה] ${EVALUATION_EMAIL_SUBJECT}`, buildEvaluationEmailHtml());
@@ -167,7 +200,7 @@ router.post('/email/test', async (req, res) => {
 /** ניהול: שליחה לכל המורות + הפעלת חובת ההערכה לחודש הנוכחי */
 router.post('/email/send', async (req, res) => {
   try {
-    if (!canSeeAllStudentTracks(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
+    if (!isEvaluationAdmin(req.user!)) return res.status(403).json({ error: 'אין הרשאה' });
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
     res.json(await sendEvaluationEmail(ids));
   } catch (err: any) {

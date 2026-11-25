@@ -564,3 +564,14 @@ model StudentEvaluation {
   @@unique([month, teacherId, studentId])
   @@index([month])
 }
+
+// אישור קריאה של הודעת ההערכה הכללית — המורה לוחצת "קראתי ואני מאשרת" בחלון שנפתח לה במערכת
+model EvaluationAck {
+  id       String   @id @default(cuid())
+  month    String // YYYY-MM
+  userId   String
+  userName String
+  ackAt    DateTime @default(now())
+
+  @@unique([month, userId])
+}

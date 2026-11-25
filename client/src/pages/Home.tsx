@@ -26,6 +26,10 @@ export function Home() {
   const [pendingContracts, setPendingContracts] = useState(0);
   // חודש שבו נדרשת הערכה כללית לתלמידות (ריק = לא נדרש)
   const [evaluationRequired, setEvaluationRequired] = useState(false);
+  const [evaluationAdmin, setEvaluationAdmin] = useState(false);
+  // הודעת ההערכה שעוד לא אושרה — נפתחת בחלון עד שלוחצים "קראתי ואני מאשרת"
+  const [notice, setNotice] = useState<{ subject: string; html: string } | null>(null);
+  const [acking, setAcking] = useState(false);
 
   useEffect(() => {
     api
@@ -33,8 +37,12 @@ export function Home() {
       .then((r) => setPendingContracts(r.contracts.filter((c) => c.status === 'ממתין לחתימה').length))
       .catch(() => {});
     api
-      .get<{ month: string | null; required: boolean }>('/evaluations/status')
-      .then((r) => setEvaluationRequired(r.required))
+      .get<{ month: string | null; required: boolean; needsAck: boolean; isAdmin: boolean }>('/evaluations/status')
+      .then(async (r) => {
+        setEvaluationRequired(r.required);
+        setEvaluationAdmin(r.isAdmin);
+        if (r.needsAck) setNotice(await api.get<{ subject: string; html: string }>('/evaluations/notice'));
+      })
       .catch(() => {});
   }, []);
 
@@ -42,14 +50,13 @@ export function Home() {
   const isAdmin = user.role === 'מנהל';
   const canSeeAdminButton = isAdmin || user.isAttendanceManager;
 
-  const canSeeAllTracks = isAdmin || user.isAttendanceManager || user.canManageAllStudentTracks;
   const modules = [
     {
       to: '/evaluations',
       icon: PenLine,
       label: 'הערכה כללית',
-      // למורות — כשההנהלה הפעילה את החובה לחודש; להנהלה — תמיד (שם מפעילים ורואים מי מילאה)
-      show: evaluationRequired || canSeeAllTracks,
+      // למי שחייבת במילוי, ולמנהלת ההערכה (שם מפעילים ורואים מי מילאה)
+      show: evaluationRequired || evaluationAdmin,
     },
     {
       to: '/attendance',
@@ -108,8 +115,32 @@ export function Home() {
     },
   ];
 
+  async function ackNotice() {
+    setAcking(true);
+    try {
+      await api.post('/evaluations/ack');
+      setNotice(null);
+    } catch {
+      setAcking(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
+      {notice && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-3 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+            <div className="px-5 py-3 border-b font-bold text-navy">{notice.subject}</div>
+            <div className="px-5 py-4 overflow-y-auto" dangerouslySetInnerHTML={{ __html: notice.html }} />
+            <div className="px-5 py-3 border-t flex flex-wrap items-center gap-3">
+              <button className="btn-primary" disabled={acking} onClick={ackNotice}>
+                {acking ? 'שומר...' : 'קראתי ואני מאשרת'}
+              </button>
+              <span className="text-sm text-slate-500">ההודעה תופיע בכל כניסה עד שמאשרים.</span>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="bg-navy text-white">
         <div className="max-w-5xl mx-auto px-4 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">

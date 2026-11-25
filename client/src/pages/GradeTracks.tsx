@@ -17,11 +17,11 @@ export function GradeTracks() {
   // דוחות הציונים מכסים את כל התלמידות — רק למי שרואה את כל המסלולים (כמו בשרת)
   const canSeeReports = !!user && (user.role === 'מנהל' || user.isAttendanceManager || user.canManageAllStudentTracks);
 
-  const [evaluationMonth, setEvaluationMonth] = useState<string | null>(null);
+  const [evaluation, setEvaluation] = useState<{ required: boolean; isAdmin: boolean } | null>(null);
   useEffect(() => {
     api
-      .get<{ month: string | null }>('/evaluations/status')
-      .then((r) => setEvaluationMonth(r.month))
+      .get<{ required: boolean; isAdmin: boolean }>('/evaluations/status')
+      .then(setEvaluation)
       .catch(() => {});
   }, []);
 
@@ -35,7 +35,7 @@ export function GradeTracks() {
 
   return (
     <Layout title="ציונים — מסלולים">
-      {(evaluationMonth || canSeeReports) && (
+      {(evaluation?.required || evaluation?.isAdmin) && (
         <button
           onClick={() => navigate('/evaluations')}
           className="w-full mb-4 card flex items-center justify-between bg-gold/10 border-gold hover:shadow-md transition-all"
@@ -43,7 +43,7 @@ export function GradeTracks() {
           <span className="flex items-center gap-2 font-bold text-navy">
             <PenLine size={20} /> הערכה כללית לתלמידות
           </span>
-          <span className="text-sm text-slate-600">{evaluationMonth ? 'חובה למלא לפני הגשת דוח הנוכחות ←' : 'הפעלה ומעקב ←'}</span>
+          <span className="text-sm text-slate-600">{evaluation?.required ? 'חובה למלא לפני הגשת דוח הנוכחות ←' : 'הפעלה ומעקב ←'}</span>
         </button>
       )}
       {canSeeReports && (
