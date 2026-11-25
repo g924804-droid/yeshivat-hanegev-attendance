@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Search } from 'lucide-react';
+import { Check, FileSpreadsheet, Search } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { api } from '../lib/api';
 
@@ -8,12 +8,12 @@ import { api } from '../lib/api';
  * בחודש שההנהלה קבעה אי אפשר להגיש את דוח הנוכחות בלי הערכה לכל התלמידות.
  * הנהלה: קובעת את החודש, ורואה מי מילאה וכמה + את כל ההערכות.
  */
-type Student = { id: string; name: string; tracks: string[]; text: string; updatedAt: string | null };
+type Group = { key: string; subject: string; trackName: string; students: { id: string; name: string }[] };
 type AdminData = {
   month: string | null;
   current: string | null;
   teachers: { id: string; name: string; department: string | null; total: number; done: number; ackAt: string | null }[];
-  evaluations: { id: string; teacherName: string; studentName: string; text: string; updatedAt: string }[];
+  evaluations: { id: string; teacherName: string; studentName: string; lessons: string; tracks: string; text: string; updatedAt: string }[];
 };
 
 const MONTHS_HE = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
@@ -55,21 +55,29 @@ export function EvaluationsPage() {
   );
 }
 
+/**
+ * המורה רואה את השיעורים שהיא מלמדת (מקצוע — מסלול) ואת התלמידות בכל שיעור. הערכה אחת לכל תלמידה:
+ * תלמידה שמופיעה בכמה שיעורים — אותה תיבה בכל מקום, מה שנכתב באחד מופיע בכולם.
+ */
 function TeacherView() {
   const [month, setMonth] = useState<string | null | undefined>(undefined);
-  const [students, setStudents] = useState<Student[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [saved, setSaved] = useState<Record<string, string>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   useEffect(() => {
     api
-      .get<{ month: string | null; students: Student[] }>('/evaluations/mine')
+      .get<{ month: string | null; groups: Group[]; evaluations: Record<string, string> }>('/evaluations/mine')
       .then((r) => {
         setMonth(r.month);
-        setStudents(r.students);
-        setDrafts(Object.fromEntries(r.students.map((s) => [s.id, s.text])));
+        setGroups(r.groups);
+        setSaved(r.evaluations);
+        setDrafts(r.evaluations);
+        if (r.groups.length === 1) setOpenGroup(r.groups[0].key);
       })
       .catch((e) => {
         setError(e.message);
@@ -77,48 +85,45 @@ function TeacherView() {
       });
   }, []);
 
-  async function save(s: Student) {
-    const text = (drafts[s.id] || '').trim();
-    if (text === s.text.trim()) return;
-    setSaving((p) => ({ ...p, [s.id]: 'saving' }));
+  async function save(studentId: string, name: string) {
+    const text = (drafts[studentId] || '').trim();
+    if (text === (saved[studentId] || '').trim()) return;
+    setSaving((p) => ({ ...p, [studentId]: 'saving' }));
     try {
-      await api.put('/evaluations/mine', { studentId: s.id, text });
-      setStudents((list) => list.map((x) => (x.id === s.id ? { ...x, text } : x)));
-      setSaving((p) => ({ ...p, [s.id]: 'saved' }));
+      await api.put('/evaluations/mine', { studentId, text });
+      setSaved((p) => ({ ...p, [studentId]: text }));
+      setSaving((p) => ({ ...p, [studentId]: 'saved' }));
     } catch (e: any) {
-      setSaving((p) => ({ ...p, [s.id]: 'error' }));
-      setError(`${s.name}: ${e.message}`);
+      setSaving((p) => ({ ...p, [studentId]: 'error' }));
+      setError(`${name}: ${e.message}`);
     }
   }
 
-  const done = students.filter((s) => s.text.trim()).length;
-  const shown = useMemo(() => {
-    const t = q.trim();
-    return t ? students.filter((s) => s.name.includes(t) || s.tracks.some((x) => x.includes(t))) : students;
-  }, [students, q]);
+  const allIds = useMemo(() => [...new Set(groups.flatMap((g) => g.students.map((s) => s.id)))], [groups]);
+  const isDone = (id: string) => !!(saved[id] || '').trim();
+  const done = allIds.filter(isDone).length;
+  const search = q.trim();
 
-  if (month === undefined) return <p className="text-slate-400 text-center py-10 animate-pulse">טוען תלמידות...</p>;
-  if (!month)
-    return <p className="text-slate-500 text-center py-10">{error || 'כרגע לא נדרשת הערכה כללית.'}</p>;
-  if (!students.length)
-    return <p className="text-slate-500 text-center py-10">לא נמצאו תלמידות במסלולים שלך, אין צורך למלא הערכה.</p>;
+  if (month === undefined) return <p className="text-slate-400 text-center py-10 animate-pulse">טוען שיעורים...</p>;
+  if (!month) return <p className="text-slate-500 text-center py-10">{error || 'כרגע לא נדרשת הערכה כללית.'}</p>;
+  if (!groups.length) return <p className="text-slate-500 text-center py-10">לא נמצאו שיעורים עם תלמידות במערכת השעות שלך, אין צורך למלא הערכה.</p>;
 
-  let lastTrack = '';
   return (
     <div>
       <div className="card mb-4 space-y-2">
         <p>
-          כתבי הערכה כללית במילים לכל תלמידה, לחודש <b>{monthLabel(month)}</b>. ההערכה נשמרת אוטומטית כשיוצאים מהתיבה.
+          כתבי הערכה כללית במילים לכל תלמידה, לחודש <b>{monthLabel(month)}</b>. לוחצים על שיעור כדי לראות את התלמידות שלו. ההערכה
+          נשמרת אוטומטית כשיוצאים מהתיבה. תלמידה שלומדת אצלך בכמה שיעורים — כותבים עליה פעם אחת.
         </p>
         <p className="text-sm text-amber-800 bg-amber-50 rounded-lg px-3 py-2">
           אי אפשר להגיש את דוח הנוכחות של {monthLabel(month)} לפני שממלאים הערכה לכל התלמידות.
         </p>
         <div className="flex items-center gap-3">
           <div className="flex-1 h-2.5 bg-slate-200 rounded-full overflow-hidden">
-            <div className="h-full bg-green-500 transition-all" style={{ width: `${(done / students.length) * 100}%` }} />
+            <div className="h-full bg-green-500 transition-all" style={{ width: `${(done / allIds.length) * 100}%` }} />
           </div>
-          <span className={`text-sm font-bold ${done === students.length ? 'text-green-700' : 'text-navy'}`}>
-            מולאו {done} מתוך {students.length}
+          <span className={`text-sm font-bold ${done === allIds.length ? 'text-green-700' : 'text-navy'}`}>
+            מולאו {done} מתוך {allIds.length} תלמידות
           </span>
         </div>
       </div>
@@ -127,44 +132,65 @@ function TeacherView() {
 
       <div className="relative max-w-xs mb-3">
         <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input className="input pr-9 py-2" placeholder="חיפוש תלמידה או מסלול" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="input pr-9 py-2" placeholder="חיפוש תלמידה" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
       <div className="space-y-3">
-        {shown.map((s) => {
-          const track = s.tracks[0] || '';
-          const header = track !== lastTrack ? track : null;
-          lastTrack = track;
-          const st = saving[s.id];
+        {groups.map((g) => {
+          const students = search ? g.students.filter((s) => s.name.includes(search)) : g.students;
+          if (search && !students.length) return null;
+          const gDone = g.students.filter((s) => isDone(s.id)).length;
+          const open = !!search || openGroup === g.key;
           return (
-            <div key={s.id}>
-              {header && <h3 className="font-bold text-navy mt-5 mb-2">{header}</h3>}
-              <div className={`card py-3 ${s.text.trim() ? 'border-r-4 border-r-green-500' : 'border-r-4 border-r-amber-400'}`}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="font-semibold text-navy">{s.name}</span>
-                  <span className="text-xs">
-                    {st === 'saving' ? (
-                      <span className="text-slate-400">שומר...</span>
-                    ) : st === 'error' ? (
-                      <span className="text-red-600">לא נשמר</span>
-                    ) : s.text.trim() ? (
-                      <span className="text-green-700 inline-flex items-center gap-1">
-                        <Check size={14} /> נשמר
-                      </span>
-                    ) : (
-                      <span className="text-amber-700">חסר</span>
-                    )}
-                  </span>
+            <div key={g.key} className="card p-0 overflow-hidden">
+              <button
+                className={`w-full flex items-center justify-between px-4 py-3 text-right ${open ? 'bg-slate-50 border-b' : ''}`}
+                onClick={() => setOpenGroup(open && !search ? null : g.key)}
+              >
+                <span className="font-bold text-navy">
+                  {g.subject}
+                  {g.trackName && <span className="font-normal text-slate-500"> — {g.trackName}</span>}
+                </span>
+                <span className={`text-sm font-semibold ${gDone === g.students.length ? 'text-green-700' : 'text-amber-700'}`}>
+                  {gDone === g.students.length ? '✓ ' : ''}
+                  {gDone}/{g.students.length}
+                </span>
+              </button>
+              {open && (
+                <div className="p-3 space-y-3">
+                  {students.map((s) => {
+                    const st = saving[s.id];
+                    return (
+                      <div key={s.id} className={`rounded-xl border p-3 ${isDone(s.id) ? 'border-r-4 border-r-green-500' : 'border-r-4 border-r-amber-400'}`}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="font-semibold text-navy">{s.name}</span>
+                          <span className="text-xs">
+                            {st === 'saving' ? (
+                              <span className="text-slate-400">שומר...</span>
+                            ) : st === 'error' ? (
+                              <span className="text-red-600">לא נשמר</span>
+                            ) : isDone(s.id) ? (
+                              <span className="text-green-700 inline-flex items-center gap-1">
+                                <Check size={14} /> נשמר
+                              </span>
+                            ) : (
+                              <span className="text-amber-700">חסר</span>
+                            )}
+                          </span>
+                        </div>
+                        <textarea
+                          className="input"
+                          rows={2}
+                          placeholder="הערכה כללית על התלמידה..."
+                          value={drafts[s.id] ?? ''}
+                          onChange={(e) => setDrafts((p) => ({ ...p, [s.id]: e.target.value }))}
+                          onBlur={() => save(s.id, s.name)}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
-                <textarea
-                  className="input"
-                  rows={2}
-                  placeholder="הערכה כללית על התלמידה..."
-                  value={drafts[s.id] ?? ''}
-                  onChange={(e) => setDrafts((p) => ({ ...p, [s.id]: e.target.value }))}
-                  onBlur={() => save(s)}
-                />
-              </div>
+              )}
             </div>
           );
         })}
@@ -202,6 +228,27 @@ function AdminView() {
     }
   }
 
+  const [downloading, setDownloading] = useState(false);
+  async function downloadExcel() {
+    if (!data?.month) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(`/api/evaluations/admin/excel?month=${data.month}`, { credentials: 'include' });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || `ההורדה נכשלה (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `הערכה כללית ${data.month}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setDownloading(false);
+    }
+  }
   const evals = (data?.evaluations || []).filter((e) => !teacher || e.teacherName === teacher);
   const sorted = [...(data?.teachers || [])].sort((a, b) => a.done / a.total - b.done / b.total || a.name.localeCompare(b.name, 'he'));
   const complete = sorted.filter((t) => t.done >= t.total).length;
@@ -293,6 +340,9 @@ function AdminView() {
           <div className="card space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-bold text-navy">ההערכות ({evals.length})</span>
+              <button className="btn-primary text-sm py-1.5 mr-auto" onClick={downloadExcel} disabled={downloading}>
+                <FileSpreadsheet size={16} /> {downloading ? 'מוריד...' : 'הורדת אקסל עם כל הנתונים'}
+              </button>
               <select className="input w-auto py-1.5" value={teacher} onChange={(e) => setTeacher(e.target.value)}>
                 <option value="">כל המורות</option>
                 {[...new Set(data.evaluations.map((e) => e.teacherName))].sort().map((n) => (
@@ -308,6 +358,7 @@ function AdminView() {
                   <div key={e.id} className="py-2">
                     <p className="text-sm">
                       <b className="text-navy">{e.studentName}</b> <span className="text-slate-500">— {e.teacherName}</span>
+                      {e.lessons && <span className="text-slate-400 text-xs"> · {e.lessons}{e.tracks ? ` (${e.tracks})` : ''}</span>}
                     </p>
                     <p className="text-sm whitespace-pre-wrap">{e.text}</p>
                   </div>

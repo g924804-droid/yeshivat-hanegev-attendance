@@ -159,3 +159,64 @@ export async function teacherStudentResolver(): Promise<(userName: string) => Se
     return studentIds;
   };
 }
+
+export type LessonGroup = {
+  key: string; // trackId|מקצוע
+  subject: string;
+  trackId: string;
+  trackName: string;
+  students: { id: string; name: string }[];
+};
+
+/**
+ * השיעורים שכל מורה מלמדת (מקצוע × מסלול, לפי מערכת השעות, בלי שיעורים שנסגרו) והתלמידות בכל אחד.
+ * להערכה הכללית: המורה רואה את השיעורים שלה ומעריכה כל תלמידה בכל שיעור (בקשת המשתמשת).
+ * הטבלאות נטענות פעם אחת, והפונקציה שחוזרת מחשבת לכל מורה.
+ */
+export async function teacherLessonGroupsResolver(): Promise<(userName: string) => LessonGroup[]> {
+  const { getFullSchedule } = await import('./scheduleData');
+  const [allTeachers, schedule, allStudents, links] = await Promise.all([
+    airtableFetch(TABLES.teachers),
+    getFullSchedule(),
+    airtableFetch(TABLES.students),
+    prisma.teacherLink.findMany({ select: { teacherId: true, userId: true } }).catch(() => []),
+  ]);
+  const users = links.length
+    ? await prisma.user.findMany({ where: { id: { in: [...new Set(links.map((l) => l.userId))] } }, select: { id: true, name: true } })
+    : [];
+  const trackName = new Map(schedule.tracks.map((t) => [t.id, String(t.name || '')]));
+  const studentsByTrack = new Map<string, { id: string; name: string }[]>();
+  for (const s of allStudents) {
+    for (const t of (s.fields[FIELDS.students.track] || []) as string[]) {
+      if (!studentsByTrack.has(t)) studentsByTrack.set(t, []);
+      studentsByTrack.get(t)!.push({ id: s.id, name: String(s.fields[FIELDS.students.name] || '').trim() });
+    }
+  }
+  return (userName: string) => {
+    const target = normalizeTeacherName(userName);
+    if (!target) return [];
+    const linkedUserIds = new Set(users.filter((u) => u.name.trim() === userName.trim()).map((u) => u.id));
+    const teacherIds = new Set([
+      ...allTeachers
+        .filter((t) => {
+          const raw = normalizeTeacherName(t.fields[FIELDS.teachers.name] || '');
+          if (raw.length < 3) return false;
+          return raw === target || raw.includes(target) || target.includes(raw) || wordsSubset(raw, target);
+        })
+        .map((t) => t.id),
+      ...links.filter((l) => linkedUserIds.has(l.userId)).map((l) => l.teacherId),
+    ]);
+    const groups = new Map<string, LessonGroup>();
+    for (const lesson of schedule.lessons) {
+      if (lesson.ended || !(lesson.teacher || []).some((id) => teacherIds.has(id))) continue;
+      const subject = String(lesson.subject || lesson.className || 'שיעור').trim();
+      for (const trackId of lesson.track || []) {
+        const key = `${trackId}|${subject}`;
+        if (groups.has(key)) continue;
+        const students = [...(studentsByTrack.get(trackId) || [])].sort((a, b) => a.name.localeCompare(b.name, 'he'));
+        if (students.length) groups.set(key, { key, subject, trackId, trackName: trackName.get(trackId) || '', students });
+      }
+    }
+    return [...groups.values()].sort((a, b) => a.subject.localeCompare(b.subject, 'he') || a.trackName.localeCompare(b.trackName, 'he'));
+  };
+}

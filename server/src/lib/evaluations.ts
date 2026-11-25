@@ -1,11 +1,10 @@
 import { prisma } from './prisma';
-import { airtableFetch, TABLES } from './airtable';
-import { FIELDS } from './airtableFields';
-import { getTeacherStudentIds } from './teacherScope';
+import { LessonGroup, teacherLessonGroupsResolver } from './teacherScope';
 
 /**
- * הערכה כללית — המורה כותבת במילים הערכה לכל תלמידה שלה (התלמידות של המסלולים שהיא מלמדת בהם,
- * אותו כלל כמו במסך הציונים). בחודש שנקבע (SiteSettings.evaluationMonth) אי אפשר להגיש את דוח
+ * הערכה כללית — המורה כותבת במילים הערכה אחת לכל תלמידה שלה. התלמידות מוצגות לפי השיעורים שהמורה
+ * מלמדת (מקצוע × מסלול במערכת השעות, בלי שיעורים שנסגרו); תלמידה שנמצאת בכמה שיעורים של אותה מורה —
+ * הערכה אחת (בקשת המשתמשת). בחודש שנקבע (SiteSettings.evaluationMonth) אי אפשר להגיש את דוח
  * הנוכחות של אותו חודש בלי הערכה לכל התלמידות.
  */
 export async function getEvaluationMonth(): Promise<string | null> {
@@ -44,27 +43,22 @@ export async function isEvaluationRequired(employee: { id: string; role: string 
 }
 
 /**
- * מי מנהלת את ההערכה (הפעלה, מייל, מעקב, קריאת ההערכות) — רק תפקיד "מנהל" (בקשת המשתמשת: "לא פתוח לכל אחד").
- * לא לפי "כל המסלולים" — יש מורות ורכזות עם ההרשאה הזו שלא אמורות לראות את ההערכות של כולן.
+ * מי מנהלת את ההערכה (הפעלה, מייל, מעקב, קריאת ההערכות, אקסל) — רק פנינה רוזנברג (בקשת המשתמשת:
+ * "לא פתוח לכל אחד"; גם לא למנהלות אחרות ולא לרכזות עם הרשאת "כל המסלולים").
  */
-export const isEvaluationAdmin = (user: { role: string }) => user.role === 'מנהל';
+const EVALUATION_ADMIN_IDS = ['cmtfg2j7k00003afrjbso3bgi'];
+export const isEvaluationAdmin = (user: { id: string }) => EVALUATION_ADMIN_IDS.includes(user.id);
 
-export type EvalStudent = { id: string; name: string; tracks: string[] };
+/** כל התלמידות (בלי כפילויות) מתוך השיעורים של המורה */
+export function uniqueStudents(groups: LessonGroup[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const g of groups) for (const s of g.students) m.set(s.id, s.name);
+  return m;
+}
 
-/** התלמידות של המורה, ממוינות לפי מסלול ושם */
-export async function teacherStudents(teacherName: string): Promise<EvalStudent[]> {
-  const ids = await getTeacherStudentIds(teacherName);
-  if (!ids.size) return [];
-  const [students, tracks] = await Promise.all([airtableFetch(TABLES.students), airtableFetch(TABLES.tracks)]);
-  const trackName = new Map(tracks.map((t) => [t.id, String(t.fields[FIELDS.tracks.name] || '')]));
-  return students
-    .filter((s) => ids.has(s.id))
-    .map((s) => ({
-      id: s.id,
-      name: String(s.fields[FIELDS.students.name] || '').trim(),
-      tracks: ((s.fields[FIELDS.students.track] || []) as string[]).map((t) => trackName.get(t) || '').filter(Boolean),
-    }))
-    .sort((a, b) => (a.tracks[0] || '').localeCompare(b.tracks[0] || '', 'he') || a.name.localeCompare(b.name, 'he'));
+/** השיעורים של מורה אחת והתלמידות בהם */
+export async function teacherLessonGroups(teacherName: string): Promise<LessonGroup[]> {
+  return (await teacherLessonGroupsResolver())(teacherName);
 }
 
 /**
@@ -73,10 +67,10 @@ export async function teacherStudents(teacherName: string): Promise<EvalStudent[
 export async function missingEvaluationsCount(employee: { id: string; name: string; role: string }, month: string): Promise<number> {
   if ((await getEvaluationMonth()) !== month) return 0;
   if (!(await isEvaluationRequired(employee))) return 0;
-  const ids = await getTeacherStudentIds(employee.name);
+  const ids = uniqueStudents(await teacherLessonGroups(employee.name));
   if (!ids.size) return 0;
   const done = await prisma.studentEvaluation.findMany({
-    where: { month, teacherId: employee.id, studentId: { in: [...ids] } },
+    where: { month, teacherId: employee.id, studentId: { in: [...ids.keys()] } },
     select: { studentId: true },
   });
   return ids.size - new Set(done.map((d) => d.studentId)).size;

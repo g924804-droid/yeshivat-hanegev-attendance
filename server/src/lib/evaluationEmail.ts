@@ -1,6 +1,6 @@
 import { prisma } from './prisma';
 import { sendEmail, isEmailConfigured } from './email';
-import { teacherStudentResolver } from './teacherScope';
+import { teacherLessonGroupsResolver } from './teacherScope';
 
 /**
  * מייל "משוב לקראת חנוכה" למורות — הנוסח של המשתמשת (מיכל פיינהנדלר) מילה במילה, חוץ מתיקון
@@ -50,9 +50,9 @@ export async function evaluationEmailRecipients() {
       select: { id: true, name: true, email: true, role: true },
       orderBy: { name: 'asc' },
     }),
-    teacherStudentResolver(),
+    teacherLessonGroupsResolver(),
   ]);
-  return staff.filter((t) => resolve(t.name).size > 0).map((t) => ({ ...t, isTeacher: t.role === 'מורה' }));
+  return staff.filter((t) => resolve(t.name).length > 0).map((t) => ({ ...t, isTeacher: t.role === 'מורה' }));
 }
 
 export function israelMonth(): string {
