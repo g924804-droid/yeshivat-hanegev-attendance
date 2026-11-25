@@ -11,6 +11,7 @@ type Expense = {
   hebrewDate: string | null;
   topic: string | null;
   expenseType: string | null;
+  typeAmounts?: Record<string, number> | null; // כשנבחרו כמה סוגים — הסכום של כל סוג
   groupMonth?: string; // החודש שתחתיו השורה מוצגת (מהשרת) — YYYY-MM, או '' בלי תאריך
   payee: string;
   invoiceText: string | null;
@@ -547,6 +548,18 @@ function ExportModal({
       setBusy(null);
     }
   }
+  async function excelByType() {
+    setBusy('excel');
+    setError(null);
+    setNote(null);
+    try {
+      await download(`/api/expenses/exportByType?${query()}`, `הוצאות לפי סוג ${year}.xlsx`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
   async function pdf() {
     setBusy('pdf');
     setError(null);
@@ -627,6 +640,9 @@ function ExportModal({
           </div>
           <button className="btn-primary w-full" onClick={excel} disabled={!!busy || nothing || !cols.size}>
             <FileSpreadsheet size={16} /> {busy === 'excel' ? 'מייצא...' : 'הורדת אקסל'}
+          </button>
+          <button className="btn-outline w-full" onClick={excelByType} disabled={!!busy || nothing}>
+            <FileSpreadsheet size={16} /> אקסל לפי סוג הוצאה — גיליון לכל חודש (כמו קופה קטנה)
           </button>
         </section>
 
@@ -717,6 +733,13 @@ function ExpenseModal({
     paymentDate: expense?.paymentDate || '',
     notes: expense?.notes || '',
   });
+  // כמה סוגים — סכום לכל סוג, כדי שבאקסל כל חלק ייכנס לעמודה של הסוג שלו
+  const [split, setSplit] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(expense?.typeAmounts || {}).map(([k, v]) => [k, String(v)]))
+  );
+  const pickedTypes = splitTypes(form.expenseType);
+  const multi = pickedTypes.length > 1;
+  const splitTotal = pickedTypes.reduce((s, t) => s + (Number(split[t]) || 0), 0);
   const [files, setFiles] = useState<ExpenseFile[]>(expense?.files || []);
   const [invoice, setInvoice] = useState<FileList | null>(null);
   const [receipt, setReceipt] = useState<FileList | null>(null);
@@ -728,6 +751,10 @@ function ExpenseModal({
 
   async function save() {
     if (!form.expenseType) return setError('יש לבחור סוג הוצאה');
+    if (multi) {
+      const missing = pickedTypes.find((t) => !String(split[t] ?? '').trim() || !Number.isFinite(Number(split[t])));
+      if (missing) return setError(`יש למלא סכום עבור "${missing}"`);
+    }
     if (!form.date && !form.hebrewDate && !form.topic.trim()) return setError('חסר תאריך');
     if (!form.payee.trim() && !form.details.trim()) return setError('חסר שם בקבלה או פרוט');
     if (needsAccount) return setError('בתשלום בהעברה חובה למלא פרטי חשבון');
@@ -735,7 +762,8 @@ function ExpenseModal({
     setError(null);
     try {
       const fd = new FormData();
-      Object.entries(form).forEach(([k, v]) => fd.append(k, v));
+      Object.entries(form).forEach(([k, v]) => fd.append(k, k === 'amount' && multi ? String(splitTotal) : v));
+      if (multi) fd.append('typeAmounts', JSON.stringify(Object.fromEntries(pickedTypes.map((t) => [t, Number(split[t])]))));
       fd.append('categoryId', categoryId);
       Array.from(invoice || []).forEach((f) => fd.append('invoice', f));
       Array.from(receipt || []).forEach((f) => fd.append('receipt', f));
@@ -817,6 +845,24 @@ function ExpenseModal({
               );
             })}
           </div>
+          {multi && (
+            <div className="mt-2 rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2">
+              <p className="text-sm text-slate-600">כמה מהסכום שייך לכל סוג? (באקסל כל סכום ייכנס לעמודה שלו)</p>
+              <div className="grid grid-cols-2 gap-2">
+                {pickedTypes.map((t) => (
+                  <label key={t} className="text-sm">
+                    {t} (₪)
+                    <input
+                      className="input mt-1"
+                      inputMode="decimal"
+                      value={split[t] ?? ''}
+                      onChange={(e) => setSplit({ ...split, [t]: e.target.value.replace(/[^\d.]/g, '') })}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -826,7 +872,11 @@ function ExpenseModal({
           </div>
           <div>
             <label className="label">סכום לתשלום (₪)</label>
-            <input className="input" inputMode="decimal" value={form.amount} onChange={set('amount')} />
+            {multi ? (
+              <input className="input bg-slate-100" readOnly value={splitTotal ? String(Math.round(splitTotal * 100) / 100) : ''} title="מחושב מהסכומים לפי סוג" />
+            ) : (
+              <input className="input" inputMode="decimal" value={form.amount} onChange={set('amount')} />
+            )}
           </div>
         </div>
         <div>

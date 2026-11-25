@@ -4,6 +4,7 @@ import { orderExpensesByDate, expenseMonthLabel } from '../lib/expenseOrder';
 import ExcelJS from 'exceljs';
 import axios from 'axios';
 import { PDFDocument } from 'pdf-lib';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { requireAuth, requireExpensesAccess } from '../middleware/auth';
 import { hebrewDate } from '../lib/hebrewDate';
@@ -86,6 +87,27 @@ function expenseType(v: unknown, strict: boolean): string | null {
   return EXPENSE_TYPES.filter((t) => list.includes(t)).join(', ');
 }
 
+/** כשנבחרו כמה סוגים — סכום לכל סוג (חובה בשמירה מהטופס). סוג אחד = null (כל הסכום שלו). */
+function typeAmounts(v: unknown, types: string | null, strict: boolean): Record<string, number> | null {
+  const list = splitTypes(types);
+  if (list.length < 2) return null;
+  let obj: any = v;
+  if (typeof v === 'string') {
+    try {
+      obj = JSON.parse(v);
+    } catch {
+      obj = null;
+    }
+  }
+  const out: Record<string, number> = {};
+  for (const t of list) {
+    const n = parseAmount(obj?.[t]);
+    if (n === null && strict) throw new Error(`חסר סכום עבור "${t}"`);
+    out[t] = n || 0;
+  }
+  return out;
+}
+
 const url = (v: unknown) => {
   const s = str(v, 1000);
   return s && (s.toLowerCase().startsWith('http://') || s.toLowerCase().startsWith('https://')) ? s : null;
@@ -104,11 +126,14 @@ function expenseData(body: any, strict = true) {
   const paymentMethod = str(body.paymentMethod, 100);
   const accountDetails = str(body.accountDetails);
   if (strict && isTransfer(paymentMethod) && !accountDetails) throw new Error('בתשלום בהעברה חובה למלא פרטי חשבון');
+  const types = expenseType(body.expenseType, strict);
+  const split = typeAmounts(body.typeAmounts, types, strict);
   return {
     date,
     hebrewDate: date ? null : str(body.hebrewDate, 60),
     topic: str(body.topic, 150),
-    expenseType: expenseType(body.expenseType, strict),
+    expenseType: types,
+    typeAmounts: split ?? Prisma.DbNull,
     payee,
     details,
     invoiceText: str(body.invoiceText),
@@ -116,7 +141,8 @@ function expenseData(body: any, strict = true) {
     receiptText: str(body.receiptText),
     receiptUrl: url(body.receiptUrl),
     paymentMethod,
-    amount: parseAmount(body.amount),
+    // כמה סוגים — הסכום לתשלום הוא סכום החלקים
+    amount: split ? Math.round(Object.values(split).reduce((s, n) => s + n, 0) * 100) / 100 : parseAmount(body.amount),
     accountDetails,
     paymentDate: parseDate(body.paymentDate) || null,
     notes: str(body.notes, 1000),
@@ -305,7 +331,7 @@ router.put('/expenses/:id/type', async (req, res) => {
   try {
     const expense = await prisma.expense.update({
       where: { id: req.params.id },
-      data: { expenseType: expenseType(req.body.expenseType, false) },
+      data: { expenseType: expenseType(req.body.expenseType, false), typeAmounts: Prisma.DbNull },
     });
     res.json({ success: true, expenseType: expense.expenseType });
   } catch (err: any) {
@@ -633,12 +659,25 @@ const EXPORT_COLUMNS = [
 /** עמודה לכל סוג הוצאה — הסכום של כל שורה נכנס לעמודה של הסוג שלה, ולכל עמודה סה"כ (בקשת המשתמשת) */
 const BY_TYPE_KEY = 'byType';
 const NO_TYPE = 'בלי סוג';
-// הוצאה עם כמה סוגים נכנסת לעמודה משותפת ("אוכל + פעילות משרדית") — כדי שהסכום לא ייספר פעמיים
-const typeOf = (e: { expenseType: string | null }) => splitTypes(e.expenseType).join(' + ') || NO_TYPE;
-const typesIn = (expenses: { expenseType: string | null }[]) => {
-  const present = new Set(expenses.map(typeOf));
-  const combos = [...present].filter((t) => t.includes(' + ')).sort();
-  return [...EXPENSE_TYPES.filter((t) => present.has(t)), ...combos, ...(present.has(NO_TYPE) ? [NO_TYPE] : [])];
+type Typed = { expenseType: string | null; typeAmounts: Prisma.JsonValue | null; amount: number | null };
+/** כמה מהסכום של ההוצאה שייך לכל סוג. כמה סוגים — לפי הסכומים שהוזנו (בלי פירוט — הכל לסוג הראשון). */
+function typeSplit(e: Typed): Record<string, number> {
+  const types = splitTypes(e.expenseType);
+  const amount = e.amount || 0;
+  if (!types.length) return { [NO_TYPE]: amount };
+  const given =
+    e.typeAmounts && typeof e.typeAmounts === 'object' && !Array.isArray(e.typeAmounts) ? (e.typeAmounts as Record<string, unknown>) : null;
+  if (types.length > 1 && given) {
+    const out: Record<string, number> = {};
+    for (const t of types) out[t] = Number(given[t]) || 0;
+    return out;
+  }
+  return { [types[0]]: amount };
+}
+const typeSum = (list: Typed[], t: string) => list.reduce((s, e) => s + (typeSplit(e)[t] || 0), 0);
+const typesIn = (expenses: Typed[]) => {
+  const present = new Set(expenses.flatMap((e) => Object.keys(typeSplit(e))));
+  return [...EXPENSE_TYPES, NO_TYPE].filter((t) => present.has(t));
 };
 
 /** קטגוריות השנה עם ההוצאות, מסוננות לפי categoryIds / expenseIds מה-query (ריק = הכל) */
@@ -715,7 +754,7 @@ router.get('/exportExcel', async (req, res) => {
         const h = summary.addRow(['סוג הוצאה', filteredRows ? 'סה"כ בשורות שנבחרו' : 'סה"כ']);
         h.font = { bold: true };
         for (const t of typesIn(rows)) {
-          const r = summary.addRow([t, rows.filter((e) => typeOf(e) === t).reduce((s, e) => s + (e.amount || 0), 0)]);
+          const r = summary.addRow([t, typeSum(rows, t)]);
           r.getCell(2).numFmt = '₪#,##0.00';
         }
       }
@@ -741,7 +780,7 @@ router.get('/exportExcel', async (req, res) => {
       // סכומים לפי סוג בשורת סיכום (חודש / סה"כ)
       const fillTypeTotals = (r: ExcelJS.Row, list: typeof sel.expenses) => {
         for (const t of typeCols) {
-          r.getCell(typeAt(t)).value = list.filter((x) => typeOf(x) === t).reduce((s, x) => s + (x.amount || 0), 0);
+          r.getCell(typeAt(t)).value = typeSum(list, t);
           r.getCell(typeAt(t)).numFmt = '₪#,##0.00';
         }
       };
@@ -788,7 +827,7 @@ router.get('/exportExcel', async (req, res) => {
           'הערות': e.notes || '',
         };
         prevTopic = e.topic;
-        const row = ws.addRow([...columns.map((x) => values[x.title] ?? ''), ...typeCols.map((t) => (typeOf(e) === t ? e.amount ?? '' : ''))]);
+        const row = ws.addRow([...columns.map((x) => values[x.title] ?? ''), ...typeCols.map((t) => typeSplit(e)[t] ?? '')]);
         typeCols.forEach((t) => (row.getCell(typeAt(t)).numFmt = '₪#,##0.00'));
         fmt('תאריך', 'dd/mm/yyyy', row);
         fmt('תאריך תשלום', 'dd/mm/yyyy', row);
@@ -828,6 +867,131 @@ router.get('/exportExcel', async (req, res) => {
 
     res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`הוצאות ${year}.xlsx`)}`);
+    res.send(Buffer.from(await wb.xlsx.writeBuffer()));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בייצוא' });
+  }
+});
+
+/**
+ * אקסל לפי סוג הוצאה — במבנה של קובץ "קופה קטנה" של המשתמשת: גיליון לכל חודש, כותרת, שורת אזהרה,
+ * עמודות תאריך | ספק | עמודה לכל סוג | הערות, שורת סה"כ לכל סוג (נוסחת SUM) ו"סכום כללי".
+ */
+router.get('/exportByType', async (req, res) => {
+  try {
+    const { year, selected } = await loadForExport(req.query);
+    const rows = selected.flatMap((c) => c.expenses);
+    if (!rows.length) return res.status(400).json({ error: 'לא נבחר שום דבר לייצוא' });
+    const types = typesIn(rows);
+    const wb = new ExcelJS.Workbook();
+    const sheetNames = new Set<string>();
+    const thin = { style: 'thin' as const };
+    const medium = { style: 'medium' as const };
+    const box = { top: thin, bottom: thin, left: thin, right: thin };
+    const blue: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB4C6E7' } };
+    const money = '_ [$₪-40D] * #,##0.00_ ;_ [$₪-40D] * -#,##0.00_ ;_ [$₪-40D] * "-"??_ ;_ @_ ';
+    const font = { name: 'Arial', size: 11 };
+    const col = (n: number) => String.fromCharCode(64 + n); // 1 ← A
+    const firstType = 4; // D — כמו בקובץ
+    const notesCol = firstType + types.length;
+    const last = col(notesCol);
+
+    for (const cat of selected) {
+      const months = [...new Set(cat.expenses.map((e) => e.groupMonth))];
+      for (const month of months) {
+        const list = cat.expenses.filter((e) => e.groupMonth === month);
+        const mmyy = month ? `${month.slice(5, 7)}.${month.slice(2, 4)}` : 'בלי תאריך';
+        const ws = wb.addWorksheet(sheetName(selected.length > 1 ? `${cat.name} ${mmyy}` : mmyy, sheetNames));
+        ws.views = [{ rightToLeft: true }];
+        ws.getColumn(1).width = 6.6;
+        ws.getColumn(2).width = 11.4;
+        ws.getColumn(3).width = 17.6;
+        for (let i = firstType; i < notesCol; i++) ws.getColumn(i).width = 14;
+        ws.getColumn(notesCol).width = 24;
+
+        ws.getCell('A1').value = 'בס"ד';
+        ws.getCell('A1').font = { ...font, bold: true };
+
+        ws.mergeCells(`B2:${last}2`);
+        ws.getCell('B2').value = `${cat.name} חודש ${mmyy}`;
+        ws.getCell('B2').font = { name: 'Gisha', size: 14, bold: true };
+        ws.getCell('B2').alignment = { horizontal: 'center' };
+        ws.getRow(2).height = 18.75;
+
+        ws.mergeCells(`B4:${last}4`);
+        ws.getCell('B4').value = 'שימי לב! כל חשבונית צריכה להיות חשבונית מס עבור ישיבת הנגב וסכום החשבונית לא יעלה על 250 ₪';
+        ws.getCell('B4').font = { ...font, size: 12, bold: true };
+        ws.getCell('B4').alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        ws.getCell('B4').border = { top: medium, bottom: medium, left: medium, right: medium };
+        ws.getRow(4).height = 18.75;
+
+        if (types.length) {
+          ws.mergeCells(`${col(firstType)}6:${col(notesCol - 1)}6`);
+          const h = ws.getCell(`${col(firstType)}6`);
+          h.value = 'סכום הוצאה לפי סוג הפעילות';
+          h.font = { ...font, bold: true };
+          h.fill = blue;
+          h.alignment = { horizontal: 'center', vertical: 'middle' };
+          h.border = box;
+        }
+
+        const header = ws.getRow(7);
+        ['תאריך', 'ספק', ...types, 'הערות'].forEach((t, i) => {
+          const c = header.getCell(i + 2);
+          c.value = t;
+          c.font = font;
+          c.fill = blue;
+          c.border = box;
+          c.alignment = { horizontal: 'center', vertical: 'middle' };
+        });
+        header.height = 22.5;
+
+        let r = 8;
+        for (const e of list) {
+          const row = ws.getRow(r++);
+          const split = typeSplit(e);
+          row.getCell(2).value = e.date ? new Date(`${e.date}T00:00:00Z`) : e.hebrewDate || '';
+          row.getCell(2).numFmt = 'd/m/yy';
+          row.getCell(3).value = e.payee || '';
+          types.forEach((t, i) => {
+            const c = row.getCell(firstType + i);
+            if (split[t]) c.value = split[t];
+            c.numFmt = money;
+          });
+          row.getCell(notesCol).value = [e.details, e.notes].filter(Boolean).join(' · ');
+          for (let i = 2; i <= notesCol; i++) {
+            row.getCell(i).border = box;
+            row.getCell(i).font = font;
+          }
+        }
+        const lastData = r - 1;
+        const total = ws.getRow(r);
+        total.getCell(2).value = 'סה"כ';
+        total.getCell(2).font = { ...font, size: 12, bold: true };
+        types.forEach((t, i) => {
+          const L = col(firstType + i);
+          const c = total.getCell(firstType + i);
+          c.value = { formula: `SUM(${L}8:${L}${lastData})`, result: typeSum(list, t) };
+          c.numFmt = money;
+          c.font = { ...font, bold: true };
+        });
+        for (let i = 2; i <= notesCol; i++) total.getCell(i).border = box;
+        const grand = ws.getRow(r + 1);
+        grand.getCell(2).value = 'סכום כללי';
+        grand.getCell(2).font = { ...font, size: 12, bold: true };
+        grand.getCell(3).value = types.length
+          ? { formula: `SUM(${col(firstType)}${r}:${col(notesCol - 1)}${r})`, result: list.reduce((s, e) => s + (e.amount || 0), 0) }
+          : 0;
+        grand.getCell(3).numFmt = money;
+        grand.getCell(3).font = { ...font, bold: true };
+        grand.getCell(2).border = { top: medium, bottom: medium, right: medium };
+        grand.getCell(3).border = { top: medium, bottom: medium, left: medium };
+      }
+    }
+
+    const name = selected.length === 1 ? `${selected[0].name} ${year}` : `הוצאות לפי סוג ${year}`;
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${name}.xlsx`)}`);
     res.send(Buffer.from(await wb.xlsx.writeBuffer()));
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'שגיאה בייצוא' });
