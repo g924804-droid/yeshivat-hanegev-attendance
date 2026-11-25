@@ -43,10 +43,13 @@ export async function isEvaluationRequired(employee: { id: string; role: string 
 }
 
 /**
- * מי מנהלת את ההערכה (הפעלה, מייל, מעקב, קריאת ההערכות, אקסל) — רק פנינה רוזנברג (בקשת המשתמשת:
+ * מי מנהלת את ההערכה (הפעלה, מייל, מעקב, קריאת ההערכות, אקסל) — רק פנינה רוזנברג ומיכל פיינהנדלר (בקשת המשתמשת:
  * "לא פתוח לכל אחד"; גם לא למנהלות אחרות ולא לרכזות עם הרשאת "כל המסלולים").
  */
-const EVALUATION_ADMIN_IDS = ['cmtfg2j7k00003afrjbso3bgi'];
+const EVALUATION_ADMIN_IDS = [
+  'cmtfg2j7k00003afrjbso3bgi', // פנינה רוזנברג
+  'cmtg9k8ep00038fuyud5kc70v', // מיכל פיינהנדלר — רכזת לימודי התמחות (נוספה לבקשת פנינה)
+];
 export const isEvaluationAdmin = (user: { id: string }) => EVALUATION_ADMIN_IDS.includes(user.id);
 
 /** כל התלמידות (בלי כפילויות) מתוך השיעורים של המורה */
