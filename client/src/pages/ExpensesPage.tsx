@@ -139,6 +139,25 @@ export function ExpensesPage() {
     }
   }
   const reload = () => Promise.all([loadOverview(), loadExpenses()]);
+  // העברת השורות המסומנות ללשונית אחרת
+  const [moveTo, setMoveTo] = useState('');
+  const [moving, setMoving] = useState(false);
+  async function moveSelected() {
+    const target = overview?.categories.find((c) => c.id === moveTo);
+    if (!target) return;
+    if (!confirm(`להעביר ${selected.size} הוצאות ללשונית "${target.name}"?`)) return;
+    setMoving(true);
+    try {
+      await api.post('/expenses/expenses/move', { expenseIds: Array.from(selected), categoryId: target.id });
+      setSelected(new Set());
+      setMoveTo('');
+      await reload();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setMoving(false);
+    }
+  }
 
   useEffect(() => {
     loadOverview(year);
@@ -335,6 +354,21 @@ export function ExpensesPage() {
                 <button className="btn-outline py-1.5" onClick={() => setShowExport(true)}>
                   <FileSpreadsheet size={15} /> ייצוא / הדפסת חשבוניות של המסומנות
                 </button>
+                <span className="flex items-center gap-1.5">
+                  <select className="input w-auto py-1.5" value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
+                    <option value="">העברה ללשונית...</option>
+                    {(overview?.categories || [])
+                      .filter((c) => c.id !== categoryId)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                  <button className="btn-outline py-1.5" disabled={!moveTo || moving} onClick={moveSelected}>
+                    {moving ? 'מעביר...' : 'העברה'}
+                  </button>
+                </span>
                 <button className="text-sm text-slate-600 hover:underline" onClick={() => setSelected(new Set())}>
                   ניקוי סימון
                 </button>

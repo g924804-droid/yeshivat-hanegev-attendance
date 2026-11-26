@@ -388,6 +388,26 @@ router.get('/search', async (req, res) => {
 });
 
 // שינוי סוג ההוצאה בלבד (מסך החיפוש — שיוך מהיר של הוצאות ישנות)
+/**
+ * העברת הוצאות מסומנות ללשונית אחרת (למשל נסיעות ממשרדיות ללימודי שוטף). רק בתוך אותה שנה —
+ * ההוצאה עוברת עם כל הפרטים והקבצים שלה, ונכנסת לפי התאריך שלה.
+ */
+router.post('/expenses/move', async (req, res) => {
+  try {
+    const ids: string[] = Array.isArray(req.body.expenseIds) ? req.body.expenseIds.map(String) : [];
+    const categoryId = String(req.body.categoryId || '');
+    if (!ids.length) return res.status(400).json({ error: 'לא סומנו הוצאות' });
+    const target = await prisma.expenseCategory.findUnique({ where: { id: categoryId } });
+    if (!target) return res.status(404).json({ error: 'הלשונית לא נמצאה' });
+    const expenses = await prisma.expense.findMany({ where: { id: { in: ids } }, include: { category: { select: { year: true } } } });
+    if (expenses.some((e) => e.category.year !== target.year)) return res.status(400).json({ error: 'אפשר להעביר רק לשונית באותה שנה' });
+    const r = await prisma.expense.updateMany({ where: { id: { in: ids } }, data: { categoryId } });
+    res.json({ success: true, moved: r.count, to: target.name });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בהעברה' });
+  }
+});
+
 router.put('/expenses/:id/type', async (req, res) => {
   try {
     const expense = await prisma.expense.update({
