@@ -578,3 +578,11 @@ model EvaluationAck {
 
   @@unique([month, userId])
 }
+
+// הערה אישית לתלמידה בדוח נוכחות התלמידות (מופיעה בדוח המודפס ובאקסל) — נשמרת עד שמשנים אותה
+model StudentReportNote {
+  studentId String   @id // מזהה התלמידה ב-Airtable
+  text      String
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}

@@ -249,7 +249,7 @@ export function styleSheet(ws: ExcelJS.Worksheet) {
 const RED_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
 
 /** אקסל: סיכום לכל תלמידה, פירוט לפי שיעור, וכל הרישומים בטווח. */
-export async function buildAttendanceExcel(summary: AttendanceSummary): Promise<Buffer> {
+export async function buildAttendanceExcel(summary: AttendanceSummary, notes: Record<string, string> = {}): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   const missedHeader = summary.lateCounts ? 'היעדרויות (חיסור + כל 3 איחורים)' : 'היעדרויות (חיסורים)';
   const countColumns = [
@@ -269,10 +269,12 @@ export async function buildAttendanceExcel(summary: AttendanceSummary): Promise<
     { header: 'מסלולים', key: 'tracks', width: 34 },
     ...countColumns,
     { header: `שיעורים מעל ${summary.limitPct}%`, key: 'overLessons', width: 40 },
+    { header: 'הערה', key: 'personalNote', width: 40 },
   ];
   for (const s of summary.students) {
     const overLessons = s.lessons.filter((l) => l.over).map((l) => `${l.lesson} (${l.pct}%)`).join(', ');
-    const row = ws.addRow({ ...s, tracks: s.tracks.join(', '), overLessons, lateRest: rest(s) });
+    const row = ws.addRow({ ...s, tracks: s.tracks.join(', '), overLessons, lateRest: rest(s), personalNote: notes[s.id] || '' });
+    row.getCell('personalNote').alignment = { wrapText: true, vertical: 'top' };
     if (s.overLimit) {
       row.fill = RED_FILL;
       row.getCell('overLessons').font = { bold: true, color: { argb: 'FFB91C1C' } };

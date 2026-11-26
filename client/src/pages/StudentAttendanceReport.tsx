@@ -100,6 +100,31 @@ export function StudentAttendanceReport() {
   const [onlyOver, setOnlyOver] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  // הערה אישית לכל תלמידה — נשמרת בשרת ומופיעה בדוח המודפס שלה ובאקסל
+  const [studentNotes, setStudentNotes] = useState<Record<string, string>>({});
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [noteSaving, setNoteSaving] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
+  useEffect(() => {
+    api
+      .get<{ notes: Record<string, string> }>('/students/reportNotes')
+      .then((r) => {
+        setStudentNotes(r.notes);
+        setNoteDrafts(r.notes);
+      })
+      .catch(() => {});
+  }, []);
+  async function saveStudentNote(id: string) {
+    const text = (noteDrafts[id] || '').trim();
+    if (text === (studentNotes[id] || '')) return;
+    setNoteSaving((p) => ({ ...p, [id]: 'saving' }));
+    try {
+      await api.put('/students/reportNote', { studentId: id, text });
+      setStudentNotes((p) => ({ ...p, [id]: text }));
+      setNoteSaving((p) => ({ ...p, [id]: 'saved' }));
+    } catch {
+      setNoteSaving((p) => ({ ...p, [id]: 'error' }));
+    }
+  }
   const [signature, setSignature] = useState('בברכה,\nהנהלת הסמינר');
 
   const query = () => ({ from, to, trackId: trackId || undefined, lateCounts: lateCounts ? '1' : '0' });
@@ -217,6 +242,7 @@ export function StudentAttendanceReport() {
               ? '<p>לא נרשמו חיסורים או איחורים בתקופה זו.</p>'
               : ''
           }
+          ${(studentNotes[s.id] || '').trim() ? `<div class="note"><b>הערה:</b> ${lines(studentNotes[s.id])}</div>` : ''}
           ${note.trim() ? `<div class="note">${lines(note)}</div>` : ''}
           <div class="sign">${lines(signature)}</div>
         </div>`;
@@ -365,7 +391,14 @@ export function StudentAttendanceReport() {
                         {openId === s.id ? <ChevronDown size={16} /> : <ChevronLeft size={16} />}
                       </td>
                       <td className="text-right">
-                        <div className="font-medium">{s.name}</div>
+                        <div className="font-medium">
+                          {s.name}
+                          {studentNotes[s.id] && (
+                            <span className="mr-1.5 text-xs text-sky-700" title={studentNotes[s.id]}>
+                              ✎ יש הערה
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-slate-400">{s.tracks.join(' · ')}</div>
                       </td>
                       <td>{s.total}</td>
@@ -400,6 +433,21 @@ export function StudentAttendanceReport() {
                     {openId === s.id && (
                       <tr className="border-b bg-slate-50">
                         <td colSpan={9} className="p-3 text-right">
+                          <label className="block text-sm mb-3">
+                            <span className="font-semibold text-navy">הערה לתלמידה</span>
+                            <span className="text-xs text-slate-500"> — תופיע בדוח המודפס שלה ובאקסל. נשמרת אוטומטית כשיוצאים מהתיבה</span>
+                            {noteSaving[s.id] === 'saving' && <span className="text-xs text-slate-400 mr-2">שומר...</span>}
+                            {noteSaving[s.id] === 'saved' && <span className="text-xs text-green-700 mr-2">✓ נשמר</span>}
+                            {noteSaving[s.id] === 'error' && <span className="text-xs text-red-600 mr-2">לא נשמר</span>}
+                            <textarea
+                              className="input mt-1 bg-white"
+                              rows={2}
+                              value={noteDrafts[s.id] ?? ''}
+                              onChange={(e) => setNoteDrafts((p) => ({ ...p, [s.id]: e.target.value }))}
+                              onBlur={() => saveStudentNote(s.id)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </label>
                           {s.lessons.length ? (
                             <table className="w-full text-xs text-center bg-white rounded-lg mb-3">
                               <thead>

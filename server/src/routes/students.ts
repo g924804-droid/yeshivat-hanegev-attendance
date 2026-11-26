@@ -410,12 +410,44 @@ router.get('/attendanceSummary', requirePermission('studentAttendance'), async (
 router.get('/exportAttendanceExcel', requirePermission('studentAttendance'), async (req, res) => {
   try {
     const summary = await buildAttendanceSummary(reportParams(req));
-    const buffer = await buildAttendanceExcel(summary);
+    const noteRows = await prisma.studentReportNote.findMany({ where: { studentId: { in: summary.students.map((s) => s.id) } } });
+    const buffer = await buildAttendanceExcel(summary, Object.fromEntries(noteRows.map((n) => [n.studentId, n.text])));
     res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`נוכחות תלמידות ${summary.fromHeb} עד ${summary.toHeb}.xlsx`)}`);
     res.send(buffer);
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message || 'שגיאה בייצוא לאקסל' });
+  }
+});
+
+/** הערות אישיות לתלמידות בדוח הנוכחות (מופיעות בדוח המודפס ובאקסל) */
+router.get('/reportNotes', requirePermission('studentAttendance'), async (_req, res) => {
+  try {
+    const rows = await prisma.studentReportNote.findMany();
+    res.json({ notes: Object.fromEntries(rows.map((n) => [n.studentId, n.text])) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בטעינת ההערות' });
+  }
+});
+
+/** שמירת הערה אישית לתלמידה (טקסט ריק = מחיקה) */
+router.put('/reportNote', requirePermission('studentAttendance'), async (req, res) => {
+  try {
+    const studentId = String(req.body.studentId || '');
+    const text = String(req.body.text ?? '').trim().slice(0, 2000);
+    if (!studentId) return res.status(400).json({ error: 'חסרה תלמידה' });
+    if (!text) {
+      await prisma.studentReportNote.deleteMany({ where: { studentId } });
+      return res.json({ success: true });
+    }
+    await prisma.studentReportNote.upsert({
+      where: { studentId },
+      create: { studentId, text, updatedBy: req.user!.name },
+      update: { text, updatedBy: req.user!.name },
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בשמירת ההערה' });
   }
 });
 
