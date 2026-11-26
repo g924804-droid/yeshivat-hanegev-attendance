@@ -234,7 +234,6 @@ export function StudentAttendanceReport() {
             summary.trackName ? ` · מסלול: ${esc(summary.trackName)}` : s.tracks.length ? ` · ${esc(s.tracks.join(', '))}` : ''
           }<br>הופק ב${esc(today)}</div>
           ${verdict}
-          ${(studentNotes[s.id] || '').trim() ? `<div class="pnote"><span class="t">⚠ הערה חשובה</span>${lines(studentNotes[s.id])}</div>` : ''}
           ${
             lessonRows
               ? `<h3>נוכחות לפי שיעור (לאורך כל התקופה)</h3><table><thead><tr><th>שם השיעור</th><th>שיעורים</th><th>חסרה</th><th>איחור</th><th>באישור</th><th>${missedHeader}</th><th>אחוז היעדרות</th></tr></thead><tbody>${lessonRows}</tbody></table>`
@@ -247,6 +246,7 @@ export function StudentAttendanceReport() {
               ? '<p>לא נרשמו חיסורים או איחורים בתקופה זו.</p>'
               : ''
           }
+          ${(studentNotes[s.id] || '').trim() ? `<div class="pnote"><span class="t">⚠ הערה</span>${lines(studentNotes[s.id])}</div>` : ''}
           ${note.trim() ? `<div class="note">${lines(note)}</div>` : ''}
           <div class="sign">${lines(signature)}</div>
         </div>`;
