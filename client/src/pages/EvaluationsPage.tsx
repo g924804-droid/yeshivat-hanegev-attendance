@@ -13,8 +13,77 @@ type AdminData = {
   month: string | null;
   current: string | null;
   teachers: { id: string; name: string; department: string | null; total: number; done: number; ackAt: string | null; ackVia: string | null }[];
-  evaluations: { id: string; teacherName: string; studentName: string; lessons: string; tracks: string; text: string; updatedAt: string }[];
+  evaluations: Evaluation[];
 };
+
+type Evaluation = {
+  id: string;
+  teacherName: string;
+  studentId: string;
+  studentName: string;
+  lessons: string;
+  tracks: string;
+  text: string;
+  updatedAt: string;
+};
+
+const escapeHtml = (v: string) =>
+  v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * דוח לתלמידה — כל ההערכות הכלליות שנכתבו עליה (מורה, מקצוע, הערכה). נפתח בחלון להדפסה / שמירה כ-PDF.
+ * כמה תלמידות = עמוד לכל אחת.
+ */
+function printStudentReports(evaluations: Evaluation[], studentIds: string[], month: string) {
+  const pages = studentIds
+    .map((id) => {
+      const list = evaluations.filter((e) => e.studentId === id).sort((a, b) => a.teacherName.localeCompare(b.teacherName, 'he'));
+      if (!list.length) return '';
+      const tracks = [...new Set(list.flatMap((e) => e.tracks.split(', ').filter(Boolean)))].join(', ');
+      return `<section class="page">
+        <div class="head">
+          <div class="bsd">בס"ד</div>
+          <h1>${escapeHtml(list[0].studentName)}</h1>
+          <p class="sub">${tracks ? `מסלול: ${escapeHtml(tracks)} · ` : ''}הערכה כללית — ${monthLabel(month)}</p>
+        </div>
+        ${list
+          .map(
+            (e) => `<div class="ev">
+              <div class="who">${escapeHtml(e.teacherName)}${e.lessons ? `<span> — ${escapeHtml(e.lessons)}</span>` : ''}</div>
+              <div class="text">${escapeHtml(e.text)}</div>
+            </div>`
+          )
+          .join('')}
+        <p class="foot">${list.length} הערכות · הופק ב-${new Date().toLocaleDateString('he-IL')}</p>
+      </section>`;
+    })
+    .filter(Boolean)
+    .join('');
+  const win = window.open('', '_blank');
+  if (!win) return alert('הדפדפן חסם את החלון — יש לאשר חלונות קופצים לאתר');
+  win.document.write(`<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>הערכה כללית</title>
+    <style>
+      body { font-family: Arial, sans-serif; color: #1e293b; margin: 0; }
+      .page { padding: 28px 36px; page-break-after: always; }
+      .page:last-child { page-break-after: auto; }
+      .bsd { text-align: left; font-size: 12px; }
+      h1 { margin: 4px 0; font-size: 26px; color: #0f172a; }
+      .sub { margin: 0 0 18px; color: #475569; }
+      .head { border-bottom: 2px solid #0f172a; margin-bottom: 16px; }
+      .ev { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; break-inside: avoid; }
+      .who { font-weight: bold; color: #0f172a; margin-bottom: 4px; }
+      .who span { font-weight: normal; color: #64748b; }
+      .text { white-space: pre-wrap; line-height: 1.6; }
+      .foot { color: #94a3b8; font-size: 12px; margin-top: 16px; }
+      @media print { .noprint { display: none; } }
+      .noprint { position: sticky; top: 0; background: #f1f5f9; padding: 10px; text-align: center; }
+      .noprint button { font-size: 16px; padding: 8px 24px; cursor: pointer; }
+    </style></head><body>
+    <div class="noprint"><button onclick="window.print()">הדפסה / שמירה כ-PDF</button></div>
+    ${pages}
+    </body></html>`);
+  win.document.close();
+}
 
 const MONTHS_HE = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const monthLabel = (m: string) => `${MONTHS_HE[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
@@ -377,6 +446,8 @@ function AdminView() {
             </table>
           </div>
 
+          <StudentReportPicker evaluations={data.evaluations} month={data.month!} />
+
           <div className="card space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-bold text-navy">ההערכות ({evals.length})</span>
@@ -408,6 +479,64 @@ function AdminView() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/** בחירת תלמידה והפקת דוח עם כל ההערכות עליה (או דוחות לכל התלמידות / למסלול) */
+function StudentReportPicker({ evaluations, month }: { evaluations: Evaluation[]; month: string }) {
+  const [q, setQ] = useState('');
+  const [track, setTrack] = useState('');
+  const students = useMemo(() => {
+    const m = new Map<string, { id: string; name: string; tracks: Set<string>; count: number }>();
+    for (const e of evaluations) {
+      const cur = m.get(e.studentId) || { id: e.studentId, name: e.studentName, tracks: new Set<string>(), count: 0 };
+      e.tracks.split(', ').filter(Boolean).forEach((t) => cur.tracks.add(t));
+      cur.count++;
+      m.set(e.studentId, cur);
+    }
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'he'));
+  }, [evaluations]);
+  const tracks = useMemo(() => [...new Set(students.flatMap((s) => [...s.tracks]))].sort((a, b) => a.localeCompare(b, 'he')), [students]);
+  const shown = students.filter((s) => (!track || s.tracks.has(track)) && (!q.trim() || s.name.includes(q.trim())));
+  if (!students.length) return null;
+  return (
+    <div className="card space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-bold text-navy">דוח לתלמידה</span>
+        <span className="text-sm text-slate-500">כל ההערכות שנכתבו על התלמידה, להדפסה או לשמירה כ-PDF</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input className="input pr-9 py-1.5 w-56" placeholder="חיפוש תלמידה" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <select className="input w-auto py-1.5" value={track} onChange={(e) => setTrack(e.target.value)}>
+          <option value="">כל המסלולים</option>
+          {tracks.map((t) => (
+            <option key={t}>{t}</option>
+          ))}
+        </select>
+        <button
+          className="btn-outline text-sm py-1.5 mr-auto"
+          disabled={!shown.length}
+          onClick={() => printStudentReports(evaluations, shown.map((s) => s.id), month)}
+        >
+          הדפסת דוחות לכל {shown.length} התלמידות {track || q ? 'שמוצגות' : ''}
+        </button>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-72 overflow-y-auto">
+        {shown.map((s) => (
+          <button
+            key={s.id}
+            className="flex items-center justify-between rounded-lg border px-3 py-1.5 text-sm text-right hover:bg-slate-50"
+            onClick={() => printStudentReports(evaluations, [s.id], month)}
+          >
+            <span className="font-medium text-navy">{s.name}</span>
+            <span className="text-xs text-slate-500">{s.count} הערכות ←</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
