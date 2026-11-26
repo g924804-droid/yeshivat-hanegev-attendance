@@ -230,9 +230,9 @@ function AppRoutes() {
               <Route
                 path="/student-files/:id?"
                 element={
-                  <PermissionGuard permission="payments">
+                  <StudentFilesGuard>
                     <StudentFilesPage />
-                  </PermissionGuard>
+                  </StudentFilesGuard>
                 }
               />
               <Route
@@ -270,4 +270,13 @@ export default function App() {
       </AuthProvider>
     </ErrorBoundary>
   );
+}
+
+/** תיק תלמידה — מי שיש לה גישה לתשלומים, או שסומנה "גישה לתיק תלמידה" (כמו בשרת) */
+function StudentFilesGuard({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingProgress />;
+  if (!user) return <Navigate to="/" replace />;
+  if (user.role === 'מנהל' || user.permissions.system || user.permissions.payments || user.studentFilesAccess) return <>{children}</>;
+  return <Navigate to="/" replace />;
 }

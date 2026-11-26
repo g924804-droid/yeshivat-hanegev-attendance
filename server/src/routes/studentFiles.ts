@@ -13,7 +13,7 @@ import {
 } from '../lib/airtable';
 import { FIELDS } from '../lib/airtableFields';
 import { prisma } from '../lib/prisma';
-import { requireAuth, requirePermission } from '../middleware/auth';
+import { requireAuth, requireStudentFilesAccess } from '../middleware/auth';
 import { sheetRows, parseCsv } from './expenses';
 import { isGivenName } from '../lib/givenNames';
 
@@ -24,7 +24,7 @@ import { isGivenName } from '../lib/givenNames';
  */
 const router = Router();
 router.use(requireAuth);
-router.use(requirePermission('payments'));
+router.use(requireStudentFilesAccess);
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 

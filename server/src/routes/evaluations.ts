@@ -153,6 +153,7 @@ async function adminData(month: string) {
       return {
         id: e.id,
         teacherName: e.teacherName,
+        studentId: e.studentId,
         studentName: e.studentName,
         lessons: [...new Set(ls.map((g) => g.subject))].join(', '),
         tracks: [...new Set(ls.map((g) => g.trackName).filter(Boolean))].join(', '),
@@ -198,6 +199,38 @@ router.get('/admin/excel', async (req, res) => {
       ws.views = [{ rightToLeft: true, state: 'frozen', ySplit: 1 }];
       ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columnCount } };
     };
+
+    // גיליון ראשי — שורה לכל תלמידה, ועמודה לכל מורה עם ההערכה שלה (בקשת המשתמשת)
+    const teacherNames = [...new Set(evaluations.map((e) => e.teacherName))].sort((a, b) => a.localeCompare(b, 'he'));
+    const byStudent = new Map<string, { name: string; tracks: Set<string>; texts: Map<string, string> }>();
+    for (const e of evaluations) {
+      const cur = byStudent.get(e.studentId) || { name: e.studentName, tracks: new Set<string>(), texts: new Map<string, string>() };
+      e.tracks.split(', ').filter(Boolean).forEach((t) => cur.tracks.add(t));
+      cur.texts.set(e.teacherName, e.lessons ? `(${e.lessons}) ${e.text}` : e.text);
+      byStudent.set(e.studentId, cur);
+    }
+    const ps = wb.addWorksheet('לפי תלמידה');
+    ps.columns = [
+      { header: 'תלמידה', key: 'student', width: 22 },
+      { header: 'מסלול', key: 'tracks', width: 20 },
+      { header: 'מספר הערכות', key: 'count', width: 12 },
+      ...teacherNames.map((t, i) => ({ header: t, key: `t${i}`, width: 45 })),
+    ];
+    const students = [...byStudent.values()].sort(
+      (a, b) => [...a.tracks].join().localeCompare([...b.tracks].join(), 'he') || a.name.localeCompare(b.name, 'he')
+    );
+    for (const s of students) {
+      const row = ps.addRow({
+        student: s.name,
+        tracks: [...s.tracks].join(', '),
+        count: s.texts.size,
+        ...Object.fromEntries(teacherNames.map((t, i) => [`t${i}`, s.texts.get(t) || ''])),
+      });
+      row.alignment = { vertical: 'top', wrapText: true };
+      row.getCell('student').font = { bold: true };
+    }
+    header(ps);
+    ps.views = [{ rightToLeft: true, state: 'frozen', ySplit: 1, xSplit: 1 }];
 
     const ev = wb.addWorksheet('הערכות');
     ev.columns = [

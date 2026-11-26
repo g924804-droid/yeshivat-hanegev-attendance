@@ -92,7 +92,7 @@ export function Home() {
       to: '/student-files',
       icon: FolderSearch,
       label: 'תיק תלמידה',
-      show: user.permissions.payments,
+      show: user.permissions.payments || !!user.studentFilesAccess,
     },
     {
       to: '/schedule',

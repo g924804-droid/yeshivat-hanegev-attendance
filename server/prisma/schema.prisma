@@ -43,6 +43,8 @@ model User {
   canManageAllStudentTracks Boolean @default(false)
   // גישה ל"תמונת מצב נוכחות תלמידות" ולמייל השבועי שלה — רק למי שסומנה (גם מנהלת לא מקבלת אוטומטית)
   attendanceSnapshotAccess Boolean @default(false)
+  // גישה ל"תיק תלמידה" בלי הרשאת תשלומים (למשל חני קוזניץ). מי שיש לה גישה לתשלומים — רואה גם בלי זה
+  studentFilesAccess Boolean @default(false)
   noMonthlyReminder   Boolean  @default(false) // לא לשלוח לה את מייל התזכורת החודשית
   // פרטי חשבון להעברה — חובה למי שמגישה קבלה; נשמרים לחודשים הבאים והיא יכולה לעדכן בכל רגע.
   // חשבת השכר רואה אותם במסך הניהול (קבלות ודוחות).

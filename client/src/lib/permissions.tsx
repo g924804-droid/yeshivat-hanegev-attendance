@@ -24,6 +24,7 @@ export type CurrentUser = {
   trackLessons: boolean;
   canManageAllStudentTracks: boolean;
   attendanceSnapshotAccess?: boolean;
+  studentFilesAccess?: boolean;
 };
 
 type AuthContextValue = {

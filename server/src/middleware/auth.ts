@@ -51,6 +51,13 @@ export function requireAdminOrAttendanceManager(req: Request, res: Response, nex
   next();
 }
 
+/** תיק תלמידה — מנהלת, מי שיש לה גישה לתשלומים, או מי שסומנה "גישה לתיק תלמידה" בהגדרות העובדת */
+export function requireStudentFilesAccess(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) return res.status(401).json({ error: 'לא מחובר' });
+  if (req.user.role === 'מנהל' || req.user.permissions.payments || req.user.studentFilesAccess) return next();
+  return res.status(403).json({ error: 'אין הרשאה לתיק תלמידה' });
+}
+
 /** תמונת מצב נוכחות תלמידות — רק מי שסומנה במפורש (attendanceSnapshotAccess), בלי מעקף למנהלות */
 export function requireSnapshotAccess(req: Request, res: Response, next: NextFunction) {
   if (!req.user) return res.status(401).json({ error: 'לא מחובר' });

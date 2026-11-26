@@ -107,6 +107,7 @@ type Employee = {
   canManageAllStudentTracks: boolean;
   noMonthlyReminder: boolean;
   attendanceSnapshotAccess?: boolean;
+  studentFilesAccess?: boolean;
 };
 
 type ReceiptRow = {
@@ -1096,6 +1097,7 @@ function EditEmployeeModal({
     canManageAllStudentTracks: employee.canManageAllStudentTracks,
     noMonthlyReminder: employee.noMonthlyReminder,
     attendanceSnapshotAccess: !!employee.attendanceSnapshotAccess,
+    studentFilesAccess: !!employee.studentFilesAccess,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1260,6 +1262,14 @@ function EditEmployeeModal({
             onChange={(e) => setField('attendanceSnapshotAccess', e.target.checked)}
           />
           גישה ל"תמונת מצב נוכחות" — כמה כל מורה מילאה נוכחות תלמידות וכמה חסר, והמייל השבועי
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+          <input
+            type="checkbox"
+            checked={form.studentFilesAccess}
+            onChange={(e) => setField('studentFilesAccess', e.target.checked)}
+          />
+          גישה ל"תיק תלמידה" (בלי גישה לתשלומים)
         </label>
         <label className="flex items-center gap-2 text-sm cursor-pointer bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           <input
